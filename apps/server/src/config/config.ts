@@ -9,6 +9,7 @@ const configSchema = z.object({
   SUPABASE_URL: z.string().url().optional(),
   SUPABASE_SERVICE_KEY: z.string().optional(),
   SUPABASE_ANON_KEY: z.string().optional(),
+  DATABASE_URL: z.string().optional(),
 
   OPENROUTER_API_KEY: z.string().optional(),
   OPENROUTER_MODEL: z.string().default('anthropic/claude-sonnet-4'),
