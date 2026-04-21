@@ -1,7 +1,7 @@
 export const Colors = {
   black: '#000000',
-  white: '#FFFFFF',
-  skyBlue: '#0EA5E9',
+  white: '#EDEDED',
+  accent: '#0EA5E9',
 
   gray50: '#F8FAFC',
   gray100: '#F1F5F9',
@@ -14,7 +14,7 @@ export const Colors = {
   gray800: '#1E293B',
   gray900: '#0F172A',
 
-  success: '#10B981',
+  success: '#22C55E',
   warning: '#F59E0B',
   error: '#EF4444',
   info: '#0EA5E9',

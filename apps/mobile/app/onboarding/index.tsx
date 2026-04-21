@@ -36,7 +36,7 @@ const styles = StyleSheet.create({
   },
   logo: {
     ...TextStyles.h1,
-    color: Colors.skyBlue,
+    color: Colors.accent,
   },
   tagline: {
     ...TextStyles.h3,
@@ -44,7 +44,7 @@ const styles = StyleSheet.create({
     lineHeight: 36,
   },
   button: {
-    backgroundColor: Colors.skyBlue,
+    backgroundColor: Colors.accent,
     paddingVertical: Spacing.md,
     paddingHorizontal: Spacing.xl,
     borderRadius: BorderRadius.md,

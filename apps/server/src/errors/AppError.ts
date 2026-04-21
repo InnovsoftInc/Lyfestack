@@ -22,6 +22,8 @@ export class AuthenticationError extends AppError {
   }
 }
 
+export { AuthenticationError as AuthError };
+
 export class AuthorizationError extends AppError {
   constructor(message = 'Forbidden', code = 'FORBIDDEN') {
     super(message, 403, code);

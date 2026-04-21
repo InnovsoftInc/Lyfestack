@@ -4,6 +4,7 @@ export type { Goal, GoalTemplate, GoalMilestone } from './types/goal';
 export type { Task } from './types/task';
 export type { DailyBrief } from './types/brief';
 export type { AgentAction } from './types/agent';
+export type { Plan } from './types/plan';
 
 // Enums
 export { GoalStatus } from './enums/goal.enums';
