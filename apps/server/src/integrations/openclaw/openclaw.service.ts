@@ -1,93 +1,155 @@
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
-import * as fs from 'fs/promises';
-import * as path from 'path';
 import { logger } from '../../utils/logger';
+import { config } from '../../config/config';
 
-const execAsync = promisify(exec);
-const OPENCLAW_CONFIG = path.join(process.env.HOME ?? '', '.openclaw');
+const execFileAsync = promisify(execFile);
 
-export interface OpenClawAgent {
-  name: string;
-  role: string;
-  model: string;
-  systemPrompt?: string;
-  tools: string[];
-  status: 'active' | 'idle' | 'offline';
+interface ContentPart {
+  type: string;
+  text?: string;
 }
 
-export class OpenClawService {
-  async listAgents(): Promise<OpenClawAgent[]> {
-    try {
-      const agentsDir = path.join(OPENCLAW_CONFIG, 'agents');
-      const entries = await fs.readdir(agentsDir, { withFileTypes: true });
-      const agents: OpenClawAgent[] = [];
+interface SessionMessage {
+  role: 'user' | 'assistant';
+  content: ContentPart[] | string | null;
+  timestamp?: number;
+  stopReason?: string;
+  errorMessage?: string;
+}
 
-      for (const entry of entries) {
-        if (\!entry.isDirectory()) continue;
-        try {
-          const configPath = path.join(agentsDir, entry.name, 'agent', 'config.json');
-          const raw = await fs.readFile(configPath, 'utf-8').catch(() => '{}');
-          const config = JSON.parse(raw);
-          agents.push({
-            name: entry.name,
-            role: config.role ?? entry.name,
-            model: config.model?.primary ?? 'openrouter/auto',
-            systemPrompt: config.systemPrompt,
-            tools: config.tools ?? [],
-            status: 'idle',
-          });
-        } catch {
-          agents.push({ name: entry.name, role: entry.name, model: 'unknown', tools: [], status: 'offline' });
+export interface OpenClawAgent {
+  id: string;
+  name?: string;
+  model: { primary: string; fallbacks: string[] };
+  workspace: string;
+}
+
+export interface OpenClawSession {
+  key: string;
+  sessionId: string;
+  displayName?: string;
+  status: string;
+  updatedAt: number;
+  totalTokens?: number;
+  estimatedCostUsd?: number;
+  model?: string;
+  lastChannel?: string;
+}
+
+function extractText(content: ContentPart[] | string | null): string {
+  if (!content) return '';
+  if (typeof content === 'string') return content;
+  return content
+    .filter((c) => c.type === 'text' && c.text)
+    .map((c) => c.text!)
+    .join('');
+}
+
+const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+export class OpenClawService {
+  private async callGateway<T = unknown>(
+    method: string,
+    params: Record<string, unknown> = {},
+    timeoutMs = 30000,
+  ): Promise<T> {
+    const args = [
+      'gateway', 'call', '--json',
+      '--timeout', String(timeoutMs),
+      method,
+      '--params', JSON.stringify(params),
+    ];
+    if (config.OPENCLAW_GATEWAY_URL) args.push('--url', config.OPENCLAW_GATEWAY_URL);
+    if (config.OPENCLAW_GATEWAY_TOKEN) args.push('--token', config.OPENCLAW_GATEWAY_TOKEN);
+
+    try {
+      const { stdout } = await execFileAsync('openclaw', args, { timeout: timeoutMs + 5000 });
+      return JSON.parse(stdout.trim()) as T;
+    } catch (err: any) {
+      logger.error({ method, params, err: err.message }, 'Gateway call failed');
+      throw new Error(`Gateway ${method} failed: ${err.message}`);
+    }
+  }
+
+  async listAgents(): Promise<OpenClawAgent[]> {
+    const result = await this.callGateway<{ agents: OpenClawAgent[] }>('agents.list');
+    return result.agents ?? [];
+  }
+
+  async sendMessage(agentId: string, message: string): Promise<string> {
+    const sendTime = Date.now();
+
+    const created = await this.callGateway<{ key: string; sessionId: string; ok: boolean }>(
+      'sessions.create',
+      { agentId, label: `lyfestack-${sendTime}` },
+    );
+    const sessionKey = created.key;
+
+    await this.callGateway('sessions.send', { key: sessionKey, body: message });
+
+    // Poll sessions.get until an assistant reply appears after sendTime
+    const deadline = sendTime + 120_000;
+    while (Date.now() < deadline) {
+      await delay(2000);
+      const data = await this.callGateway<{ messages?: SessionMessage[] }>(
+        'sessions.get',
+        { key: sessionKey },
+      );
+      const messages = data.messages ?? [];
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i]!;
+        if (msg.role === 'assistant' && (msg.timestamp ?? 0) >= sendTime) {
+          const text = extractText(msg.content as ContentPart[]);
+          return text || '(no response)';
         }
       }
-      return agents;
-    } catch (err) {
-      logger.error({ err }, 'Failed to list OpenClaw agents');
-      return [];
     }
+
+    return '(timeout: no response received)';
   }
 
-  async sendMessage(agentName: string, message: string): Promise<string> {
-    try {
-      const { stdout } = await execAsync(
-        `openclaw agent --agent ${agentName} -m "${message.replace(/"/g, '\\"')}"`,
-        { timeout: 120000 }
-      );
-      return stdout.trim();
-    } catch (err: any) {
-      logger.error({ agent: agentName, err: err.message }, 'OpenClaw message failed');
-      throw new Error(`Agent ${agentName} failed: ${err.message}`);
-    }
-  }
-
-  async createAgent(config: { name: string; role: string; model: string; systemPrompt: string }): Promise<void> {
-    const agentDir = path.join(OPENCLAW_CONFIG, 'agents', config.name, 'agent');
-    await fs.mkdir(agentDir, { recursive: true });
-    
-    const agentConfig = {
-      role: config.role,
-      model: { primary: config.model, fallbacks: [] },
-      systemPrompt: config.systemPrompt,
-      tools: [],
-    };
-    
-    await fs.writeFile(path.join(agentDir, 'config.json'), JSON.stringify(agentConfig, null, 2));
-    logger.info({ agent: config.name }, 'OpenClaw agent created');
+  async createAgent(agentConfig: { name: string; model?: string }): Promise<void> {
+    await this.callGateway('agents.create', { id: agentConfig.name });
+    logger.info({ agent: agentConfig.name }, 'OpenClaw agent created via gateway');
   }
 
   async deleteAgent(name: string): Promise<void> {
-    const agentDir = path.join(OPENCLAW_CONFIG, 'agents', name);
-    await fs.rm(agentDir, { recursive: true, force: true });
-    logger.info({ agent: name }, 'OpenClaw agent deleted');
+    await this.callGateway('agents.delete', { id: name });
+    logger.info({ agent: name }, 'OpenClaw agent deleted via gateway');
   }
 
-  async getStatus(): Promise<{ running: boolean; agentCount: number }> {
-    try {
-      const agents = await this.listAgents();
-      return { running: true, agentCount: agents.length };
-    } catch {
-      return { running: false, agentCount: 0 };
-    }
+  async getStatus(): Promise<{ running: boolean; agentCount: number; version: string }> {
+    const [statusResult, agents] = await Promise.all([
+      this.callGateway<{ runtimeVersion?: string }>('status'),
+      this.listAgents(),
+    ]);
+    return {
+      running: true,
+      agentCount: agents.length,
+      version: statusResult.runtimeVersion ?? 'unknown',
+    };
+  }
+
+  async listSessions(limit = 20): Promise<OpenClawSession[]> {
+    const result = await this.callGateway<{ sessions: OpenClawSession[] }>(
+      'sessions.list',
+      { limit },
+    );
+    return result.sessions ?? [];
+  }
+
+  async getSession(key: string): Promise<{ messages: SessionMessage[] } & Record<string, unknown>> {
+    return this.callGateway('sessions.get', { key });
+  }
+
+  async createSession(
+    agentId: string,
+    label?: string,
+  ): Promise<{ key: string; sessionId: string; ok: boolean }> {
+    return this.callGateway('sessions.create', {
+      agentId,
+      label: label ?? `lyfestack-${Date.now()}`,
+    });
   }
 }

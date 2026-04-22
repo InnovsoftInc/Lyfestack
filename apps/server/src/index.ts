@@ -18,6 +18,7 @@ import { executeAgent, getAvailableAgents } from './agents/agent.controller';
 import { createUsersRouter } from './routes/users.routes';
 import { createIntegrationsRouter } from './routes/integrations.routes';
 import { startCronJobs } from './jobs/cron';
+import { openclawRoutes } from './integrations/openclaw/openclaw.routes';
 
 const app = express();
 
@@ -52,6 +53,9 @@ app.use('/users', createUsersRouter());
 
 // Phase 5 — Integrations (Calendar, Buffer)
 app.use('/integrations', createIntegrationsRouter());
+
+// OpenClaw Gateway bridge
+app.use('/api/openclaw', openclawRoutes);
 
 app.use(errorMiddleware);
 

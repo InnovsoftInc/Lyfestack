@@ -2,12 +2,21 @@ import { create } from 'zustand';
 import { openclawApi } from '../services/openclaw.api';
 
 interface Agent {
-  name: string;
-  role: string;
-  model: string;
-  systemPrompt?: string;
-  tools: string[];
-  status: 'active' | 'idle' | 'offline';
+  id: string;
+  name?: string;
+  model: { primary: string; fallbacks: string[] };
+  workspace: string;
+}
+
+interface Session {
+  key: string;
+  sessionId: string;
+  displayName?: string;
+  status: string;
+  updatedAt: number;
+  totalTokens?: number;
+  estimatedCostUsd?: number;
+  model?: string;
 }
 
 interface ChatMessage {
@@ -20,19 +29,24 @@ interface ChatMessage {
 interface OpenClawStore {
   connectionStatus: 'disconnected' | 'connecting' | 'connected';
   agents: Agent[];
-  activeChat: { agentName: string; messages: ChatMessage[] } | null;
+  sessions: Session[];
+  activeChat: { agentId: string; messages: ChatMessage[] } | null;
+
   connect: () => Promise<void>;
   fetchAgents: () => Promise<void>;
-  createAgent: (config: { name: string; role: string; model: string; systemPrompt: string }) => Promise<void>;
+  fetchSessions: () => Promise<void>;
+  createAgent: (config: { name: string; model?: string }) => Promise<void>;
   deleteAgent: (name: string) => Promise<void>;
-  sendMessage: (agentName: string, message: string) => Promise<void>;
-  openChat: (agentName: string) => void;
+  sendMessage: (agentId: string, message: string) => Promise<void>;
+  createSession: (agentId: string, label?: string) => Promise<{ key: string; sessionId: string }>;
+  openChat: (agentId: string) => void;
   closeChat: () => void;
 }
 
 export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
   connectionStatus: 'disconnected',
   agents: [],
+  sessions: [],
   activeChat: null,
 
   connect: async () => {
@@ -40,7 +54,9 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
     try {
       const res = await openclawApi.getStatus();
       set({ connectionStatus: res.data.running ? 'connected' : 'disconnected' });
-      if (res.data.running) await get().fetchAgents();
+      if (res.data.running) {
+        await Promise.all([get().fetchAgents(), get().fetchSessions()]);
+      }
     } catch {
       set({ connectionStatus: 'disconnected' });
     }
@@ -53,6 +69,13 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
     } catch { /* silent */ }
   },
 
+  fetchSessions: async () => {
+    try {
+      const res = await openclawApi.listSessions();
+      set({ sessions: res.data });
+    } catch { /* silent */ }
+  },
+
   createAgent: async (config) => {
     await openclawApi.createAgent(config);
     await get().fetchAgents();
@@ -60,28 +83,55 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
 
   deleteAgent: async (name) => {
     await openclawApi.deleteAgent(name);
-    set((s) => ({ agents: s.agents.filter((a) => a.name \!== name) }));
+    set((s) => ({ agents: s.agents.filter((a) => a.id !== name && a.name !== name) }));
   },
 
-  sendMessage: async (agentName, message) => {
-    const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', content: message, timestamp: new Date().toISOString() };
+  sendMessage: async (agentId, message) => {
+    const userMsg: ChatMessage = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: message,
+      timestamp: new Date().toISOString(),
+    };
     set((s) => ({
-      activeChat: s.activeChat ? { ...s.activeChat, messages: [...s.activeChat.messages, userMsg] } : { agentName, messages: [userMsg] },
+      activeChat: s.activeChat
+        ? { ...s.activeChat, messages: [...s.activeChat.messages, userMsg] }
+        : { agentId, messages: [userMsg] },
     }));
     try {
-      const res = await openclawApi.sendMessage(agentName, message);
-      const agentMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'agent', content: res.data.response, timestamp: new Date().toISOString() };
+      const res = await openclawApi.sendMessage(agentId, message);
+      const agentMsg: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        role: 'agent',
+        content: res.data.response,
+        timestamp: new Date().toISOString(),
+      };
       set((s) => ({
-        activeChat: s.activeChat ? { ...s.activeChat, messages: [...s.activeChat.messages, agentMsg] } : null,
+        activeChat: s.activeChat
+          ? { ...s.activeChat, messages: [...s.activeChat.messages, agentMsg] }
+          : null,
       }));
     } catch (err: any) {
-      const errMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'agent', content: `Error: ${err.message}`, timestamp: new Date().toISOString() };
+      const errMsg: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        role: 'agent',
+        content: `Error: ${err.message}`,
+        timestamp: new Date().toISOString(),
+      };
       set((s) => ({
-        activeChat: s.activeChat ? { ...s.activeChat, messages: [...s.activeChat.messages, errMsg] } : null,
+        activeChat: s.activeChat
+          ? { ...s.activeChat, messages: [...s.activeChat.messages, errMsg] }
+          : null,
       }));
     }
   },
 
-  openChat: (agentName) => set({ activeChat: { agentName, messages: [] } }),
+  createSession: async (agentId, label) => {
+    const res = await openclawApi.createSession(agentId, label);
+    await get().fetchSessions();
+    return res.data;
+  },
+
+  openChat: (agentId) => set({ activeChat: { agentId, messages: [] } }),
   closeChat: () => set({ activeChat: null }),
 }));

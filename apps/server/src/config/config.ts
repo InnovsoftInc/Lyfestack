@@ -24,6 +24,9 @@ const configSchema = z.object({
   APP_BASE_URL: z.string().default('http://localhost:3000'),
 
   SENTRY_DSN: z.string().optional(),
+
+  OPENCLAW_GATEWAY_URL: z.string().url().optional(),
+  OPENCLAW_GATEWAY_TOKEN: z.string().optional(),
 });
 
 const result = configSchema.safeParse(process.env);
