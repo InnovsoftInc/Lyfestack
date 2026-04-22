@@ -7,7 +7,9 @@ interface AuthState {
   isAuthenticated: boolean;
   authToken: string | null;
   isLoading: boolean;
+  isRestoring: boolean;
   error: string | null;
+  confirmationPending: boolean;
   signup: (email: string, password: string, name?: string) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -20,12 +22,18 @@ export const useAuthStore = create<AuthState>((set) => ({
   isAuthenticated: false,
   authToken: null,
   isLoading: false,
+  isRestoring: true,
   error: null,
+  confirmationPending: false,
 
   signup: async (email, password, name) => {
-    set({ isLoading: true, error: null });
+    set({ isLoading: true, error: null, confirmationPending: false });
     try {
       const result = await authApi.signup(email, password, name);
+      if ('confirmationRequired' in result) {
+        set({ isLoading: false, confirmationPending: true });
+        return;
+      }
       await setAuthToken(result.token);
       set({ user: result.user, isAuthenticated: true, authToken: result.token, isLoading: false });
     } catch (err: any) {
@@ -57,14 +65,17 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   restoreSession: async () => {
-    const token = await getAuthToken();
-    if (!token) return;
     try {
+      const token = await getAuthToken();
+      if (!token) {
+        set({ isRestoring: false });
+        return;
+      }
       const user = await authApi.me();
-      set({ user, isAuthenticated: true, authToken: token });
+      set({ user, isAuthenticated: true, authToken: token, isRestoring: false });
     } catch {
       await setAuthToken(null);
-      set({ user: null, isAuthenticated: false, authToken: null });
+      set({ user: null, isAuthenticated: false, authToken: null, isRestoring: false });
     }
   },
 

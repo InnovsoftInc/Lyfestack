@@ -5,12 +5,13 @@ import { useAuthStore } from '../../stores/auth.store';
 
 export default function AuthLayout() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const isRestoring = useAuthStore((s) => s.isRestoring);
 
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (!isRestoring && !isAuthenticated) {
       router.replace('/onboarding');
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, isRestoring]);
 
   return <Stack screenOptions={{ headerShown: false }} />;
 }

@@ -34,12 +34,12 @@ export interface TaskStatusUpdate {
 }
 
 export async function getTodayBrief(): Promise<DailyBrief> {
-  const res = await request<{ brief: DailyBrief }>('/api/briefs/today');
+  const res = await request<{ brief: DailyBrief }>('/briefs/today');
   return res.brief;
 }
 
 export async function updateTaskStatus(taskId: string, update: TaskStatusUpdate): Promise<BriefTask> {
-  const res = await request<{ task: BriefTask }>(`/api/briefs/tasks/${taskId}`, {
+  const res = await request<{ task: BriefTask }>(`/briefs/tasks/${taskId}`, {
     method: 'PATCH',
     body: update,
   });
