@@ -10,12 +10,141 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
-import { DarkTheme } from '../../theme/colors';
+import { useTheme } from '../../hooks/useTheme';
+import type { Theme } from '../../theme/colors';
 import { TextStyles, Spacing, BorderRadius } from '../../theme';
 import { Colors } from '@lyfestack/shared';
 import { getTemplateById } from '../../services/templates.api';
 import type { TemplateDefinition, DiagnosticQuestion } from '../../services/templates.api';
 import type { DiagnosticAnswer } from '../../services/goals.api';
+
+function makeStyles(theme: Theme) {
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: theme.background,
+    },
+    center: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    scroll: {
+      padding: Spacing.lg,
+      paddingBottom: Spacing['2xl'],
+    },
+    header: {
+      marginBottom: Spacing.lg,
+    },
+    backText: {
+      ...TextStyles.body,
+      color: Colors.accent,
+      marginBottom: Spacing.md,
+    },
+    title: {
+      ...TextStyles.h2,
+      color: theme.text.primary,
+      marginBottom: Spacing.xs,
+    },
+    subtitle: {
+      ...TextStyles.body,
+      color: theme.text.secondary,
+    },
+    section: {
+      marginBottom: Spacing.lg,
+    },
+    sectionLabel: {
+      ...TextStyles.bodyMedium,
+      color: theme.text.primary,
+      marginBottom: Spacing.sm,
+    },
+    questionBlock: {
+      marginBottom: Spacing.lg,
+    },
+    questionText: {
+      ...TextStyles.bodyMedium,
+      color: theme.text.primary,
+      marginBottom: Spacing.sm,
+    },
+    optionsRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: Spacing.sm,
+    },
+    optionChip: {
+      paddingVertical: Spacing.sm,
+      paddingHorizontal: Spacing.md,
+      borderRadius: BorderRadius.full,
+      borderWidth: 1,
+      borderColor: theme.border,
+      backgroundColor: theme.surface,
+    },
+    optionChipSelected: {
+      backgroundColor: Colors.accent,
+      borderColor: Colors.accent,
+    },
+    optionText: {
+      ...TextStyles.small,
+      color: theme.text.secondary,
+    },
+    optionTextSelected: {
+      color: Colors.white,
+      fontWeight: '600',
+    },
+    scaleRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: Spacing.xs,
+    },
+    scaleChip: {
+      width: 36,
+      height: 36,
+      borderRadius: BorderRadius.sm,
+      borderWidth: 1,
+      borderColor: theme.border,
+      backgroundColor: theme.surface,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    scaleLabels: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginTop: Spacing.xs,
+    },
+    scaleLabelText: {
+      ...TextStyles.caption,
+      color: theme.text.secondary,
+    },
+    textInput: {
+      ...TextStyles.body,
+      color: theme.text.primary,
+      backgroundColor: theme.surface,
+      borderRadius: BorderRadius.md,
+      borderWidth: 1,
+      borderColor: theme.border,
+      padding: Spacing.md,
+    },
+    errorText: {
+      ...TextStyles.small,
+      color: theme.error,
+      marginBottom: Spacing.md,
+    },
+    submitButton: {
+      backgroundColor: Colors.accent,
+      borderRadius: BorderRadius.md,
+      paddingVertical: Spacing.md,
+      alignItems: 'center',
+      marginTop: Spacing.lg,
+    },
+    submitButtonDisabled: {
+      opacity: 0.6,
+    },
+    submitText: {
+      ...TextStyles.button,
+      color: Colors.white,
+    },
+  });
+}
 
 export default function DiagnosticScreen() {
   const { templateId, templateName } = useLocalSearchParams<{
@@ -29,6 +158,8 @@ export default function DiagnosticScreen() {
   const [goalTitle, setGoalTitle] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const theme = useTheme();
+  const styles = makeStyles(theme);
 
   useEffect(() => {
     if (!templateId) return;
@@ -162,7 +293,7 @@ export default function DiagnosticScreen() {
           style={styles.textInput}
           value={typeof answer === 'string' ? answer : ''}
           onChangeText={(v) => setAnswer(q.id, v)}
-          placeholderTextColor={DarkTheme.text.secondary}
+          placeholderTextColor={theme.text.secondary}
           placeholder="Your answer..."
         />
       </View>
@@ -198,7 +329,7 @@ export default function DiagnosticScreen() {
             value={goalTitle}
             onChangeText={setGoalTitle}
             placeholder="e.g. Run a 5K in 8 weeks"
-            placeholderTextColor={DarkTheme.text.secondary}
+            placeholderTextColor={theme.text.secondary}
           />
         </View>
 
@@ -222,129 +353,3 @@ export default function DiagnosticScreen() {
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: DarkTheme.background,
-  },
-  center: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  scroll: {
-    padding: Spacing.lg,
-    paddingBottom: Spacing['2xl'],
-  },
-  header: {
-    marginBottom: Spacing.lg,
-  },
-  backText: {
-    ...TextStyles.body,
-    color: Colors.accent,
-    marginBottom: Spacing.md,
-  },
-  title: {
-    ...TextStyles.h2,
-    color: DarkTheme.text.primary,
-    marginBottom: Spacing.xs,
-  },
-  subtitle: {
-    ...TextStyles.body,
-    color: DarkTheme.text.secondary,
-  },
-  section: {
-    marginBottom: Spacing.lg,
-  },
-  sectionLabel: {
-    ...TextStyles.bodyMedium,
-    color: DarkTheme.text.primary,
-    marginBottom: Spacing.sm,
-  },
-  questionBlock: {
-    marginBottom: Spacing.lg,
-  },
-  questionText: {
-    ...TextStyles.bodyMedium,
-    color: DarkTheme.text.primary,
-    marginBottom: Spacing.sm,
-  },
-  optionsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.sm,
-  },
-  optionChip: {
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.md,
-    borderRadius: BorderRadius.full,
-    borderWidth: 1,
-    borderColor: DarkTheme.border,
-    backgroundColor: DarkTheme.surface,
-  },
-  optionChipSelected: {
-    backgroundColor: Colors.accent,
-    borderColor: Colors.accent,
-  },
-  optionText: {
-    ...TextStyles.small,
-    color: DarkTheme.text.secondary,
-  },
-  optionTextSelected: {
-    color: Colors.white,
-    fontWeight: '600',
-  },
-  scaleRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.xs,
-  },
-  scaleChip: {
-    width: 36,
-    height: 36,
-    borderRadius: BorderRadius.sm,
-    borderWidth: 1,
-    borderColor: DarkTheme.border,
-    backgroundColor: DarkTheme.surface,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  scaleLabels: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: Spacing.xs,
-  },
-  scaleLabelText: {
-    ...TextStyles.caption,
-    color: DarkTheme.text.secondary,
-  },
-  textInput: {
-    ...TextStyles.body,
-    color: DarkTheme.text.primary,
-    backgroundColor: DarkTheme.surface,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    borderColor: DarkTheme.border,
-    padding: Spacing.md,
-  },
-  errorText: {
-    ...TextStyles.small,
-    color: DarkTheme.error,
-    marginBottom: Spacing.md,
-  },
-  submitButton: {
-    backgroundColor: Colors.accent,
-    borderRadius: BorderRadius.md,
-    paddingVertical: Spacing.md,
-    alignItems: 'center',
-    marginTop: Spacing.lg,
-  },
-  submitButtonDisabled: {
-    opacity: 0.6,
-  },
-  submitText: {
-    ...TextStyles.button,
-    color: Colors.white,
-  },
-});

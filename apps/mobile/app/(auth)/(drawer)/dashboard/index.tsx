@@ -9,7 +9,8 @@ import {
   RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { DarkTheme } from '../../../../theme/colors';
+import { useTheme } from '../../../../hooks/useTheme';
+import type { Theme } from '../../../../theme/colors';
 import { TextStyles, Spacing, BorderRadius } from '../../../../theme';
 import { Colors } from '@lyfestack/shared';
 import { useBriefStore } from '../../../../stores/brief.store';
@@ -24,6 +25,199 @@ const TASK_TYPE_ICON: Record<string, string> = {
   CONTENT: '✍️',
 };
 
+function makeStyles(theme: Theme) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.background },
+    center: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      gap: Spacing.md,
+      padding: Spacing.lg,
+    },
+    loadingText: {
+      ...TextStyles.body,
+      color: theme.text.secondary,
+      lineHeight: 26,
+      backgroundColor: theme.surface,
+      borderRadius: BorderRadius.md,
+      padding: Spacing.md,
+      borderWidth: 1,
+      borderColor: theme.border,
+    },
+    list: {
+      paddingBottom: Spacing['2xl'],
+    },
+    header: {
+      padding: Spacing.lg,
+      paddingBottom: Spacing.md,
+    },
+    greeting: {
+      ...TextStyles.h2,
+      color: theme.text.primary,
+      marginBottom: Spacing.xs,
+    },
+    summary: {
+      ...TextStyles.body,
+      color: theme.text.secondary,
+      marginBottom: Spacing.md,
+    },
+    progressRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.sm,
+      marginBottom: Spacing.md,
+    },
+    progressBar: {
+      flex: 1,
+      height: 6,
+      backgroundColor: theme.surface,
+      borderRadius: BorderRadius.full,
+      overflow: 'hidden',
+    },
+    progressFill: {
+      height: '100%',
+      backgroundColor: Colors.accent,
+      borderRadius: BorderRadius.full,
+    },
+    progressLabel: {
+      ...TextStyles.caption,
+      color: theme.text.secondary,
+      minWidth: 60,
+      textAlign: 'right',
+    },
+    insightsBox: {
+      backgroundColor: theme.surface,
+      borderRadius: BorderRadius.md,
+      padding: Spacing.md,
+      marginBottom: Spacing.md,
+      gap: Spacing.xs,
+    },
+    insightText: {
+      ...TextStyles.small,
+      color: theme.text.secondary,
+      lineHeight: 20,
+    },
+    sectionLabel: {
+      ...TextStyles.bodyMedium,
+      color: theme.text.secondary,
+      marginTop: Spacing.sm,
+      marginBottom: Spacing.xs,
+      textTransform: 'uppercase',
+      letterSpacing: 0.8,
+    },
+    taskCard: {
+      marginHorizontal: Spacing.lg,
+      marginBottom: Spacing.sm,
+      backgroundColor: theme.surface,
+      borderRadius: BorderRadius.md,
+      padding: Spacing.md,
+      borderWidth: 1,
+      borderColor: theme.border,
+    },
+    taskCardDone: {
+      opacity: 0.5,
+    },
+    taskRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: Spacing.sm,
+    },
+    taskIcon: {
+      fontSize: 20,
+      marginTop: 2,
+      width: 28,
+    },
+    taskBody: {
+      flex: 1,
+    },
+    taskTitle: {
+      ...TextStyles.bodyMedium,
+      color: theme.text.primary,
+      marginBottom: 2,
+    },
+    taskTitleDone: {
+      textDecorationLine: 'line-through',
+      color: theme.text.secondary,
+    },
+    taskDesc: {
+      ...TextStyles.small,
+      color: theme.text.secondary,
+      marginBottom: Spacing.xs,
+    },
+    taskMeta: {
+      flexDirection: 'row',
+      gap: Spacing.xs,
+    },
+    metaChip: {
+      ...TextStyles.caption,
+      color: theme.text.secondary,
+      backgroundColor: theme.background,
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: BorderRadius.sm,
+    },
+    doneButton: {
+      backgroundColor: Colors.accent,
+      paddingVertical: 6,
+      paddingHorizontal: Spacing.sm,
+      borderRadius: BorderRadius.sm,
+      alignSelf: 'flex-start',
+    },
+    doneButtonText: {
+      ...TextStyles.caption,
+      color: Colors.white,
+      fontWeight: '600',
+    },
+    completedBadge: {
+      width: 28,
+      height: 28,
+      borderRadius: BorderRadius.full,
+      backgroundColor: theme.success,
+      justifyContent: 'center',
+      alignItems: 'center',
+      alignSelf: 'flex-start',
+    },
+    completedText: {
+      color: Colors.white,
+      fontWeight: '700',
+      fontSize: 14,
+    },
+    emptyTasks: {
+      alignItems: 'center',
+      padding: Spacing.xl,
+      gap: Spacing.sm,
+    },
+    emptyEmoji: {
+      fontSize: 40,
+    },
+    emptyTitle: {
+      ...TextStyles.h3,
+      color: theme.text.primary,
+    },
+    emptySubtitle: {
+      ...TextStyles.body,
+      color: theme.text.secondary,
+    },
+    retryButton: {
+      paddingVertical: Spacing.sm,
+      paddingHorizontal: Spacing.lg,
+      borderRadius: BorderRadius.md,
+      borderWidth: 1,
+      borderColor: theme.border,
+    },
+    retryText: {
+      ...TextStyles.button,
+      color: theme.text.secondary,
+    },
+    errorText: {
+      ...TextStyles.body,
+      color: theme.error,
+      textAlign: 'center',
+    },
+  });
+}
+
 function TaskCard({
   task,
   onComplete,
@@ -31,6 +225,8 @@ function TaskCard({
   task: BriefTask;
   onComplete: (id: string) => void;
 }) {
+  const theme = useTheme();
+  const styles = makeStyles(theme);
   const isComplete = task.status === 'COMPLETED' || task.completedAt != null;
 
   return (
@@ -74,6 +270,8 @@ function TaskCard({
 
 export default function DashboardScreen() {
   const { brief, isLoading, error, fetchTodayBrief, completeTask } = useBriefStore();
+  const theme = useTheme();
+  const styles = makeStyles(theme);
 
   useEffect(() => {
     void fetchTodayBrief();
@@ -185,194 +383,3 @@ export default function DashboardScreen() {
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: DarkTheme.background },
-  center: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: Spacing.md,
-    padding: Spacing.lg,
-  },
-  loadingText: {
-    ...TextStyles.body,
-    color: DarkTheme.text.secondary,
-    lineHeight: 26,
-    backgroundColor: DarkTheme.surface,
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-    borderWidth: 1,
-    borderColor: DarkTheme.border,
-  },
-  list: {
-    paddingBottom: Spacing['2xl'],
-  },
-  header: {
-    padding: Spacing.lg,
-    paddingBottom: Spacing.md,
-  },
-  greeting: {
-    ...TextStyles.h2,
-    color: DarkTheme.text.primary,
-    marginBottom: Spacing.xs,
-  },
-  summary: {
-    ...TextStyles.body,
-    color: DarkTheme.text.secondary,
-    marginBottom: Spacing.md,
-  },
-  progressRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    marginBottom: Spacing.md,
-  },
-  progressBar: {
-    flex: 1,
-    height: 6,
-    backgroundColor: DarkTheme.surface,
-    borderRadius: BorderRadius.full,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: Colors.accent,
-    borderRadius: BorderRadius.full,
-  },
-  progressLabel: {
-    ...TextStyles.caption,
-    color: DarkTheme.text.secondary,
-    minWidth: 60,
-    textAlign: 'right',
-  },
-  insightsBox: {
-    backgroundColor: DarkTheme.surface,
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-    marginBottom: Spacing.md,
-    gap: Spacing.xs,
-  },
-  insightText: {
-    ...TextStyles.small,
-    color: DarkTheme.text.secondary,
-    lineHeight: 20,
-  },
-  sectionLabel: {
-    ...TextStyles.bodyMedium,
-    color: DarkTheme.text.secondary,
-    marginTop: Spacing.sm,
-    marginBottom: Spacing.xs,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-  },
-  taskCard: {
-    marginHorizontal: Spacing.lg,
-    marginBottom: Spacing.sm,
-    backgroundColor: DarkTheme.surface,
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-    borderWidth: 1,
-    borderColor: DarkTheme.border,
-  },
-  taskCardDone: {
-    opacity: 0.5,
-  },
-  taskRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: Spacing.sm,
-  },
-  taskIcon: {
-    fontSize: 20,
-    marginTop: 2,
-    width: 28,
-  },
-  taskBody: {
-    flex: 1,
-  },
-  taskTitle: {
-    ...TextStyles.bodyMedium,
-    color: DarkTheme.text.primary,
-    marginBottom: 2,
-  },
-  taskTitleDone: {
-    textDecorationLine: 'line-through',
-    color: DarkTheme.text.secondary,
-  },
-  taskDesc: {
-    ...TextStyles.small,
-    color: DarkTheme.text.secondary,
-    marginBottom: Spacing.xs,
-  },
-  taskMeta: {
-    flexDirection: 'row',
-    gap: Spacing.xs,
-  },
-  metaChip: {
-    ...TextStyles.caption,
-    color: DarkTheme.text.secondary,
-    backgroundColor: DarkTheme.background,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: BorderRadius.sm,
-  },
-  doneButton: {
-    backgroundColor: Colors.accent,
-    paddingVertical: 6,
-    paddingHorizontal: Spacing.sm,
-    borderRadius: BorderRadius.sm,
-    alignSelf: 'flex-start',
-  },
-  doneButtonText: {
-    ...TextStyles.caption,
-    color: Colors.white,
-    fontWeight: '600',
-  },
-  completedBadge: {
-    width: 28,
-    height: 28,
-    borderRadius: BorderRadius.full,
-    backgroundColor: DarkTheme.success,
-    justifyContent: 'center',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-  },
-  completedText: {
-    color: Colors.white,
-    fontWeight: '700',
-    fontSize: 14,
-  },
-  emptyTasks: {
-    alignItems: 'center',
-    padding: Spacing.xl,
-    gap: Spacing.sm,
-  },
-  emptyEmoji: {
-    fontSize: 40,
-  },
-  emptyTitle: {
-    ...TextStyles.h3,
-    color: DarkTheme.text.primary,
-  },
-  emptySubtitle: {
-    ...TextStyles.body,
-    color: DarkTheme.text.secondary,
-  },
-  retryButton: {
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.lg,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    borderColor: DarkTheme.border,
-  },
-  retryText: {
-    ...TextStyles.button,
-    color: DarkTheme.text.secondary,
-  },
-  errorText: {
-    ...TextStyles.body,
-    color: DarkTheme.error,
-    textAlign: 'center',
-  },
-});

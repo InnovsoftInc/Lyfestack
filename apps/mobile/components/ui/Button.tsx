@@ -6,7 +6,8 @@ import {
   ActivityIndicator,
   ViewStyle,
 } from 'react-native';
-import { DarkTheme } from '../../theme/colors';
+import { useTheme } from '../../hooks/useTheme';
+import type { Theme } from '../../theme/colors';
 import { TextStyles, Spacing, BorderRadius } from '../../theme';
 import { Colors } from '@lyfestack/shared';
 
@@ -24,6 +25,38 @@ interface ButtonProps {
   fullWidth?: boolean;
 }
 
+function makeStyles(theme: Theme) {
+  return StyleSheet.create({
+    base: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: BorderRadius.md,
+    },
+    fullWidth: { width: '100%' },
+    primary: { backgroundColor: Colors.accent },
+    secondary: {
+      backgroundColor: theme.surface,
+      borderWidth: 1,
+      borderColor: theme.border,
+    },
+    ghost: { backgroundColor: 'transparent' },
+    danger: { backgroundColor: Colors.error },
+    disabled: { opacity: 0.45 },
+    size_sm: { paddingVertical: Spacing.xs, paddingHorizontal: Spacing.md },
+    size_md: { paddingVertical: 10, paddingHorizontal: Spacing.lg },
+    size_lg: { paddingVertical: Spacing.md, paddingHorizontal: Spacing.xl },
+    label: { ...TextStyles.button },
+    label_primary: { color: Colors.white },
+    label_secondary: { color: theme.text.primary },
+    label_ghost: { color: Colors.accent },
+    label_danger: { color: Colors.white },
+    labelSize_sm: { fontSize: 13 },
+    labelSize_md: {},
+    labelSize_lg: { fontSize: 18 },
+  });
+}
+
 export function Button({
   label,
   onPress,
@@ -34,6 +67,9 @@ export function Button({
   style,
   fullWidth,
 }: ButtonProps) {
+  const theme = useTheme();
+  const styles = makeStyles(theme);
+
   return (
     <TouchableOpacity
       style={[
@@ -61,33 +97,3 @@ export function Button({
     </TouchableOpacity>
   );
 }
-
-const styles = StyleSheet.create({
-  base: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: BorderRadius.md,
-  },
-  fullWidth: { width: '100%' },
-  primary: { backgroundColor: Colors.accent },
-  secondary: {
-    backgroundColor: DarkTheme.surface,
-    borderWidth: 1,
-    borderColor: DarkTheme.border,
-  },
-  ghost: { backgroundColor: 'transparent' },
-  danger: { backgroundColor: Colors.error },
-  disabled: { opacity: 0.45 },
-  size_sm: { paddingVertical: Spacing.xs, paddingHorizontal: Spacing.md },
-  size_md: { paddingVertical: 10, paddingHorizontal: Spacing.lg },
-  size_lg: { paddingVertical: Spacing.md, paddingHorizontal: Spacing.xl },
-  label: { ...TextStyles.button },
-  label_primary: { color: Colors.white },
-  label_secondary: { color: DarkTheme.text.primary },
-  label_ghost: { color: Colors.accent },
-  label_danger: { color: Colors.white },
-  labelSize_sm: { fontSize: 13 },
-  labelSize_md: {},
-  labelSize_lg: { fontSize: 18 },
-});

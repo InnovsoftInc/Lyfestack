@@ -2,10 +2,92 @@ import { View, Text, StyleSheet, TouchableOpacity, TextInput, KeyboardAvoidingVi
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { DarkTheme } from '../../theme/colors';
+import { useTheme } from '../../hooks/useTheme';
+import type { Theme } from '../../theme/colors';
 import { TextStyles, Spacing, BorderRadius } from '../../theme';
 import { Colors } from '@lyfestack/shared';
 import { useAuthStore } from '../../stores/auth.store';
+
+function makeStyles(theme: Theme) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.background },
+    flex: { flex: 1 },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: Spacing.xl,
+      paddingVertical: Spacing.md,
+    },
+    backButton: { padding: Spacing.xs },
+    backText: { ...TextStyles.bodyMedium, color: theme.text.secondary },
+    progress: { flexDirection: 'row', gap: 6 },
+    progressDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: theme.border },
+    progressDotActive: { backgroundColor: Colors.accent, width: 20 },
+    content: { flex: 1, padding: Spacing.xl, gap: Spacing.xl },
+    titleSection: { gap: Spacing.sm },
+    title: { ...TextStyles.h2, color: theme.text.primary },
+    subtitle: { ...TextStyles.body, color: theme.text.secondary, lineHeight: 26 },
+    errorText: { ...TextStyles.small, color: '#EF4444', textAlign: 'center' },
+    authOptions: { gap: Spacing.md },
+    emailButton: {
+      borderRadius: BorderRadius.md,
+      borderWidth: 1,
+      borderColor: theme.border,
+      paddingVertical: 14,
+      alignItems: 'center',
+    },
+    loginButton: {
+      backgroundColor: theme.surface,
+    },
+    emailButtonText: { ...TextStyles.bodyMedium, color: theme.text.primary },
+    loginButtonText: { color: theme.text.secondary },
+    emailForm: { gap: Spacing.md },
+    inputGroup: { gap: Spacing.sm },
+    inputLabel: { ...TextStyles.small, color: theme.text.secondary, fontWeight: '600' },
+    input: {
+      ...TextStyles.body,
+      color: theme.text.primary,
+      backgroundColor: theme.surface,
+      borderRadius: BorderRadius.md,
+      borderWidth: 1,
+      borderColor: theme.border,
+      paddingVertical: 12,
+      paddingHorizontal: Spacing.md,
+    },
+    continueButton: {
+      backgroundColor: Colors.accent,
+      paddingVertical: 14,
+      borderRadius: BorderRadius.md,
+      alignItems: 'center',
+      marginTop: Spacing.sm,
+    },
+    continueButtonDisabled: { opacity: 0.4 },
+    continueText: { ...TextStyles.button, color: Colors.white, fontSize: 17 },
+    backToOptions: {
+      ...TextStyles.small,
+      color: theme.text.secondary,
+      textAlign: 'center',
+      marginTop: Spacing.sm,
+    },
+    legal: {
+      ...TextStyles.caption,
+      color: theme.text.secondary,
+      textAlign: 'center',
+      lineHeight: 18,
+      marginTop: 'auto',
+    },
+    confirmationBox: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: Spacing.md,
+      paddingHorizontal: Spacing.md,
+    },
+    confirmationIcon: { fontSize: 56 },
+    emailHighlight: { color: Colors.accent, fontWeight: '600' },
+  });
+}
 
 export default function AuthScreen() {
   const { mode: initialMode } = useLocalSearchParams<{ mode?: string }>();
@@ -14,6 +96,8 @@ export default function AuthScreen() {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const { signup, login, isLoading, error, confirmationPending } = useAuthStore();
+  const theme = useTheme();
+  const styles = makeStyles(theme);
 
   const handleEmailSignup = async () => {
     if (!email || !password) return;
@@ -113,7 +197,7 @@ export default function AuthScreen() {
                 <TextInput
                   style={styles.input}
                   placeholder="Your name"
-                  placeholderTextColor={DarkTheme.text.secondary}
+                  placeholderTextColor={theme.text.secondary}
                   value={name}
                   onChangeText={setName}
                   autoCapitalize="words"
@@ -124,7 +208,7 @@ export default function AuthScreen() {
                 <TextInput
                   style={styles.input}
                   placeholder="you@example.com"
-                  placeholderTextColor={DarkTheme.text.secondary}
+                  placeholderTextColor={theme.text.secondary}
                   value={email}
                   onChangeText={setEmail}
                   keyboardType="email-address"
@@ -137,7 +221,7 @@ export default function AuthScreen() {
                 <TextInput
                   style={styles.input}
                   placeholder="Min. 8 characters"
-                  placeholderTextColor={DarkTheme.text.secondary}
+                  placeholderTextColor={theme.text.secondary}
                   value={password}
                   onChangeText={setPassword}
                   secureTextEntry
@@ -166,7 +250,7 @@ export default function AuthScreen() {
                 <TextInput
                   style={styles.input}
                   placeholder="you@example.com"
-                  placeholderTextColor={DarkTheme.text.secondary}
+                  placeholderTextColor={theme.text.secondary}
                   value={email}
                   onChangeText={setEmail}
                   keyboardType="email-address"
@@ -179,7 +263,7 @@ export default function AuthScreen() {
                 <TextInput
                   style={styles.input}
                   placeholder="Password"
-                  placeholderTextColor={DarkTheme.text.secondary}
+                  placeholderTextColor={theme.text.secondary}
                   value={password}
                   onChangeText={setPassword}
                   secureTextEntry
@@ -213,82 +297,3 @@ export default function AuthScreen() {
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: DarkTheme.background },
-  flex: { flex: 1 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing.xl,
-    paddingVertical: Spacing.md,
-  },
-  backButton: { padding: Spacing.xs },
-  backText: { ...TextStyles.bodyMedium, color: DarkTheme.text.secondary },
-  progress: { flexDirection: 'row', gap: 6 },
-  progressDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: DarkTheme.border },
-  progressDotActive: { backgroundColor: Colors.accent, width: 20 },
-  content: { flex: 1, padding: Spacing.xl, gap: Spacing.xl },
-  titleSection: { gap: Spacing.sm },
-  title: { ...TextStyles.h2, color: DarkTheme.text.primary },
-  subtitle: { ...TextStyles.body, color: DarkTheme.text.secondary, lineHeight: 26 },
-  errorText: { ...TextStyles.small, color: '#EF4444', textAlign: 'center' },
-  authOptions: { gap: Spacing.md },
-  emailButton: {
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    borderColor: DarkTheme.border,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  loginButton: {
-    backgroundColor: DarkTheme.surface,
-  },
-  emailButtonText: { ...TextStyles.bodyMedium, color: DarkTheme.text.primary },
-  loginButtonText: { color: DarkTheme.text.secondary },
-  emailForm: { gap: Spacing.md },
-  inputGroup: { gap: Spacing.sm },
-  inputLabel: { ...TextStyles.small, color: DarkTheme.text.secondary, fontWeight: '600' },
-  input: {
-    ...TextStyles.body,
-    color: DarkTheme.text.primary,
-    backgroundColor: DarkTheme.surface,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    borderColor: DarkTheme.border,
-    paddingVertical: 12,
-    paddingHorizontal: Spacing.md,
-  },
-  continueButton: {
-    backgroundColor: Colors.accent,
-    paddingVertical: 14,
-    borderRadius: BorderRadius.md,
-    alignItems: 'center',
-    marginTop: Spacing.sm,
-  },
-  continueButtonDisabled: { opacity: 0.4 },
-  continueText: { ...TextStyles.button, color: Colors.white, fontSize: 17 },
-  backToOptions: {
-    ...TextStyles.small,
-    color: DarkTheme.text.secondary,
-    textAlign: 'center',
-    marginTop: Spacing.sm,
-  },
-  legal: {
-    ...TextStyles.caption,
-    color: DarkTheme.text.secondary,
-    textAlign: 'center',
-    lineHeight: 18,
-    marginTop: 'auto',
-  },
-  confirmationBox: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.md,
-    paddingHorizontal: Spacing.md,
-  },
-  confirmationIcon: { fontSize: 56 },
-  emailHighlight: { color: Colors.accent, fontWeight: '600' },
-});

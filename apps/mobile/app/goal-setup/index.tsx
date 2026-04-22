@@ -9,7 +9,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import { DarkTheme } from '../../theme/colors';
+import { useTheme } from '../../hooks/useTheme';
+import type { Theme } from '../../theme/colors';
 import { TextStyles, Spacing, BorderRadius } from '../../theme';
 import { Colors } from '@lyfestack/shared';
 import { getTemplates } from '../../services/templates.api';
@@ -26,10 +27,104 @@ const CATEGORY_EMOJI: Record<string, string> = {
   LEARNING: '📚',
 };
 
+function makeStyles(theme: Theme) {
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: theme.background,
+    },
+    center: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: Spacing.lg,
+    },
+    header: {
+      padding: Spacing.lg,
+      paddingBottom: Spacing.md,
+    },
+    backText: {
+      ...TextStyles.body,
+      color: Colors.accent,
+      marginBottom: Spacing.md,
+    },
+    title: {
+      ...TextStyles.h2,
+      color: theme.text.primary,
+      marginBottom: Spacing.xs,
+    },
+    subtitle: {
+      ...TextStyles.body,
+      color: theme.text.secondary,
+    },
+    list: {
+      padding: Spacing.lg,
+      paddingTop: Spacing.sm,
+      gap: Spacing.sm,
+    },
+    card: {
+      backgroundColor: theme.surface,
+      borderRadius: BorderRadius.md,
+      padding: Spacing.md,
+      borderWidth: 1,
+      borderColor: theme.border,
+    },
+    cardRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.sm,
+    },
+    emoji: {
+      fontSize: 32,
+      width: 44,
+    },
+    cardBody: {
+      flex: 1,
+    },
+    cardTitle: {
+      ...TextStyles.h4,
+      color: theme.text.primary,
+      marginBottom: 2,
+    },
+    cardDesc: {
+      ...TextStyles.caption,
+      color: theme.text.secondary,
+      marginBottom: Spacing.xs,
+    },
+    cardMeta: {
+      ...TextStyles.caption,
+      color: Colors.accent,
+      fontWeight: '600',
+    },
+    chevron: {
+      ...TextStyles.h3,
+      color: theme.text.secondary,
+    },
+    errorText: {
+      ...TextStyles.body,
+      color: theme.error,
+      textAlign: 'center',
+      marginBottom: Spacing.md,
+    },
+    retryButton: {
+      backgroundColor: Colors.accent,
+      paddingVertical: Spacing.sm,
+      paddingHorizontal: Spacing.lg,
+      borderRadius: BorderRadius.md,
+    },
+    retryText: {
+      ...TextStyles.button,
+      color: Colors.white,
+    },
+  });
+}
+
 export default function TemplatePicker() {
   const [templates, setTemplates] = useState<TemplateDefinition[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const theme = useTheme();
+  const styles = makeStyles(theme);
 
   useEffect(() => {
     getTemplates()
@@ -104,93 +199,3 @@ export default function TemplatePicker() {
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: DarkTheme.background,
-  },
-  center: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: Spacing.lg,
-  },
-  header: {
-    padding: Spacing.lg,
-    paddingBottom: Spacing.md,
-  },
-  backText: {
-    ...TextStyles.body,
-    color: Colors.accent,
-    marginBottom: Spacing.md,
-  },
-  title: {
-    ...TextStyles.h2,
-    color: DarkTheme.text.primary,
-    marginBottom: Spacing.xs,
-  },
-  subtitle: {
-    ...TextStyles.body,
-    color: DarkTheme.text.secondary,
-  },
-  list: {
-    padding: Spacing.lg,
-    paddingTop: Spacing.sm,
-    gap: Spacing.sm,
-  },
-  card: {
-    backgroundColor: DarkTheme.surface,
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-    borderWidth: 1,
-    borderColor: DarkTheme.border,
-  },
-  cardRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  emoji: {
-    fontSize: 32,
-    width: 44,
-  },
-  cardBody: {
-    flex: 1,
-  },
-  cardTitle: {
-    ...TextStyles.h4,
-    color: DarkTheme.text.primary,
-    marginBottom: 2,
-  },
-  cardDesc: {
-    ...TextStyles.caption,
-    color: DarkTheme.text.secondary,
-    marginBottom: Spacing.xs,
-  },
-  cardMeta: {
-    ...TextStyles.caption,
-    color: Colors.accent,
-    fontWeight: '600',
-  },
-  chevron: {
-    ...TextStyles.h3,
-    color: DarkTheme.text.secondary,
-  },
-  errorText: {
-    ...TextStyles.body,
-    color: DarkTheme.error,
-    textAlign: 'center',
-    marginBottom: Spacing.md,
-  },
-  retryButton: {
-    backgroundColor: Colors.accent,
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.lg,
-    borderRadius: BorderRadius.md,
-  },
-  retryText: {
-    ...TextStyles.button,
-    color: Colors.white,
-  },
-});

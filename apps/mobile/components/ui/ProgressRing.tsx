@@ -1,7 +1,7 @@
 import React from 'react';
 import { View } from 'react-native';
 import { Colors } from '@lyfestack/shared';
-import { DarkTheme } from '../../theme/colors';
+import { useTheme } from '../../hooks/useTheme';
 
 interface ProgressRingProps {
   progress: number; // 0–1
@@ -20,12 +20,13 @@ export function ProgressRing({
   trackColor,
   children,
 }: ProgressRingProps) {
+  const theme = useTheme();
   const clamped = Math.min(1, Math.max(0, progress));
   const degrees = clamped * 360;
   const rightDeg = Math.min(degrees, 180);
   const leftDeg = Math.max(0, degrees - 180);
   const innerSize = size - strokeWidth * 2;
-  const track = trackColor ?? DarkTheme.border;
+  const track = trackColor ?? theme.border;
 
   return (
     <View style={{ width: size, height: size }}>
@@ -98,7 +99,7 @@ export function ProgressRing({
           width: innerSize,
           height: innerSize,
           borderRadius: innerSize / 2,
-          backgroundColor: DarkTheme.background,
+          backgroundColor: theme.background,
           justifyContent: 'center',
           alignItems: 'center',
         }}

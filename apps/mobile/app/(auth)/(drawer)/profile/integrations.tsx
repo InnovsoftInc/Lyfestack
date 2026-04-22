@@ -10,7 +10,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useState, useEffect, useCallback } from 'react';
-import { DarkTheme } from '../../../../theme/colors';
+import { useTheme } from '../../../../hooks/useTheme';
+import type { Theme } from '../../../../theme/colors';
 import { TextStyles, Spacing, BorderRadius } from '../../../../theme';
 import { Colors } from '@lyfestack/shared';
 import { useAuthStore } from '../../../../stores/auth.store';
@@ -48,11 +49,64 @@ const INTEGRATIONS: IntegrationDef[] = [
   },
 ];
 
+function makeStyles(theme: Theme) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.background },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: Spacing.xl,
+      paddingTop: Spacing.md,
+      paddingBottom: Spacing.lg,
+      gap: Spacing.md,
+    },
+    backBtn: { padding: 4 },
+    backArrow: { ...TextStyles.h2, color: theme.text.primary, lineHeight: 28 },
+    heading: { ...TextStyles.h2, color: theme.text.primary },
+    scroll: { flex: 1, paddingHorizontal: Spacing.xl },
+    subtitle: {
+      ...TextStyles.body,
+      color: theme.text.secondary,
+      marginBottom: Spacing.xl,
+      lineHeight: 22,
+    },
+    loader: { marginTop: Spacing.xl },
+    card: {
+      backgroundColor: theme.surface,
+      borderRadius: BorderRadius.lg,
+      borderWidth: 1,
+      borderColor: theme.border,
+      padding: Spacing.md,
+      marginBottom: Spacing.md,
+      gap: Spacing.md,
+    },
+    cardTop: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
+    icon: { fontSize: 28 },
+    cardInfo: { flex: 1 },
+    cardName: { ...TextStyles.bodyMedium, color: theme.text.primary },
+    cardStatus: { ...TextStyles.small, marginTop: 2 },
+    cardDescription: { ...TextStyles.small, color: theme.text.secondary, lineHeight: 20 },
+    actionBtn: {
+      backgroundColor: Colors.accent,
+      borderRadius: BorderRadius.md,
+      paddingVertical: 10,
+      alignItems: 'center',
+    },
+    actionBtnText: { ...TextStyles.bodyMedium, color: Colors.white },
+    disconnectBtn: { backgroundColor: 'transparent', borderWidth: 1, borderColor: theme.border },
+    disconnectBtnText: { color: theme.text.secondary },
+    footer: { paddingVertical: Spacing.xl },
+    footerNote: { ...TextStyles.caption, color: theme.text.secondary, textAlign: 'center' },
+  });
+}
+
 export default function IntegrationsScreen() {
   const { authToken } = useAuthStore();
   const [status, setStatus] = useState<IntegrationsStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState<string | null>(null);
+  const theme = useTheme();
+  const styles = makeStyles(theme);
 
   const fetchStatus = useCallback(async () => {
     if (!authToken) return;
@@ -139,7 +193,7 @@ export default function IntegrationsScreen() {
                     <Text
                       style={[
                         styles.cardStatus,
-                        { color: isConnected ? Colors.accent : DarkTheme.text.secondary },
+                        { color: isConnected ? Colors.accent : theme.text.secondary },
                       ]}
                     >
                       {isConnected ? 'Connected' : 'Not connected'}
@@ -181,52 +235,3 @@ export default function IntegrationsScreen() {
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: DarkTheme.background },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.md,
-    paddingBottom: Spacing.lg,
-    gap: Spacing.md,
-  },
-  backBtn: { padding: 4 },
-  backArrow: { ...TextStyles.h2, color: DarkTheme.text.primary, lineHeight: 28 },
-  heading: { ...TextStyles.h2, color: DarkTheme.text.primary },
-  scroll: { flex: 1, paddingHorizontal: Spacing.xl },
-  subtitle: {
-    ...TextStyles.body,
-    color: DarkTheme.text.secondary,
-    marginBottom: Spacing.xl,
-    lineHeight: 22,
-  },
-  loader: { marginTop: Spacing.xl },
-  card: {
-    backgroundColor: DarkTheme.surface,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
-    borderColor: DarkTheme.border,
-    padding: Spacing.md,
-    marginBottom: Spacing.md,
-    gap: Spacing.md,
-  },
-  cardTop: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
-  icon: { fontSize: 28 },
-  cardInfo: { flex: 1 },
-  cardName: { ...TextStyles.bodyMedium, color: DarkTheme.text.primary },
-  cardStatus: { ...TextStyles.small, marginTop: 2 },
-  cardDescription: { ...TextStyles.small, color: DarkTheme.text.secondary, lineHeight: 20 },
-  actionBtn: {
-    backgroundColor: Colors.accent,
-    borderRadius: BorderRadius.md,
-    paddingVertical: 10,
-    alignItems: 'center',
-  },
-  actionBtnText: { ...TextStyles.bodyMedium, color: Colors.white },
-  disconnectBtn: { backgroundColor: 'transparent', borderWidth: 1, borderColor: DarkTheme.border },
-  disconnectBtnText: { color: DarkTheme.text.secondary },
-  footer: { paddingVertical: Spacing.xl },
-  footerNote: { ...TextStyles.caption, color: DarkTheme.text.secondary, textAlign: 'center' },
-});

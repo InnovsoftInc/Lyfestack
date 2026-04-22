@@ -1,6 +1,7 @@
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { DarkTheme } from '../../../../theme/colors';
+import { useTheme } from '../../../../hooks/useTheme';
+import type { Theme } from '../../../../theme/colors';
 import { TextStyles, Spacing, BorderRadius } from '../../../../theme';
 import { Colors, ApprovalState, AgentRole } from '@lyfestack/shared';
 import { useApprovalsStore } from '../../../../stores/approvals.store';
@@ -32,6 +33,104 @@ function confidenceVariant(score: number): 'success' | 'warning' | 'error' {
   return 'error';
 }
 
+function makeStyles(theme: Theme) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.background },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.md,
+      padding: Spacing.xl,
+      paddingBottom: Spacing.md,
+    },
+    heading: { ...TextStyles.h1, color: theme.text.primary },
+    pendingBadge: {
+      backgroundColor: 'rgba(14,165,233,0.15)',
+      borderRadius: BorderRadius.full,
+      paddingVertical: 4,
+      paddingHorizontal: 10,
+    },
+    pendingBadgeText: { ...TextStyles.caption, color: Colors.accent, fontWeight: '700' },
+    scroll: { flex: 1 },
+    section: { paddingHorizontal: Spacing.xl, marginBottom: Spacing.xl },
+    sectionLabel: {
+      ...TextStyles.caption,
+      color: theme.text.secondary,
+      letterSpacing: 1,
+      textTransform: 'uppercase',
+      marginBottom: Spacing.md,
+    },
+    card: {
+      backgroundColor: theme.surface,
+      borderRadius: BorderRadius.lg,
+      borderWidth: 1,
+      borderColor: theme.border,
+      padding: Spacing.md,
+      gap: Spacing.md,
+      marginBottom: Spacing.md,
+    },
+    cardResolved: { opacity: 0.65 },
+    cardHeader: { gap: 8 },
+    cardTitleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    agentRole: { ...TextStyles.caption, color: Colors.accent, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
+    actionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    actionLabel: { ...TextStyles.h4, color: theme.text.primary },
+    payloadSection: {
+      backgroundColor: theme.background,
+      borderRadius: BorderRadius.md,
+      padding: Spacing.md,
+      gap: 8,
+    },
+    payloadRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: Spacing.md },
+    payloadKey: { ...TextStyles.caption, color: theme.text.secondary, textTransform: 'capitalize', flexShrink: 0 },
+    payloadValue: { ...TextStyles.small, color: theme.text.primary, flex: 1, textAlign: 'right' },
+    rationaleSection: { gap: 6 },
+    rationaleLabel: { ...TextStyles.caption, color: theme.text.secondary, textTransform: 'uppercase', letterSpacing: 0.5 },
+    rationaleText: { ...TextStyles.small, color: theme.text.secondary, lineHeight: 20 },
+    cardActions: { flexDirection: 'row', gap: Spacing.sm },
+    approveBtn: {
+      flex: 2,
+      backgroundColor: Colors.accent,
+      borderRadius: BorderRadius.md,
+      paddingVertical: 10,
+      alignItems: 'center',
+    },
+    approveBtnText: { ...TextStyles.small, color: Colors.white, fontWeight: '600' },
+    editBtn: {
+      flex: 1,
+      backgroundColor: theme.border,
+      borderRadius: BorderRadius.md,
+      paddingVertical: 10,
+      alignItems: 'center',
+    },
+    editBtnText: { ...TextStyles.small, color: theme.text.primary },
+    rejectBtn: {
+      flex: 1,
+      backgroundColor: 'rgba(239,68,68,0.15)',
+      borderRadius: BorderRadius.md,
+      paddingVertical: 10,
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: Colors.error,
+    },
+    rejectBtnText: { ...TextStyles.small, color: Colors.error, fontWeight: '600' },
+    emptyState: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: Spacing['2xl'],
+      gap: Spacing.md,
+    },
+    emptyIcon: { fontSize: 48 },
+    emptyTitle: { ...TextStyles.h3, color: theme.text.primary },
+    emptySubtitle: { ...TextStyles.body, color: theme.text.secondary, textAlign: 'center' },
+    spacer: { height: 40 },
+  });
+}
+
 interface ApprovalCardProps {
   action: MockAgentAction;
   onApprove: () => void;
@@ -39,6 +138,8 @@ interface ApprovalCardProps {
 }
 
 function ApprovalCard({ action, onApprove, onReject }: ApprovalCardProps) {
+  const theme = useTheme();
+  const styles = makeStyles(theme);
   const isPending = action.approvalState === ApprovalState.PENDING;
   const payloadEntries = Object.entries(action.payload).slice(0, 2);
 
@@ -97,6 +198,8 @@ function ApprovalCard({ action, onApprove, onReject }: ApprovalCardProps) {
 
 export default function ApprovalsScreen() {
   const { actions, approve, reject } = useApprovalsStore();
+  const theme = useTheme();
+  const styles = makeStyles(theme);
 
   const pending = actions.filter((a) => a.approvalState === ApprovalState.PENDING) as MockAgentAction[];
   const resolved = actions.filter((a) => a.approvalState !== ApprovalState.PENDING) as MockAgentAction[];
@@ -154,99 +257,3 @@ export default function ApprovalsScreen() {
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: DarkTheme.background },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-    padding: Spacing.xl,
-    paddingBottom: Spacing.md,
-  },
-  heading: { ...TextStyles.h1, color: DarkTheme.text.primary },
-  pendingBadge: {
-    backgroundColor: 'rgba(14,165,233,0.15)',
-    borderRadius: BorderRadius.full,
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-  },
-  pendingBadgeText: { ...TextStyles.caption, color: Colors.accent, fontWeight: '700' },
-  scroll: { flex: 1 },
-  section: { paddingHorizontal: Spacing.xl, marginBottom: Spacing.xl },
-  sectionLabel: {
-    ...TextStyles.caption,
-    color: DarkTheme.text.secondary,
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    marginBottom: Spacing.md,
-  },
-  card: {
-    backgroundColor: DarkTheme.surface,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
-    borderColor: DarkTheme.border,
-    padding: Spacing.md,
-    gap: Spacing.md,
-    marginBottom: Spacing.md,
-  },
-  cardResolved: { opacity: 0.65 },
-  cardHeader: { gap: 8 },
-  cardTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  agentRole: { ...TextStyles.caption, color: Colors.accent, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
-  actionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  actionLabel: { ...TextStyles.h4, color: DarkTheme.text.primary },
-  payloadSection: {
-    backgroundColor: DarkTheme.background,
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-    gap: 8,
-  },
-  payloadRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: Spacing.md },
-  payloadKey: { ...TextStyles.caption, color: DarkTheme.text.secondary, textTransform: 'capitalize', flexShrink: 0 },
-  payloadValue: { ...TextStyles.small, color: DarkTheme.text.primary, flex: 1, textAlign: 'right' },
-  rationaleSection: { gap: 6 },
-  rationaleLabel: { ...TextStyles.caption, color: DarkTheme.text.secondary, textTransform: 'uppercase', letterSpacing: 0.5 },
-  rationaleText: { ...TextStyles.small, color: DarkTheme.text.secondary, lineHeight: 20 },
-  cardActions: { flexDirection: 'row', gap: Spacing.sm },
-  approveBtn: {
-    flex: 2,
-    backgroundColor: Colors.accent,
-    borderRadius: BorderRadius.md,
-    paddingVertical: 10,
-    alignItems: 'center',
-  },
-  approveBtnText: { ...TextStyles.small, color: Colors.white, fontWeight: '600' },
-  editBtn: {
-    flex: 1,
-    backgroundColor: DarkTheme.border,
-    borderRadius: BorderRadius.md,
-    paddingVertical: 10,
-    alignItems: 'center',
-  },
-  editBtnText: { ...TextStyles.small, color: DarkTheme.text.primary },
-  rejectBtn: {
-    flex: 1,
-    backgroundColor: 'rgba(239,68,68,0.15)',
-    borderRadius: BorderRadius.md,
-    paddingVertical: 10,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Colors.error,
-  },
-  rejectBtnText: { ...TextStyles.small, color: Colors.error, fontWeight: '600' },
-  emptyState: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: Spacing['2xl'],
-    gap: Spacing.md,
-  },
-  emptyIcon: { fontSize: 48 },
-  emptyTitle: { ...TextStyles.h3, color: DarkTheme.text.primary },
-  emptySubtitle: { ...TextStyles.body, color: DarkTheme.text.secondary, textAlign: 'center' },
-  spacer: { height: 40 },
-});

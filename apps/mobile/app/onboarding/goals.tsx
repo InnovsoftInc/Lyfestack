@@ -2,7 +2,8 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-nati
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { DarkTheme } from '../../theme/colors';
+import { useTheme } from '../../hooks/useTheme';
+import type { Theme } from '../../theme/colors';
 import { TextStyles, Spacing, BorderRadius } from '../../theme';
 import { Colors } from '@lyfestack/shared';
 import { useOnboardingStore } from '../../stores/onboarding.store';
@@ -45,9 +46,75 @@ const TEMPLATES = [
   },
 ];
 
+function makeStyles(theme: Theme) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.background },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: Spacing.xl,
+      paddingVertical: Spacing.md,
+    },
+    backButton: { padding: Spacing.xs },
+    backText: { ...TextStyles.bodyMedium, color: theme.text.secondary },
+    progress: { flexDirection: 'row', gap: 6 },
+    progressDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: theme.border,
+    },
+    progressDotActive: { backgroundColor: Colors.accent, width: 20 },
+    scroll: { flex: 1 },
+    titleSection: { padding: Spacing.xl, paddingTop: Spacing.md, gap: Spacing.sm },
+    title: { ...TextStyles.h2, color: theme.text.primary },
+    subtitle: { ...TextStyles.body, color: theme.text.secondary },
+    templates: { paddingHorizontal: Spacing.xl, gap: Spacing.md, paddingBottom: Spacing.xl },
+    card: {
+      backgroundColor: theme.surface,
+      borderRadius: BorderRadius.lg,
+      borderWidth: 1,
+      borderColor: theme.border,
+      padding: Spacing.md,
+      gap: Spacing.sm,
+    },
+    cardSelected: { borderColor: Colors.accent, backgroundColor: 'rgba(14,165,233,0.08)' },
+    cardHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+    cardIcon: { fontSize: 26 },
+    cardTags: { flex: 1, flexDirection: 'row', gap: 6 },
+    tag: {
+      backgroundColor: theme.border,
+      borderRadius: BorderRadius.sm,
+      paddingVertical: 2,
+      paddingHorizontal: 8,
+    },
+    tagText: { ...TextStyles.caption, color: theme.text.secondary },
+    checkmark: { fontSize: 18, color: Colors.accent, fontWeight: 'bold' },
+    cardName: { ...TextStyles.h4, color: theme.text.primary },
+    cardDesc: { ...TextStyles.small, color: theme.text.secondary, lineHeight: 20 },
+    footer: {
+      padding: Spacing.xl,
+      paddingBottom: Spacing.lg,
+      borderTopWidth: 1,
+      borderTopColor: theme.border,
+    },
+    continueButton: {
+      backgroundColor: Colors.accent,
+      paddingVertical: 14,
+      borderRadius: BorderRadius.md,
+      alignItems: 'center',
+    },
+    continueButtonDisabled: { opacity: 0.4 },
+    continueText: { ...TextStyles.button, color: Colors.white, fontSize: 17 },
+  });
+}
+
 export default function GoalSelectionScreen() {
   const [selected, setSelected] = useState<string | null>(null);
   const setTemplate = useOnboardingStore((s) => s.setTemplate);
+  const theme = useTheme();
+  const styles = makeStyles(theme);
 
   const handleContinue = () => {
     if (!selected) return;
@@ -116,65 +183,3 @@ export default function GoalSelectionScreen() {
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: DarkTheme.background },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing.xl,
-    paddingVertical: Spacing.md,
-  },
-  backButton: { padding: Spacing.xs },
-  backText: { ...TextStyles.bodyMedium, color: DarkTheme.text.secondary },
-  progress: { flexDirection: 'row', gap: 6 },
-  progressDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: DarkTheme.border,
-  },
-  progressDotActive: { backgroundColor: Colors.accent, width: 20 },
-  scroll: { flex: 1 },
-  titleSection: { padding: Spacing.xl, paddingTop: Spacing.md, gap: Spacing.sm },
-  title: { ...TextStyles.h2, color: DarkTheme.text.primary },
-  subtitle: { ...TextStyles.body, color: DarkTheme.text.secondary },
-  templates: { paddingHorizontal: Spacing.xl, gap: Spacing.md, paddingBottom: Spacing.xl },
-  card: {
-    backgroundColor: DarkTheme.surface,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
-    borderColor: DarkTheme.border,
-    padding: Spacing.md,
-    gap: Spacing.sm,
-  },
-  cardSelected: { borderColor: Colors.accent, backgroundColor: 'rgba(14,165,233,0.08)' },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  cardIcon: { fontSize: 26 },
-  cardTags: { flex: 1, flexDirection: 'row', gap: 6 },
-  tag: {
-    backgroundColor: DarkTheme.border,
-    borderRadius: BorderRadius.sm,
-    paddingVertical: 2,
-    paddingHorizontal: 8,
-  },
-  tagText: { ...TextStyles.caption, color: DarkTheme.text.secondary },
-  checkmark: { fontSize: 18, color: Colors.accent, fontWeight: 'bold' },
-  cardName: { ...TextStyles.h4, color: DarkTheme.text.primary },
-  cardDesc: { ...TextStyles.small, color: DarkTheme.text.secondary, lineHeight: 20 },
-  footer: {
-    padding: Spacing.xl,
-    paddingBottom: Spacing.lg,
-    borderTopWidth: 1,
-    borderTopColor: DarkTheme.border,
-  },
-  continueButton: {
-    backgroundColor: Colors.accent,
-    paddingVertical: 14,
-    borderRadius: BorderRadius.md,
-    alignItems: 'center',
-  },
-  continueButtonDisabled: { opacity: 0.4 },
-  continueText: { ...TextStyles.button, color: Colors.white, fontSize: 17 },
-});

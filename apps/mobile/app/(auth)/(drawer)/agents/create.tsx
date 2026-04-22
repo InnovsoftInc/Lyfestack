@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { useOpenClawStore } from '../../../../stores/openclaw.store';
@@ -14,13 +14,24 @@ export default function CreateAgentScreen() {
   const [model, setModel] = useState('openrouter/auto');
   const [systemPrompt, setSystemPrompt] = useState('');
   const [creating, setCreating] = useState(false);
+  const [error, setError] = useState('');
 
   const handleCreate = async () => {
     if (!name.trim() || !role) return;
     setCreating(true);
-    await createAgent({ name: name.trim().toLowerCase().replace(/\s+/g, '-'), role, model, systemPrompt });
-    setCreating(false);
-    router.back();
+    setError('');
+    try {
+      await createAgent({
+        name: name.trim().toLowerCase().replace(/\s+/g, '-'),
+        role,
+        model,
+        systemPrompt,
+      });
+      router.back();
+    } catch (err: any) {
+      setError(err?.message ?? 'Failed to create agent. Make sure the server is running.');
+      setCreating(false);
+    }
   };
 
   return (
@@ -29,7 +40,14 @@ export default function CreateAgentScreen() {
       <Text style={styles.subtitle}>Add a new AI employee to your team</Text>
 
       <Text style={styles.label}>Name</Text>
-      <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="e.g. content-writer" placeholderTextColor="#555" />
+      <TextInput
+        style={styles.input}
+        value={name}
+        onChangeText={setName}
+        placeholder="e.g. content-writer"
+        placeholderTextColor="#555"
+        autoCapitalize="none"
+      />
 
       <Text style={styles.label}>Role</Text>
       <View style={styles.chips}>
@@ -50,10 +68,28 @@ export default function CreateAgentScreen() {
       </View>
 
       <Text style={styles.label}>System Prompt</Text>
-      <TextInput style={[styles.input, styles.textarea]} value={systemPrompt} onChangeText={setSystemPrompt} placeholder="Instructions for this agent..." placeholderTextColor="#555" multiline numberOfLines={4} textAlignVertical="top" />
+      <TextInput
+        style={[styles.input, styles.textarea]}
+        value={systemPrompt}
+        onChangeText={setSystemPrompt}
+        placeholder="Instructions for this agent..."
+        placeholderTextColor="#555"
+        multiline
+        numberOfLines={4}
+        textAlignVertical="top"
+      />
 
-      <TouchableOpacity style={[styles.createBtn, (!name.trim() || !role || creating) && styles.createBtnDisabled]} onPress={handleCreate} disabled={!name.trim() || !role || creating}>
-        <Text style={styles.createBtnText}>{creating ? 'Creating...' : 'Create Agent'}</Text>
+      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+      <TouchableOpacity
+        style={[styles.createBtn, (!name.trim() || !role || creating) && styles.createBtnDisabled]}
+        onPress={handleCreate}
+        disabled={!name.trim() || !role || creating}
+      >
+        {creating
+          ? <ActivityIndicator size="small" color="#000" />
+          : <Text style={styles.createBtnText}>Create Agent</Text>
+        }
       </TouchableOpacity>
     </ScrollView>
   );
@@ -72,7 +108,8 @@ const styles = StyleSheet.create({
   chipActive: { backgroundColor: '#0EA5E9', borderColor: '#0EA5E9' },
   chipText: { color: '#888', fontSize: 13, fontWeight: '500' },
   chipTextActive: { color: '#000' },
-  createBtn: { marginTop: 32, backgroundColor: '#0EA5E9', padding: 16, borderRadius: 12, alignItems: 'center' },
+  errorText: { color: '#EF4444', fontSize: 13, marginTop: 16 },
+  createBtn: { marginTop: 32, backgroundColor: '#0EA5E9', padding: 16, borderRadius: 12, alignItems: 'center', minHeight: 52, justifyContent: 'center' },
   createBtnDisabled: { backgroundColor: '#333' },
   createBtnText: { color: '#000', fontSize: 16, fontWeight: '700' },
 });

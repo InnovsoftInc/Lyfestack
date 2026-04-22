@@ -2,10 +2,106 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch } from 're
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { DarkTheme } from '../../../../theme/colors';
+import { useTheme } from '../../../../hooks/useTheme';
+import type { Theme } from '../../../../theme/colors';
 import { TextStyles, Spacing, BorderRadius } from '../../../../theme';
 import { Colors, TrustTier } from '@lyfestack/shared';
 import { useAuthStore } from '../../../../stores/auth.store';
+
+function makeStyles(theme: Theme) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.background },
+    scroll: { flex: 1 },
+    header: { padding: Spacing.xl, paddingBottom: Spacing.md },
+    heading: { ...TextStyles.h1, color: theme.text.primary },
+    userCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.md,
+      marginHorizontal: Spacing.xl,
+      marginBottom: Spacing.xl,
+      backgroundColor: theme.surface,
+      borderRadius: BorderRadius.lg,
+      borderWidth: 1,
+      borderColor: theme.border,
+      padding: Spacing.md,
+    },
+    avatar: {
+      width: 56,
+      height: 56,
+      borderRadius: 28,
+      backgroundColor: Colors.accent,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    avatarText: { ...TextStyles.h3, color: Colors.white },
+    userInfo: { gap: 3 },
+    userName: { ...TextStyles.h4, color: theme.text.primary },
+    userEmail: { ...TextStyles.small, color: theme.text.secondary },
+    userTimezone: { ...TextStyles.caption, color: theme.text.secondary },
+    section: { marginBottom: Spacing.xl, paddingHorizontal: Spacing.xl },
+    sectionLabel: {
+      ...TextStyles.caption,
+      color: theme.text.secondary,
+      letterSpacing: 1,
+      textTransform: 'uppercase',
+      marginBottom: Spacing.md,
+    },
+    trustCard: {
+      backgroundColor: theme.surface,
+      borderRadius: BorderRadius.lg,
+      borderWidth: 1,
+      borderColor: theme.border,
+      padding: Spacing.md,
+      gap: Spacing.md,
+    },
+    trustValue: { ...TextStyles.bodyMedium, color: theme.text.primary },
+    trustHint: { ...TextStyles.small, color: theme.text.secondary, lineHeight: 20 },
+    trustBar: {
+      flexDirection: 'row',
+      gap: Spacing.sm,
+    },
+    trustBarSegment: {
+      flex: 1,
+      paddingVertical: 8,
+      alignItems: 'center',
+      borderRadius: BorderRadius.md,
+      backgroundColor: theme.border,
+    },
+    trustBarSegmentActive: { backgroundColor: Colors.accent },
+    trustBarLabel: { ...TextStyles.caption, color: Colors.white },
+    settingsGroup: {
+      backgroundColor: theme.surface,
+      borderRadius: BorderRadius.lg,
+      borderWidth: 1,
+      borderColor: theme.border,
+      overflow: 'hidden',
+    },
+    settingRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      padding: Spacing.md,
+      minHeight: 52,
+    },
+    settingLabel: { ...TextStyles.bodyMedium, color: theme.text.primary },
+    settingLabelDanger: { color: Colors.error },
+    settingValue: { ...TextStyles.small, color: theme.text.secondary },
+    settingArrow: { ...TextStyles.h4, color: theme.text.secondary },
+    integrationStatus: { ...TextStyles.small, fontWeight: '600' },
+    divider: { height: 1, backgroundColor: theme.border, marginLeft: Spacing.md },
+    logoutBtn: {
+      borderRadius: BorderRadius.md,
+      borderWidth: 1,
+      borderColor: theme.border,
+      paddingVertical: 14,
+      alignItems: 'center',
+    },
+    logoutText: { ...TextStyles.bodyMedium, color: theme.text.secondary },
+    footer: { alignItems: 'center', paddingBottom: Spacing.xl },
+    footerText: { ...TextStyles.caption, color: theme.text.secondary, opacity: 0.5 },
+  });
+}
 
 interface SettingRowProps {
   label: string;
@@ -18,6 +114,9 @@ interface SettingRowProps {
 }
 
 function SettingRow({ label, value, toggle, toggleValue, onToggle, onPress, danger }: SettingRowProps) {
+  const theme = useTheme();
+  const styles = makeStyles(theme);
+
   return (
     <TouchableOpacity
       style={styles.settingRow}
@@ -30,7 +129,7 @@ function SettingRow({ label, value, toggle, toggleValue, onToggle, onPress, dang
         <Switch
           value={toggleValue}
           onValueChange={onToggle}
-          trackColor={{ false: DarkTheme.border, true: Colors.accent }}
+          trackColor={{ false: theme.border, true: Colors.accent }}
           thumbColor={Colors.white}
         />
       ) : value ? (
@@ -48,6 +147,8 @@ export default function ProfileScreen() {
   const [notifMorning, setNotifMorning] = useState(true);
   const [notifApprovals, setNotifApprovals] = useState(true);
   const [notifWeekly, setNotifWeekly] = useState(false);
+  const theme = useTheme();
+  const styles = makeStyles(theme);
 
   const trustLabel = {
     [TrustTier.MANUAL]: 'Manual (you approve everything)',
@@ -202,96 +303,3 @@ export default function ProfileScreen() {
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: DarkTheme.background },
-  scroll: { flex: 1 },
-  header: { padding: Spacing.xl, paddingBottom: Spacing.md },
-  heading: { ...TextStyles.h1, color: DarkTheme.text.primary },
-  userCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-    marginHorizontal: Spacing.xl,
-    marginBottom: Spacing.xl,
-    backgroundColor: DarkTheme.surface,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
-    borderColor: DarkTheme.border,
-    padding: Spacing.md,
-  },
-  avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: Colors.accent,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  avatarText: { ...TextStyles.h3, color: Colors.white },
-  userInfo: { gap: 3 },
-  userName: { ...TextStyles.h4, color: DarkTheme.text.primary },
-  userEmail: { ...TextStyles.small, color: DarkTheme.text.secondary },
-  userTimezone: { ...TextStyles.caption, color: DarkTheme.text.secondary },
-  section: { marginBottom: Spacing.xl, paddingHorizontal: Spacing.xl },
-  sectionLabel: {
-    ...TextStyles.caption,
-    color: DarkTheme.text.secondary,
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    marginBottom: Spacing.md,
-  },
-  trustCard: {
-    backgroundColor: DarkTheme.surface,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
-    borderColor: DarkTheme.border,
-    padding: Spacing.md,
-    gap: Spacing.md,
-  },
-  trustValue: { ...TextStyles.bodyMedium, color: DarkTheme.text.primary },
-  trustHint: { ...TextStyles.small, color: DarkTheme.text.secondary, lineHeight: 20 },
-  trustBar: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-  },
-  trustBarSegment: {
-    flex: 1,
-    paddingVertical: 8,
-    alignItems: 'center',
-    borderRadius: BorderRadius.md,
-    backgroundColor: DarkTheme.border,
-  },
-  trustBarSegmentActive: { backgroundColor: Colors.accent },
-  trustBarLabel: { ...TextStyles.caption, color: Colors.white },
-  settingsGroup: {
-    backgroundColor: DarkTheme.surface,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
-    borderColor: DarkTheme.border,
-    overflow: 'hidden',
-  },
-  settingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: Spacing.md,
-    minHeight: 52,
-  },
-  settingLabel: { ...TextStyles.bodyMedium, color: DarkTheme.text.primary },
-  settingLabelDanger: { color: Colors.error },
-  settingValue: { ...TextStyles.small, color: DarkTheme.text.secondary },
-  settingArrow: { ...TextStyles.h4, color: DarkTheme.text.secondary },
-  integrationStatus: { ...TextStyles.small, fontWeight: '600' },
-  divider: { height: 1, backgroundColor: DarkTheme.border, marginLeft: Spacing.md },
-  logoutBtn: {
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    borderColor: DarkTheme.border,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  logoutText: { ...TextStyles.bodyMedium, color: DarkTheme.text.secondary },
-  footer: { alignItems: 'center', paddingBottom: Spacing.xl },
-  footerText: { ...TextStyles.caption, color: DarkTheme.text.secondary, opacity: 0.5 },
-});

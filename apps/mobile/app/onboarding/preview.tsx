@@ -2,7 +2,8 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { DarkTheme } from '../../theme/colors';
+import { useTheme } from '../../hooks/useTheme';
+import type { Theme } from '../../theme/colors';
 import { TextStyles, Spacing, BorderRadius } from '../../theme';
 import { Colors } from '@lyfestack/shared';
 
@@ -22,8 +23,102 @@ const MOCK_PLAN = {
   ],
 };
 
+function makeStyles(theme: Theme) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.background },
+    loadingContent: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: Spacing.xl,
+      gap: Spacing.lg,
+    },
+    loadingTitle: { ...TextStyles.h3, color: theme.text.primary, textAlign: 'center' },
+    loadingSubtitle: { ...TextStyles.body, color: theme.text.secondary, textAlign: 'center', lineHeight: 26 },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: Spacing.xl,
+      paddingVertical: Spacing.md,
+    },
+    backButton: { padding: Spacing.xs },
+    backText: { ...TextStyles.bodyMedium, color: theme.text.secondary },
+    progress: { flexDirection: 'row', gap: 6 },
+    progressDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: theme.border },
+    progressDotActive: { backgroundColor: Colors.accent, width: 20 },
+    scroll: { flex: 1 },
+    titleSection: { padding: Spacing.xl, paddingTop: Spacing.md, gap: Spacing.md },
+    sparkle: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.sm,
+      backgroundColor: 'rgba(14,165,233,0.1)',
+      alignSelf: 'flex-start',
+      paddingVertical: 6,
+      paddingHorizontal: Spacing.md,
+      borderRadius: BorderRadius.full,
+    },
+    sparkleIcon: { fontSize: 16 },
+    sparkleText: { ...TextStyles.small, color: Colors.accent, fontWeight: '600' },
+    title: { ...TextStyles.h2, color: theme.text.primary },
+    subtitle: { ...TextStyles.body, color: theme.text.secondary, lineHeight: 26 },
+    sectionLabel: {
+      ...TextStyles.caption,
+      color: theme.text.secondary,
+      textTransform: 'uppercase',
+      letterSpacing: 1,
+      marginBottom: Spacing.md,
+    },
+    timeline: { paddingHorizontal: Spacing.xl, paddingBottom: Spacing.xl },
+    timelineItem: { flexDirection: 'row', gap: Spacing.md },
+    timelineLeft: { alignItems: 'center', width: 16 },
+    timelineDot: {
+      width: 12,
+      height: 12,
+      borderRadius: 6,
+      backgroundColor: theme.border,
+      borderWidth: 2,
+      borderColor: theme.border,
+      marginTop: 4,
+    },
+    timelineDotActive: { borderColor: Colors.accent, backgroundColor: Colors.accent },
+    timelineLine: { width: 2, flex: 1, backgroundColor: theme.border, marginVertical: 4 },
+    timelineContent: { flex: 1, paddingBottom: Spacing.lg },
+    timelineWeek: { ...TextStyles.caption, color: Colors.accent, marginBottom: 2 },
+    timelineTitle: { ...TextStyles.h4, color: theme.text.primary, marginBottom: 4 },
+    timelineDesc: { ...TextStyles.small, color: theme.text.secondary, lineHeight: 20 },
+    firstWeek: { paddingHorizontal: Spacing.xl, paddingBottom: Spacing['2xl'] },
+    taskRow: { flexDirection: 'row', gap: Spacing.md, alignItems: 'flex-start', marginBottom: Spacing.md },
+    taskBullet: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: Colors.accent,
+      marginTop: 8,
+      flexShrink: 0,
+    },
+    taskText: { ...TextStyles.bodyMedium, color: theme.text.primary, flex: 1, lineHeight: 24 },
+    footer: {
+      padding: Spacing.xl,
+      paddingBottom: Spacing.lg,
+      borderTopWidth: 1,
+      borderTopColor: theme.border,
+    },
+    continueButton: {
+      backgroundColor: Colors.accent,
+      paddingVertical: 14,
+      borderRadius: BorderRadius.md,
+      alignItems: 'center',
+    },
+    continueText: { ...TextStyles.button, color: Colors.white, fontSize: 17 },
+  });
+}
+
 export default function PlanPreviewScreen() {
   const [loading, setLoading] = useState(true);
+  const theme = useTheme();
+  const styles = makeStyles(theme);
 
   useEffect(() => {
     const timer = setTimeout(() => setLoading(false), 1800);
@@ -110,93 +205,3 @@ export default function PlanPreviewScreen() {
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: DarkTheme.background },
-  loadingContent: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: Spacing.xl,
-    gap: Spacing.lg,
-  },
-  loadingTitle: { ...TextStyles.h3, color: DarkTheme.text.primary, textAlign: 'center' },
-  loadingSubtitle: { ...TextStyles.body, color: DarkTheme.text.secondary, textAlign: 'center', lineHeight: 26 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing.xl,
-    paddingVertical: Spacing.md,
-  },
-  backButton: { padding: Spacing.xs },
-  backText: { ...TextStyles.bodyMedium, color: DarkTheme.text.secondary },
-  progress: { flexDirection: 'row', gap: 6 },
-  progressDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: DarkTheme.border },
-  progressDotActive: { backgroundColor: Colors.accent, width: 20 },
-  scroll: { flex: 1 },
-  titleSection: { padding: Spacing.xl, paddingTop: Spacing.md, gap: Spacing.md },
-  sparkle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    backgroundColor: 'rgba(14,165,233,0.1)',
-    alignSelf: 'flex-start',
-    paddingVertical: 6,
-    paddingHorizontal: Spacing.md,
-    borderRadius: BorderRadius.full,
-  },
-  sparkleIcon: { fontSize: 16 },
-  sparkleText: { ...TextStyles.small, color: Colors.accent, fontWeight: '600' },
-  title: { ...TextStyles.h2, color: DarkTheme.text.primary },
-  subtitle: { ...TextStyles.body, color: DarkTheme.text.secondary, lineHeight: 26 },
-  sectionLabel: {
-    ...TextStyles.caption,
-    color: DarkTheme.text.secondary,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginBottom: Spacing.md,
-  },
-  timeline: { paddingHorizontal: Spacing.xl, paddingBottom: Spacing.xl },
-  timelineItem: { flexDirection: 'row', gap: Spacing.md },
-  timelineLeft: { alignItems: 'center', width: 16 },
-  timelineDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: DarkTheme.border,
-    borderWidth: 2,
-    borderColor: DarkTheme.border,
-    marginTop: 4,
-  },
-  timelineDotActive: { borderColor: Colors.accent, backgroundColor: Colors.accent },
-  timelineLine: { width: 2, flex: 1, backgroundColor: DarkTheme.border, marginVertical: 4 },
-  timelineContent: { flex: 1, paddingBottom: Spacing.lg },
-  timelineWeek: { ...TextStyles.caption, color: Colors.accent, marginBottom: 2 },
-  timelineTitle: { ...TextStyles.h4, color: DarkTheme.text.primary, marginBottom: 4 },
-  timelineDesc: { ...TextStyles.small, color: DarkTheme.text.secondary, lineHeight: 20 },
-  firstWeek: { paddingHorizontal: Spacing.xl, paddingBottom: Spacing['2xl'] },
-  taskRow: { flexDirection: 'row', gap: Spacing.md, alignItems: 'flex-start', marginBottom: Spacing.md },
-  taskBullet: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: Colors.accent,
-    marginTop: 8,
-    flexShrink: 0,
-  },
-  taskText: { ...TextStyles.bodyMedium, color: DarkTheme.text.primary, flex: 1, lineHeight: 24 },
-  footer: {
-    padding: Spacing.xl,
-    paddingBottom: Spacing.lg,
-    borderTopWidth: 1,
-    borderTopColor: DarkTheme.border,
-  },
-  continueButton: {
-    backgroundColor: Colors.accent,
-    paddingVertical: 14,
-    borderRadius: BorderRadius.md,
-    alignItems: 'center',
-  },
-  continueText: { ...TextStyles.button, color: Colors.white, fontSize: 17 },
-});

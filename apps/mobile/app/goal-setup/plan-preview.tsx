@@ -9,12 +9,134 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
-import { DarkTheme } from '../../theme/colors';
+import { useTheme } from '../../hooks/useTheme';
+import type { Theme } from '../../theme/colors';
 import { TextStyles, Spacing, BorderRadius } from '../../theme';
 import { Colors } from '@lyfestack/shared';
 import { useGoalsStore } from '../../stores/goals.store';
 import { useAuthStore } from '../../stores/auth.store';
 import type { DiagnosticAnswer, Plan } from '../../services/goals.api';
+
+function makeStyles(theme: Theme) {
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: theme.background,
+    },
+    center: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: Spacing.lg,
+      gap: Spacing.md,
+    },
+    loadingText: {
+      ...TextStyles.body,
+      color: theme.text.secondary,
+    },
+    scroll: {
+      padding: Spacing.lg,
+      paddingBottom: Spacing['2xl'],
+    },
+    header: {
+      alignItems: 'center',
+      marginBottom: Spacing.xl,
+    },
+    successBadge: {
+      width: 64,
+      height: 64,
+      borderRadius: BorderRadius.full,
+      backgroundColor: theme.success,
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginBottom: Spacing.md,
+    },
+    successEmoji: {
+      fontSize: 28,
+      color: Colors.white,
+    },
+    title: {
+      ...TextStyles.h2,
+      color: theme.text.primary,
+      marginBottom: Spacing.xs,
+    },
+    goalTitle: {
+      ...TextStyles.body,
+      color: Colors.accent,
+    },
+    planCard: {
+      backgroundColor: theme.surface,
+      borderRadius: BorderRadius.lg,
+      padding: Spacing.lg,
+      borderWidth: 1,
+      borderColor: theme.border,
+      marginBottom: Spacing.md,
+    },
+    planTitle: {
+      ...TextStyles.h4,
+      color: theme.text.primary,
+      marginBottom: Spacing.sm,
+    },
+    planDesc: {
+      ...TextStyles.body,
+      color: theme.text.secondary,
+      marginBottom: Spacing.md,
+    },
+    metaRow: {
+      flexDirection: 'row',
+      gap: Spacing.md,
+    },
+    metaBadge: {
+      flex: 1,
+      backgroundColor: theme.background,
+      borderRadius: BorderRadius.sm,
+      padding: Spacing.sm,
+      alignItems: 'center',
+    },
+    metaLabel: {
+      ...TextStyles.caption,
+      color: theme.text.secondary,
+      marginBottom: 2,
+    },
+    metaValue: {
+      ...TextStyles.small,
+      color: theme.text.primary,
+      fontWeight: '600',
+    },
+    infoBox: {
+      backgroundColor: theme.surface,
+      borderRadius: BorderRadius.md,
+      padding: Spacing.md,
+      borderLeftWidth: 3,
+      borderLeftColor: Colors.accent,
+      marginBottom: Spacing.xl,
+    },
+    infoText: {
+      ...TextStyles.small,
+      color: theme.text.secondary,
+      lineHeight: 20,
+    },
+    button: {
+      backgroundColor: Colors.accent,
+      borderRadius: BorderRadius.md,
+      paddingVertical: Spacing.md,
+      alignItems: 'center',
+    },
+    buttonDisabled: {
+      opacity: 0.6,
+    },
+    buttonText: {
+      ...TextStyles.button,
+      color: Colors.white,
+    },
+    errorText: {
+      ...TextStyles.body,
+      color: theme.error,
+      textAlign: 'center',
+      marginBottom: Spacing.md,
+    },
+  });
+}
 
 export default function PlanPreviewScreen() {
   const { templateId, goalTitle, answersJson } = useLocalSearchParams<{
@@ -25,6 +147,8 @@ export default function PlanPreviewScreen() {
 
   const { user } = useAuthStore();
   const { createGoal, generatePlan, isLoading, error, clearError } = useGoalsStore();
+  const theme = useTheme();
+  const styles = makeStyles(theme);
 
   const [plan, setPlan] = useState<Plan | null>(null);
   const [goalId, setGoalId] = useState<string | null>(null);
@@ -155,122 +279,3 @@ export default function PlanPreviewScreen() {
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: DarkTheme.background,
-  },
-  center: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: Spacing.lg,
-    gap: Spacing.md,
-  },
-  loadingText: {
-    ...TextStyles.body,
-    color: DarkTheme.text.secondary,
-  },
-  scroll: {
-    padding: Spacing.lg,
-    paddingBottom: Spacing['2xl'],
-  },
-  header: {
-    alignItems: 'center',
-    marginBottom: Spacing.xl,
-  },
-  successBadge: {
-    width: 64,
-    height: 64,
-    borderRadius: BorderRadius.full,
-    backgroundColor: DarkTheme.success,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: Spacing.md,
-  },
-  successEmoji: {
-    fontSize: 28,
-    color: Colors.white,
-  },
-  title: {
-    ...TextStyles.h2,
-    color: DarkTheme.text.primary,
-    marginBottom: Spacing.xs,
-  },
-  goalTitle: {
-    ...TextStyles.body,
-    color: Colors.accent,
-  },
-  planCard: {
-    backgroundColor: DarkTheme.surface,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.lg,
-    borderWidth: 1,
-    borderColor: DarkTheme.border,
-    marginBottom: Spacing.md,
-  },
-  planTitle: {
-    ...TextStyles.h4,
-    color: DarkTheme.text.primary,
-    marginBottom: Spacing.sm,
-  },
-  planDesc: {
-    ...TextStyles.body,
-    color: DarkTheme.text.secondary,
-    marginBottom: Spacing.md,
-  },
-  metaRow: {
-    flexDirection: 'row',
-    gap: Spacing.md,
-  },
-  metaBadge: {
-    flex: 1,
-    backgroundColor: DarkTheme.background,
-    borderRadius: BorderRadius.sm,
-    padding: Spacing.sm,
-    alignItems: 'center',
-  },
-  metaLabel: {
-    ...TextStyles.caption,
-    color: DarkTheme.text.secondary,
-    marginBottom: 2,
-  },
-  metaValue: {
-    ...TextStyles.small,
-    color: DarkTheme.text.primary,
-    fontWeight: '600',
-  },
-  infoBox: {
-    backgroundColor: DarkTheme.surface,
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-    borderLeftWidth: 3,
-    borderLeftColor: Colors.accent,
-    marginBottom: Spacing.xl,
-  },
-  infoText: {
-    ...TextStyles.small,
-    color: DarkTheme.text.secondary,
-    lineHeight: 20,
-  },
-  button: {
-    backgroundColor: Colors.accent,
-    borderRadius: BorderRadius.md,
-    paddingVertical: Spacing.md,
-    alignItems: 'center',
-  },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  buttonText: {
-    ...TextStyles.button,
-    color: Colors.white,
-  },
-  errorText: {
-    ...TextStyles.body,
-    color: DarkTheme.error,
-    textAlign: 'center',
-    marginBottom: Spacing.md,
-  },
-});

@@ -2,6 +2,8 @@ import { View, Text, StyleSheet, TextInput, TouchableOpacity, ActivityIndicator 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { setApiBase } from '../../services/api';
+import { resetApiBase } from '../../services/openclaw.api';
 
 const STORAGE_KEY = '@lyfestack_openclaw_connection';
 const COMMON_PORTS = [3000, 8080, 4000];
@@ -90,9 +92,10 @@ export default function ConnectOpenClawScreen() {
   };
 
   const saveConnection = async (savedIp: string, savedPort: string) => {
+    const base = `http://${savedIp}:${savedPort}`;
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({ ip: savedIp, port: savedPort }));
-    // Update the API base URL globally
-    await AsyncStorage.setItem('@lyfestack_api_base', `http://${savedIp}:${savedPort}`);
+    await setApiBase(base);
+    resetApiBase();
   };
 
   return (

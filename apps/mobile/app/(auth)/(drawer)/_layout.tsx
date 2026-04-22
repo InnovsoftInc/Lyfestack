@@ -1,13 +1,84 @@
 import { Drawer } from 'expo-router/drawer';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { DrawerContentScrollView, DrawerItemList, type DrawerContentComponentProps } from '@react-navigation/drawer';
+import { useEffect } from 'react';
 import { useAuthStore } from '../../../stores/auth.store';
-import { DarkTheme } from '../../../theme/colors';
+import { useOpenClawStore } from '../../../stores/openclaw.store';
+import { useTheme } from '../../../hooks/useTheme';
+import type { Theme } from '../../../theme/colors';
 import { TextStyles, Spacing } from '../../../theme';
 import { Colors } from '@lyfestack/shared';
 
+function makeBannerStyles(theme: Theme) {
+  return StyleSheet.create({
+    container: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: Spacing.xl, marginBottom: Spacing.md, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, backgroundColor: 'rgba(0,0,0,0.3)' },
+    dot: { width: 8, height: 8, borderRadius: 4 },
+    text: { fontSize: 12, fontWeight: '600' },
+  });
+}
+
+function ConnectionBanner() {
+  const { connectionStatus, connectionUrl, reconnect } = useOpenClawStore();
+  const theme = useTheme();
+  const bannerStyles = makeBannerStyles(theme);
+
+  const color = connectionStatus === 'connected' ? '#22C55E' : connectionStatus === 'connecting' ? '#F59E0B' : '#EF4444';
+  const label = connectionStatus === 'connected'
+    ? `Connected${connectionUrl ? ` · ${connectionUrl.replace('http://', '')}` : ''}`
+    : connectionStatus === 'connecting' ? 'Scanning network...' : 'Not connected — tap to retry';
+
+  return (
+    <TouchableOpacity
+      style={[bannerStyles.container, { borderColor: color }]}
+      onPress={connectionStatus !== 'connecting' ? reconnect : undefined}
+      activeOpacity={connectionStatus !== 'connecting' ? 0.7 : 1}
+    >
+      <View style={[bannerStyles.dot, { backgroundColor: color }]} />
+      <Text style={[bannerStyles.text, { color }]}>{label}</Text>
+    </TouchableOpacity>
+  );
+}
+
+function makeStyles(theme: Theme) {
+  return StyleSheet.create({
+    drawerContainer: { flex: 1, backgroundColor: theme.background },
+    drawerHeader: {
+      padding: Spacing.xl,
+      paddingTop: Spacing.xl * 2,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.border,
+      gap: 4,
+    },
+    avatar: {
+      width: 52,
+      height: 52,
+      borderRadius: 26,
+      backgroundColor: Colors.accent,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: Spacing.sm,
+    },
+    avatarText: { ...TextStyles.h3, color: Colors.white },
+    displayName: { ...TextStyles.h4, color: theme.text.primary },
+    email: { ...TextStyles.small, color: theme.text.secondary },
+    drawerItems: { paddingTop: Spacing.sm },
+    logoutBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.sm,
+      padding: Spacing.xl,
+      borderTopWidth: 1,
+      borderTopColor: theme.border,
+    },
+    logoutIcon: { fontSize: 18 },
+    logoutText: { ...TextStyles.body, color: theme.text.secondary },
+  });
+}
+
 function CustomDrawerContent(props: DrawerContentComponentProps) {
   const { user, logout } = useAuthStore();
+  const theme = useTheme();
+  const styles = makeStyles(theme);
 
   return (
     <View style={styles.drawerContainer}>
@@ -20,6 +91,8 @@ function CustomDrawerContent(props: DrawerContentComponentProps) {
         <Text style={styles.displayName}>{user?.displayName ?? 'User'}</Text>
         <Text style={styles.email}>{user?.email ?? ''}</Text>
       </View>
+
+      <ConnectionBanner />
 
       <DrawerContentScrollView {...props} contentContainerStyle={styles.drawerItems}>
         <DrawerItemList {...props} />
@@ -34,18 +107,20 @@ function CustomDrawerContent(props: DrawerContentComponentProps) {
 }
 
 export default function DrawerLayout() {
+  const theme = useTheme();
+
   return (
     <Drawer
         drawerContent={(props) => <CustomDrawerContent {...props} />}
         screenOptions={{
           headerShown: true,
-          headerStyle: { backgroundColor: DarkTheme.background },
-          headerTintColor: DarkTheme.text.primary,
+          headerStyle: { backgroundColor: theme.background },
+          headerTintColor: theme.text.primary,
           headerShadowVisible: false,
-          drawerStyle: { backgroundColor: DarkTheme.background, width: 260 },
+          drawerStyle: { backgroundColor: theme.background, width: 260 },
           drawerActiveTintColor: Colors.accent,
-          drawerInactiveTintColor: DarkTheme.text.secondary,
-          drawerActiveBackgroundColor: DarkTheme.surface,
+          drawerInactiveTintColor: theme.text.secondary,
+          drawerActiveBackgroundColor: theme.surface,
           drawerLabelStyle: { ...TextStyles.body, marginLeft: -8 },
         }}
       >
@@ -80,37 +155,3 @@ export default function DrawerLayout() {
       </Drawer>
   );
 }
-
-const styles = StyleSheet.create({
-  drawerContainer: { flex: 1, backgroundColor: DarkTheme.background },
-  drawerHeader: {
-    padding: Spacing.xl,
-    paddingTop: Spacing.xl * 2,
-    borderBottomWidth: 1,
-    borderBottomColor: DarkTheme.border,
-    gap: 4,
-  },
-  avatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: Colors.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: Spacing.sm,
-  },
-  avatarText: { ...TextStyles.h3, color: Colors.white },
-  displayName: { ...TextStyles.h4, color: DarkTheme.text.primary },
-  email: { ...TextStyles.small, color: DarkTheme.text.secondary },
-  drawerItems: { paddingTop: Spacing.sm },
-  logoutBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    padding: Spacing.xl,
-    borderTopWidth: 1,
-    borderTopColor: DarkTheme.border,
-  },
-  logoutIcon: { fontSize: 18 },
-  logoutText: { ...TextStyles.body, color: DarkTheme.text.secondary },
-});

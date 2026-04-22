@@ -1,7 +1,8 @@
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import { DarkTheme } from '../../theme/colors';
+import { useTheme } from '../../hooks/useTheme';
+import type { Theme } from '../../theme/colors';
 import { TextStyles, Spacing, BorderRadius } from '../../theme';
 import { Colors } from '@lyfestack/shared';
 import { useOnboardingStore } from '../../stores/onboarding.store';
@@ -42,11 +43,75 @@ const QUESTIONS_BY_TEMPLATE: Record<string, Array<{
 
 const DEFAULT_QUESTIONS = QUESTIONS_BY_TEMPLATE['productivity'] ?? [];
 
+function makeStyles(theme: Theme) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.background },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: Spacing.xl,
+      paddingVertical: Spacing.md,
+    },
+    backButton: { padding: Spacing.xs },
+    backText: { ...TextStyles.bodyMedium, color: theme.text.secondary },
+    progress: { flexDirection: 'row', gap: 6 },
+    progressDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: theme.border },
+    progressDotActive: { backgroundColor: Colors.accent, width: 20 },
+    scroll: { flex: 1 },
+    titleSection: { padding: Spacing.xl, paddingTop: Spacing.md, gap: Spacing.sm },
+    title: { ...TextStyles.h2, color: theme.text.primary },
+    subtitle: { ...TextStyles.body, color: theme.text.secondary },
+    questions: { paddingHorizontal: Spacing.xl, gap: Spacing.xl, paddingBottom: Spacing.xl },
+    questionBlock: { gap: Spacing.md },
+    questionLabel: { ...TextStyles.bodyMedium, color: theme.text.primary, lineHeight: 24 },
+    questionNumber: { color: Colors.accent },
+    input: {
+      ...TextStyles.body,
+      color: theme.text.primary,
+      backgroundColor: theme.surface,
+      borderRadius: BorderRadius.md,
+      borderWidth: 1,
+      borderColor: theme.border,
+      padding: Spacing.md,
+      minHeight: 56,
+      textAlignVertical: 'top',
+    },
+    options: { gap: Spacing.sm },
+    option: {
+      backgroundColor: theme.surface,
+      borderRadius: BorderRadius.md,
+      borderWidth: 1,
+      borderColor: theme.border,
+      padding: Spacing.md,
+    },
+    optionSelected: { borderColor: Colors.accent, backgroundColor: 'rgba(14,165,233,0.1)' },
+    optionText: { ...TextStyles.bodyMedium, color: theme.text.secondary },
+    optionTextSelected: { color: Colors.accent },
+    footer: {
+      padding: Spacing.xl,
+      paddingBottom: Spacing.lg,
+      borderTopWidth: 1,
+      borderTopColor: theme.border,
+    },
+    continueButton: {
+      backgroundColor: Colors.accent,
+      paddingVertical: 14,
+      borderRadius: BorderRadius.md,
+      alignItems: 'center',
+    },
+    continueButtonDisabled: { opacity: 0.4 },
+    continueText: { ...TextStyles.button, color: Colors.white, fontSize: 17 },
+  });
+}
+
 export default function DiagnosticScreen() {
   const { selectedTemplateId, diagnosticAnswers, setAnswer } = useOnboardingStore();
   const questions = selectedTemplateId
     ? (QUESTIONS_BY_TEMPLATE[selectedTemplateId] ?? DEFAULT_QUESTIONS)
     : DEFAULT_QUESTIONS;
+  const theme = useTheme();
+  const styles = makeStyles(theme);
 
   const allAnswered = questions.every((q) => diagnosticAnswers[q.id]);
 
@@ -86,7 +151,7 @@ export default function DiagnosticScreen() {
                 <TextInput
                   style={styles.input}
                   placeholder={q.placeholder}
-                  placeholderTextColor={DarkTheme.text.secondary}
+                  placeholderTextColor={theme.text.secondary}
                   value={diagnosticAnswers[q.id] ?? ''}
                   onChangeText={(text) => setAnswer(q.id, text)}
                   multiline
@@ -134,63 +199,3 @@ export default function DiagnosticScreen() {
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: DarkTheme.background },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing.xl,
-    paddingVertical: Spacing.md,
-  },
-  backButton: { padding: Spacing.xs },
-  backText: { ...TextStyles.bodyMedium, color: DarkTheme.text.secondary },
-  progress: { flexDirection: 'row', gap: 6 },
-  progressDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: DarkTheme.border },
-  progressDotActive: { backgroundColor: Colors.accent, width: 20 },
-  scroll: { flex: 1 },
-  titleSection: { padding: Spacing.xl, paddingTop: Spacing.md, gap: Spacing.sm },
-  title: { ...TextStyles.h2, color: DarkTheme.text.primary },
-  subtitle: { ...TextStyles.body, color: DarkTheme.text.secondary },
-  questions: { paddingHorizontal: Spacing.xl, gap: Spacing.xl, paddingBottom: Spacing.xl },
-  questionBlock: { gap: Spacing.md },
-  questionLabel: { ...TextStyles.bodyMedium, color: DarkTheme.text.primary, lineHeight: 24 },
-  questionNumber: { color: Colors.accent },
-  input: {
-    ...TextStyles.body,
-    color: DarkTheme.text.primary,
-    backgroundColor: DarkTheme.surface,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    borderColor: DarkTheme.border,
-    padding: Spacing.md,
-    minHeight: 56,
-    textAlignVertical: 'top',
-  },
-  options: { gap: Spacing.sm },
-  option: {
-    backgroundColor: DarkTheme.surface,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    borderColor: DarkTheme.border,
-    padding: Spacing.md,
-  },
-  optionSelected: { borderColor: Colors.accent, backgroundColor: 'rgba(14,165,233,0.1)' },
-  optionText: { ...TextStyles.bodyMedium, color: DarkTheme.text.secondary },
-  optionTextSelected: { color: Colors.accent },
-  footer: {
-    padding: Spacing.xl,
-    paddingBottom: Spacing.lg,
-    borderTopWidth: 1,
-    borderTopColor: DarkTheme.border,
-  },
-  continueButton: {
-    backgroundColor: Colors.accent,
-    paddingVertical: 14,
-    borderRadius: BorderRadius.md,
-    alignItems: 'center',
-  },
-  continueButtonDisabled: { opacity: 0.4 },
-  continueText: { ...TextStyles.button, color: Colors.white, fontSize: 17 },
-});

@@ -1,7 +1,8 @@
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import { DarkTheme } from '../../../../theme/colors';
+import { useTheme } from '../../../../hooks/useTheme';
+import type { Theme } from '../../../../theme/colors';
 import { TextStyles, Spacing, BorderRadius } from '../../../../theme';
 import { Colors, GoalStatus } from '@lyfestack/shared';
 import type { Goal } from '@lyfestack/shared';
@@ -20,11 +21,108 @@ function statusLabel(status: GoalStatus) {
   return status.charAt(0) + status.slice(1).toLowerCase();
 }
 
+function makeStyles(theme: Theme) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.background },
+    header: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'flex-end',
+      padding: Spacing.xl,
+      paddingBottom: Spacing.md,
+    },
+    heading: { ...TextStyles.h1, color: theme.text.primary },
+    subheading: { ...TextStyles.small, color: theme.text.secondary, marginTop: 2 },
+    scroll: { flex: 1 },
+    statsRow: {
+      flexDirection: 'row',
+      paddingHorizontal: Spacing.xl,
+      gap: Spacing.sm,
+      marginBottom: Spacing.lg,
+    },
+    statCard: {
+      flex: 1,
+      backgroundColor: theme.surface,
+      borderRadius: BorderRadius.md,
+      borderWidth: 1,
+      borderColor: theme.border,
+      padding: Spacing.md,
+      alignItems: 'center',
+      gap: 4,
+    },
+    statValue: { ...TextStyles.h3, color: Colors.accent },
+    statLabel: { ...TextStyles.caption, color: theme.text.secondary, textAlign: 'center' },
+    goalsList: { paddingHorizontal: Spacing.xl, gap: Spacing.md },
+    sectionLabel: {
+      ...TextStyles.caption,
+      color: theme.text.secondary,
+      letterSpacing: 1,
+      textTransform: 'uppercase',
+      marginBottom: Spacing.sm,
+    },
+    goalCard: {
+      backgroundColor: theme.surface,
+      borderRadius: BorderRadius.lg,
+      borderWidth: 1,
+      borderColor: theme.border,
+      padding: Spacing.md,
+      gap: Spacing.md,
+    },
+    goalCardHeader: { gap: 6 },
+    goalTitleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: Spacing.sm,
+    },
+    goalTitle: { ...TextStyles.h4, color: theme.text.primary, flex: 1 },
+    statusDot: { width: 8, height: 8, borderRadius: 4 },
+    goalDesc: { ...TextStyles.small, color: theme.text.secondary, lineHeight: 20 },
+    progressSection: { gap: Spacing.sm },
+    progressLabelRow: { flexDirection: 'row', justifyContent: 'space-between' },
+    progressLabel: { ...TextStyles.caption, color: theme.text.secondary },
+    progressValue: { ...TextStyles.caption, color: Colors.accent, fontWeight: '700' },
+    progressTrack: {
+      height: 6,
+      backgroundColor: theme.border,
+      borderRadius: 3,
+      overflow: 'hidden',
+    },
+    progressFill: {
+      height: '100%',
+      backgroundColor: Colors.accent,
+      borderRadius: 3,
+    },
+    goalMeta: { flexDirection: 'row', justifyContent: 'space-between' },
+    goalMetaText: { ...TextStyles.caption, color: theme.text.secondary },
+    spacer: { height: 100 },
+    fab: {
+      position: 'absolute',
+      bottom: Spacing.xl,
+      right: Spacing.xl,
+      width: 56,
+      height: 56,
+      borderRadius: 28,
+      backgroundColor: Colors.accent,
+      justifyContent: 'center',
+      alignItems: 'center',
+      shadowColor: Colors.accent,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.4,
+      shadowRadius: 8,
+      elevation: 8,
+    },
+    fabIcon: { fontSize: 28, color: Colors.white, lineHeight: 32, fontWeight: '400' },
+  });
+}
+
 interface GoalCardProps {
   goal: Goal;
 }
 
 function GoalCard({ goal }: GoalCardProps) {
+  const theme = useTheme();
+  const styles = makeStyles(theme);
   const completedMilestones = goal.milestones.filter((m) => m.completedAt).length;
   const totalMilestones = goal.milestones.length;
 
@@ -68,6 +166,8 @@ function GoalCard({ goal }: GoalCardProps) {
 
 export default function GoalsScreen() {
   const { goals } = useGoalsStore();
+  const theme = useTheme();
+  const styles = makeStyles(theme);
   const activeGoals = goals.filter((g) => g.status === GoalStatus.ACTIVE);
 
   return (
@@ -120,96 +220,3 @@ export default function GoalsScreen() {
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: DarkTheme.background },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
-    padding: Spacing.xl,
-    paddingBottom: Spacing.md,
-  },
-  heading: { ...TextStyles.h1, color: DarkTheme.text.primary },
-  subheading: { ...TextStyles.small, color: DarkTheme.text.secondary, marginTop: 2 },
-  scroll: { flex: 1 },
-  statsRow: {
-    flexDirection: 'row',
-    paddingHorizontal: Spacing.xl,
-    gap: Spacing.sm,
-    marginBottom: Spacing.lg,
-  },
-  statCard: {
-    flex: 1,
-    backgroundColor: DarkTheme.surface,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    borderColor: DarkTheme.border,
-    padding: Spacing.md,
-    alignItems: 'center',
-    gap: 4,
-  },
-  statValue: { ...TextStyles.h3, color: Colors.accent },
-  statLabel: { ...TextStyles.caption, color: DarkTheme.text.secondary, textAlign: 'center' },
-  goalsList: { paddingHorizontal: Spacing.xl, gap: Spacing.md },
-  sectionLabel: {
-    ...TextStyles.caption,
-    color: DarkTheme.text.secondary,
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    marginBottom: Spacing.sm,
-  },
-  goalCard: {
-    backgroundColor: DarkTheme.surface,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
-    borderColor: DarkTheme.border,
-    padding: Spacing.md,
-    gap: Spacing.md,
-  },
-  goalCardHeader: { gap: 6 },
-  goalTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.sm,
-  },
-  goalTitle: { ...TextStyles.h4, color: DarkTheme.text.primary, flex: 1 },
-  statusDot: { width: 8, height: 8, borderRadius: 4 },
-  goalDesc: { ...TextStyles.small, color: DarkTheme.text.secondary, lineHeight: 20 },
-  progressSection: { gap: Spacing.sm },
-  progressLabelRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  progressLabel: { ...TextStyles.caption, color: DarkTheme.text.secondary },
-  progressValue: { ...TextStyles.caption, color: Colors.accent, fontWeight: '700' },
-  progressTrack: {
-    height: 6,
-    backgroundColor: DarkTheme.border,
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: Colors.accent,
-    borderRadius: 3,
-  },
-  goalMeta: { flexDirection: 'row', justifyContent: 'space-between' },
-  goalMetaText: { ...TextStyles.caption, color: DarkTheme.text.secondary },
-  spacer: { height: 100 },
-  fab: {
-    position: 'absolute',
-    bottom: Spacing.xl,
-    right: Spacing.xl,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: Colors.accent,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: Colors.accent,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  fabIcon: { fontSize: 28, color: Colors.white, lineHeight: 32, fontWeight: '400' },
-});
