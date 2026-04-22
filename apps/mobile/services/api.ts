@@ -91,7 +91,8 @@ export async function request<T>(path: string, options?: RequestOptions): Promis
 
 export interface AuthResult {
   user: User;
-  token: string;
+  accessToken: string;
+  refreshToken: string;
 }
 
 export interface SignUpPendingResult {

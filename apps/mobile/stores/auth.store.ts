@@ -34,8 +34,8 @@ export const useAuthStore = create<AuthState>((set) => ({
         set({ isLoading: false, confirmationPending: true });
         return;
       }
-      await setAuthToken(result.token);
-      set({ user: result.user, isAuthenticated: true, authToken: result.token, isLoading: false });
+      await setAuthToken(result.accessToken);
+      set({ user: result.user, isAuthenticated: true, authToken: result.accessToken, isLoading: false });
     } catch (err: any) {
       set({ isLoading: false, error: err.message ?? 'Sign up failed' });
       throw err;
@@ -46,8 +46,8 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ isLoading: true, error: null });
     try {
       const result = await authApi.login(email, password);
-      await setAuthToken(result.token);
-      set({ user: result.user, isAuthenticated: true, authToken: result.token, isLoading: false });
+      await setAuthToken(result.accessToken);
+      set({ user: result.user, isAuthenticated: true, authToken: result.accessToken, isLoading: false });
     } catch (err: any) {
       set({ isLoading: false, error: err.message ?? 'Login failed' });
       throw err;

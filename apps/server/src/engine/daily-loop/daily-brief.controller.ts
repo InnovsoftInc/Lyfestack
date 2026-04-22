@@ -1,9 +1,73 @@
 import type { Request, Response, NextFunction } from 'express';
+import { v4 as uuidv4 } from 'uuid';
+import { TaskType, TaskStatus, ApprovalState } from '@lyfestack/shared';
+import type { Task } from '@lyfestack/shared';
 import { dailyBriefService } from './daily-brief.service';
+import { NotFoundError } from '../../errors/AppError';
+
+function buildMockTasks(userId: string): Task[] {
+  const now = new Date().toISOString();
+  return [
+    {
+      id: uuidv4(),
+      goalId: 'mock-goal-1',
+      userId,
+      title: 'Morning workout — 30 min cardio',
+      description: 'Complete your scheduled cardio session',
+      type: TaskType.HABIT,
+      status: TaskStatus.PENDING,
+      approvalState: ApprovalState.PENDING,
+      priority: 90,
+      estimatedMinutes: 30,
+      confidenceScore: 0.9,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: uuidv4(),
+      goalId: 'mock-goal-1',
+      userId,
+      title: 'Review weekly progress',
+      description: 'Check in on your goal metrics and adjust tasks',
+      type: TaskType.REFLECTION,
+      status: TaskStatus.PENDING,
+      approvalState: ApprovalState.PENDING,
+      priority: 75,
+      estimatedMinutes: 15,
+      confidenceScore: 0.8,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: uuidv4(),
+      goalId: 'mock-goal-2',
+      userId,
+      title: 'Write 500 words',
+      description: 'Continue your writing habit',
+      type: TaskType.ACTION,
+      status: TaskStatus.PENDING,
+      approvalState: ApprovalState.PENDING,
+      priority: 70,
+      estimatedMinutes: 25,
+      confidenceScore: 0.85,
+      createdAt: now,
+      updatedAt: now,
+    },
+  ];
+}
 
 export function getBriefForToday(req: Request, res: Response, next: NextFunction): void {
   try {
-    const brief = dailyBriefService.getBriefForToday(req.user!.id);
+    let brief;
+    try {
+      brief = dailyBriefService.getBriefForToday(req.user!.id);
+    } catch (err) {
+      if (!(err instanceof NotFoundError)) throw err;
+      brief = dailyBriefService.generateBrief(
+        { userId: req.user!.id, engagementVelocity: 0.7, timezone: 'UTC' },
+        buildMockTasks(req.user!.id),
+      );
+    }
     res.json({ brief });
   } catch (err) {
     next(err);
