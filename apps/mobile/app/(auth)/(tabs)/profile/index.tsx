@@ -153,21 +153,10 @@ export default function ProfileScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>CONNECTED INTEGRATIONS</Text>
           <View style={styles.settingsGroup}>
-            {[
-              { name: 'LinkedIn', status: 'Connected', color: Colors.accent },
-              { name: 'Google Calendar', status: 'Not connected', color: DarkTheme.text.secondary },
-              { name: 'Notion', status: 'Not connected', color: DarkTheme.text.secondary },
-            ].map((integration, i) => (
-              <View key={integration.name}>
-                {i > 0 && <View style={styles.divider} />}
-                <TouchableOpacity style={styles.settingRow} activeOpacity={0.7}>
-                  <Text style={styles.settingLabel}>{integration.name}</Text>
-                  <Text style={[styles.integrationStatus, { color: integration.color }]}>
-                    {integration.status}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            ))}
+            <SettingRow
+              label="Manage Integrations"
+              onPress={() => router.push('/(auth)/(tabs)/profile/integrations')}
+            />
           </View>
         </View>
 

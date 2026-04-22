@@ -5,13 +5,16 @@ import { mockUser } from '../utils/mockData';
 interface AuthState {
   user: User | null;
   isAuthenticated: boolean;
-  setUser: (user: User | null) => void;
+  authToken: string | null;
+  setUser: (user: User | null, token?: string) => void;
   logout: () => void;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
   user: mockUser,
   isAuthenticated: true,
-  setUser: (user) => set({ user, isAuthenticated: !!user }),
-  logout: () => set({ user: null, isAuthenticated: false }),
+  authToken: null,
+  setUser: (user, token) =>
+    set({ user, isAuthenticated: !!user, authToken: token ?? null }),
+  logout: () => set({ user: null, isAuthenticated: false, authToken: null }),
 }));

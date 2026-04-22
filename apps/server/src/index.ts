@@ -15,6 +15,8 @@ import {
   markTaskComplete,
 } from './engine/daily-loop/daily-brief.controller';
 import { executeAgent, getAvailableAgents } from './agents/agent.controller';
+import { createUsersRouter } from './routes/users.routes';
+import { createIntegrationsRouter } from './routes/integrations.routes';
 import { startCronJobs } from './jobs/cron';
 
 const app = express();
@@ -44,6 +46,12 @@ app.patch('/briefs/:id/tasks/:taskId', markTaskComplete);
 // T6.1 — Agents
 app.post('/agents/execute', executeAgent);
 app.get('/agents/actions', getAvailableAgents);
+
+// Phase 5 — Users / Push tokens
+app.use('/users', createUsersRouter());
+
+// Phase 5 — Integrations (Calendar, Buffer)
+app.use('/integrations', createIntegrationsRouter());
 
 app.use(errorMiddleware);
 

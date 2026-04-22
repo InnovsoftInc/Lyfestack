@@ -20,6 +20,9 @@ const configSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
 
+  EXPO_PUSH_ACCESS_TOKEN: z.string().optional(),
+  APP_BASE_URL: z.string().default('http://localhost:3000'),
+
   SENTRY_DSN: z.string().optional(),
 });
 

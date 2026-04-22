@@ -1,19 +1,18 @@
+import cron from 'node-cron';
 import { logger } from '../utils/logger';
-
-const FIFTEEN_MINUTES = 15 * 60 * 1000;
-
-async function runDailyLoopTick(): Promise<void> {
-  logger.info('Daily loop tick — scoring and brief generation would run here');
-  // When the user repository and task repository are wired in, this tick
-  // will: fetch active users → score their pending tasks → upsert daily briefs.
-}
+import { runDailyBriefJob } from './daily-brief.job';
+import { runStreakCheckJob } from './streak-check.job';
 
 export function startCronJobs(): void {
-  void runDailyLoopTick();
+  // Every 15 minutes — check for users due for daily briefs and generate them
+  cron.schedule('*/15 * * * *', () => {
+    void runDailyBriefJob();
+  });
 
-  setInterval(() => {
-    void runDailyLoopTick();
-  }, FIFTEEN_MINUTES);
+  // Once a day at 8 PM — evaluate streaks and send at-risk alerts
+  cron.schedule('0 20 * * *', () => {
+    void runStreakCheckJob();
+  });
 
-  logger.info('Cron jobs started (daily loop every 15 min)');
+  logger.info('Cron jobs started (brief: */15 min, streak: daily 20:00)');
 }

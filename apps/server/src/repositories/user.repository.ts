@@ -12,6 +12,7 @@ interface UserRow {
   trust_tier: string;
   engagement_velocity: number;
   adaptive_task_cap: number;
+  push_token: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -32,6 +33,7 @@ export interface UpdateUserData {
   trust_tier?: TrustTier;
   engagement_velocity?: number;
   adaptive_task_cap?: number;
+  push_token?: string | null;
 }
 
 export class UserRepository extends BaseRepository<User, CreateUserData> {
@@ -78,12 +80,27 @@ export class UserRepository extends BaseRepository<User, CreateUserData> {
     if (data.trust_tier !== undefined)           dbData['trust_tier']          = data.trust_tier;
     if (data.engagement_velocity !== undefined)  dbData['engagement_velocity'] = data.engagement_velocity;
     if (data.adaptive_task_cap !== undefined)    dbData['adaptive_task_cap']   = data.adaptive_task_cap;
+    if (data.push_token !== undefined)           dbData['push_token']          = data.push_token;
 
     return this.update(id, dbData as Partial<CreateUserData>);
   }
 
   async updateTrustTier(id: string, tier: TrustTier): Promise<User | null> {
     return this.update(id, { trust_tier: tier } as Partial<CreateUserData>);
+  }
+
+  async findAllWithPushTokens(): Promise<Array<User & { pushToken: string }>> {
+    const { data, error } = await this.client
+      .from(this.tableName)
+      .select('*')
+      .not('push_token', 'is', null);
+
+    if (error) throw error;
+    return ((data as Record<string, unknown>[]) ?? [])
+      .map((row) => {
+        const r = row as unknown as UserRow;
+        return { ...this.mapRow(row), pushToken: r.push_token! };
+      });
   }
 
   async findByIds(ids: string[]): Promise<User[]> {

@@ -9,6 +9,7 @@ import {
   Outfit_600SemiBold,
   Outfit_700Bold,
 } from '@expo-google-fonts/outfit';
+import { useNotifications } from '../hooks/useNotifications';
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -19,6 +20,8 @@ export default function RootLayout() {
     Outfit_600SemiBold,
     Outfit_700Bold,
   });
+
+  useNotifications();
 
   useEffect(() => {
     if (fontsLoaded) {
