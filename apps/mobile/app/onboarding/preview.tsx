@@ -1,40 +1,116 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
 import { useTheme } from '../../hooks/useTheme';
 import type { Theme } from '../../theme/colors';
 import { TextStyles, Spacing, BorderRadius } from '../../theme';
 import { Colors } from '@lyfestack/shared';
+import { useOnboardingStore } from '../../stores/onboarding.store';
 
-const MOCK_PLAN = {
+interface PlanTemplate {
+  title: string;
+  summary: string;
+  milestones: Array<{ week: string; title: string; description: string }>;
+  firstTasks: string[];
+}
+
+const PLANS_BY_TEMPLATE: Record<string, PlanTemplate> = {
+  productivity: {
+    title: 'Your 90-Day Productivity Plan',
+    summary: 'A focused plan to help you eliminate distractions, protect deep-work time, and consistently hit your goals.',
+    milestones: [
+      { week: 'Week 1–2', title: 'Audit & Reset', description: 'Map your current time use, identify your top 3 drains, and set non-negotiable focus blocks.' },
+      { week: 'Week 3–6', title: 'Systems On', description: 'Build your weekly review cadence, batch low-value tasks, and start delegating to agents.' },
+      { week: 'Week 7–10', title: 'Deep Work Mode', description: 'Protect 2+ hours of daily deep work. Measure output, not hours.' },
+      { week: 'Week 11–13', title: 'Accelerate', description: 'Optimize what's working, cut what's not, and push toward your 90-day output target.' },
+    ],
+    firstTasks: [
+      'Complete your first weekly time audit',
+      'Set up your top 3 focus metrics',
+      'Schedule your first protected deep-work block',
+    ],
+  },
+  'self-improvement': {
+    title: 'Your 90-Day Habit Plan',
+    summary: 'A step-by-step plan to build the habits that matter — with accountability baked in from day one.',
+    milestones: [
+      { week: 'Week 1–2', title: 'Start Small', description: 'Begin with a 5-minute version of your habit every day. Consistency beats intensity.' },
+      { week: 'Week 3–6', title: 'Build the Chain', description: 'Stack your habit with existing routines. Track your streak and review weekly.' },
+      { week: 'Week 7–10', title: 'Level Up', description: 'Increase intensity or duration. Agents will remind and adjust based on your data.' },
+      { week: 'Week 11–13', title: 'Lock It In', description: 'Your habit is automatic now. Add a second habit or push your existing one further.' },
+    ],
+    firstTasks: [
+      'Define your minimum viable daily habit',
+      'Set your daily reminder time',
+      'Log your first check-in',
+    ],
+  },
+  'solo-business': {
+    title: 'Your 90-Day Business Launch Plan',
+    summary: 'Go from idea to paying clients with a structured plan built around your offer and market.',
+    milestones: [
+      { week: 'Week 1–2', title: 'Offer Clarity', description: 'Define your service, pricing, and ideal client. Build a one-page pitch.' },
+      { week: 'Week 3–6', title: 'First Outreach', description: 'Contact 20 potential clients. Run your first discovery calls. Refine your pitch.' },
+      { week: 'Week 7–10', title: 'First Revenue', description: 'Close your first client. Deliver and document your process.' },
+      { week: 'Week 11–13', title: 'Scale the System', description: 'Get referrals, raise prices, and let agents handle follow-ups and scheduling.' },
+    ],
+    firstTasks: [
+      'Write your one-paragraph offer statement',
+      'List 10 potential first clients',
+      'Book your first outreach call',
+    ],
+  },
+  'social-media': {
+    title: 'Your 90-Day Content Growth Plan',
+    summary: 'Build an audience with consistent, high-quality content — and let agents handle the scheduling.',
+    milestones: [
+      { week: 'Week 1–2', title: 'Content Foundation', description: 'Define your content pillars, post format, and publishing cadence.' },
+      { week: 'Week 3–6', title: 'Consistency Mode', description: 'Post every scheduled day. Agents draft and queue content for your approval.' },
+      { week: 'Week 7–10', title: 'Optimize & Engage', description: 'Double down on what's working. Reply to comments. Collaborate with others.' },
+      { week: 'Week 11–13', title: 'Compound Growth', description: 'Your audience is growing. Repurpose top content and expand to a second format.' },
+    ],
+    firstTasks: [
+      'Write your first 3 post ideas',
+      'Set your weekly publishing schedule',
+      'Approve your first agent-drafted post',
+    ],
+  },
+  fitness: {
+    title: 'Your 90-Day Fitness Plan',
+    summary: 'Build a consistent training routine that fits your life and gets you to your goal.',
+    milestones: [
+      { week: 'Week 1–2', title: 'Build the Base', description: 'Establish your workout schedule. Focus on form and showing up, not intensity.' },
+      { week: 'Week 3–6', title: 'Progressive Load', description: 'Gradually increase difficulty. Track your key metrics each week.' },
+      { week: 'Week 7–10', title: 'Peak Phase', description: 'Push toward your target. Your morning routine is locked in by now.' },
+      { week: 'Week 11–13', title: 'Finish Strong', description: 'Hit your 90-day goal. Set the next target before momentum fades.' },
+    ],
+    firstTasks: [
+      'Schedule your first 3 workouts this week',
+      'Log your starting fitness benchmark',
+      'Set your daily habit reminder',
+    ],
+  },
+};
+
+const DEFAULT_PLAN: PlanTemplate = {
   title: 'Your 90-Day Plan',
-  summary: 'Based on your answers, here\'s a focused plan to build momentum in the first 90 days.',
+  summary: 'A personalized roadmap to build momentum and hit your goal over the next 90 days.',
   milestones: [
-    { week: 'Week 1–2', title: 'Foundation', description: 'Set up your systems, establish daily routines, and get your first wins on the board.', done: false },
-    { week: 'Week 3–6', title: 'Build Momentum', description: 'Deepen your habits, tackle your first major milestone, and let agents start handling recurring tasks.', done: false },
-    { week: 'Week 7–10', title: 'Compound Growth', description: 'Review and optimize. Your agents have enough data to operate more autonomously now.', done: false },
-    { week: 'Week 11–13', title: 'Accelerate', description: 'Push toward your 90-day target. Agents surface opportunities you may have missed.', done: false },
+    { week: 'Week 1–2', title: 'Foundation', description: 'Set up your systems, establish daily routines, and get your first wins on the board.' },
+    { week: 'Week 3–6', title: 'Build Momentum', description: 'Deepen your habits, tackle your first major milestone, and let agents start handling recurring tasks.' },
+    { week: 'Week 7–10', title: 'Compound Growth', description: 'Review and optimize. Your agents have enough data to operate more autonomously now.' },
+    { week: 'Week 11–13', title: 'Accelerate', description: 'Push toward your 90-day target. Agents surface opportunities you may have missed.' },
   ],
-  tasks: [
+  firstTasks: [
     'Complete your first daily brief review',
     'Set up your top 3 leading indicators',
-    'Approve your first agent-drafted content',
+    'Approve your first agent-drafted action',
   ],
 };
 
 function makeStyles(theme: Theme) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: theme.background },
-    loadingContent: {
-      flex: 1,
-      justifyContent: 'center',
-      alignItems: 'center',
-      padding: Spacing.xl,
-      gap: Spacing.lg,
-    },
-    loadingTitle: { ...TextStyles.h3, color: theme.text.primary, textAlign: 'center' },
-    loadingSubtitle: { ...TextStyles.body, color: theme.text.secondary, textAlign: 'center', lineHeight: 26 },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -116,28 +192,10 @@ function makeStyles(theme: Theme) {
 }
 
 export default function PlanPreviewScreen() {
-  const [loading, setLoading] = useState(true);
+  const { selectedTemplateId } = useOnboardingStore();
+  const plan = (selectedTemplateId && PLANS_BY_TEMPLATE[selectedTemplateId]) ?? DEFAULT_PLAN;
   const theme = useTheme();
   const styles = makeStyles(theme);
-
-  useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 1800);
-    return () => clearTimeout(timer);
-  }, []);
-
-  if (loading) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.loadingContent}>
-          <ActivityIndicator size="large" color={Colors.accent} />
-          <Text style={styles.loadingTitle}>Building your plan...</Text>
-          <Text style={styles.loadingSubtitle}>
-            Lyfestack is analyzing your answers and generating a personalized roadmap.
-          </Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -159,19 +217,19 @@ export default function PlanPreviewScreen() {
         <View style={styles.titleSection}>
           <View style={styles.sparkle}>
             <Text style={styles.sparkleIcon}>✨</Text>
-            <Text style={styles.sparkleText}>Plan generated</Text>
+            <Text style={styles.sparkleText}>Plan ready</Text>
           </View>
-          <Text style={styles.title}>{MOCK_PLAN.title}</Text>
-          <Text style={styles.subtitle}>{MOCK_PLAN.summary}</Text>
+          <Text style={styles.title}>{plan.title}</Text>
+          <Text style={styles.subtitle}>{plan.summary}</Text>
         </View>
 
         <View style={styles.timeline}>
           <Text style={styles.sectionLabel}>Milestone Timeline</Text>
-          {MOCK_PLAN.milestones.map((m, i) => (
+          {plan.milestones.map((m, i) => (
             <View key={m.week} style={styles.timelineItem}>
               <View style={styles.timelineLeft}>
                 <View style={[styles.timelineDot, i === 0 && styles.timelineDotActive]} />
-                {i < MOCK_PLAN.milestones.length - 1 && <View style={styles.timelineLine} />}
+                {i < plan.milestones.length - 1 && <View style={styles.timelineLine} />}
               </View>
               <View style={styles.timelineContent}>
                 <Text style={styles.timelineWeek}>{m.week}</Text>
@@ -184,7 +242,7 @@ export default function PlanPreviewScreen() {
 
         <View style={styles.firstWeek}>
           <Text style={styles.sectionLabel}>Your first 3 tasks</Text>
-          {MOCK_PLAN.tasks.map((task, i) => (
+          {plan.firstTasks.map((task, i) => (
             <View key={i} style={styles.taskRow}>
               <View style={styles.taskBullet} />
               <Text style={styles.taskText}>{task}</Text>

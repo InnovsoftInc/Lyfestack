@@ -1,19 +1,28 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { useCallback, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  ActivityIndicator,
+  RefreshControl,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../../../hooks/useTheme';
 import type { Theme } from '../../../../theme/colors';
 import { TextStyles, Spacing, BorderRadius } from '../../../../theme';
-import { Colors, ApprovalState, AgentRole } from '@lyfestack/shared';
+import { Colors, ApprovalState } from '@lyfestack/shared';
 import { useApprovalsStore } from '../../../../stores/approvals.store';
 import { Badge } from '../../../../components/ui';
-import type { MockAgentAction } from '../../../../utils/mockData';
+import type { AgentAction } from '../../../../services/agents.api';
 
-function agentRoleLabel(role: AgentRole) {
+function agentRoleLabel(role: string) {
   switch (role) {
-    case AgentRole.EXECUTOR: return 'Executor Agent';
-    case AgentRole.PLANNER: return 'Planner Agent';
-    case AgentRole.REVIEWER: return 'Reviewer Agent';
-    case AgentRole.COACH: return 'Coach Agent';
+    case 'EXECUTOR': return 'Executor Agent';
+    case 'PLANNER': return 'Planner Agent';
+    case 'REVIEWER': return 'Reviewer Agent';
+    case 'COACH': return 'Coach Agent';
     default: return 'Agent';
   }
 }
@@ -27,15 +36,16 @@ function actionLabel(action: string) {
   }
 }
 
-function confidenceVariant(score: number): 'success' | 'warning' | 'error' {
-  if (score >= 85) return 'success';
-  if (score >= 65) return 'warning';
-  return 'error';
-}
-
 function makeStyles(theme: Theme) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: theme.background },
+    center: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      gap: Spacing.md,
+      padding: Spacing.lg,
+    },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -51,14 +61,15 @@ function makeStyles(theme: Theme) {
       paddingHorizontal: 10,
     },
     pendingBadgeText: { ...TextStyles.caption, color: Colors.accent, fontWeight: '700' },
-    scroll: { flex: 1 },
-    section: { paddingHorizontal: Spacing.xl, marginBottom: Spacing.xl },
+    list: { paddingBottom: Spacing['2xl'] },
     sectionLabel: {
       ...TextStyles.caption,
       color: theme.text.secondary,
       letterSpacing: 1,
       textTransform: 'uppercase',
       marginBottom: Spacing.md,
+      marginHorizontal: Spacing.xl,
+      marginTop: Spacing.md,
     },
     card: {
       backgroundColor: theme.surface,
@@ -67,16 +78,22 @@ function makeStyles(theme: Theme) {
       borderColor: theme.border,
       padding: Spacing.md,
       gap: Spacing.md,
+      marginHorizontal: Spacing.xl,
       marginBottom: Spacing.md,
     },
     cardResolved: { opacity: 0.65 },
-    cardHeader: { gap: 8 },
     cardTitleRow: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
     },
-    agentRole: { ...TextStyles.caption, color: Colors.accent, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
+    agentRole: {
+      ...TextStyles.caption,
+      color: Colors.accent,
+      fontWeight: '600',
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+    },
     actionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
     actionLabel: { ...TextStyles.h4, color: theme.text.primary },
     payloadSection: {
@@ -85,11 +102,25 @@ function makeStyles(theme: Theme) {
       padding: Spacing.md,
       gap: 8,
     },
-    payloadRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: Spacing.md },
-    payloadKey: { ...TextStyles.caption, color: theme.text.secondary, textTransform: 'capitalize', flexShrink: 0 },
+    payloadRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      gap: Spacing.md,
+    },
+    payloadKey: {
+      ...TextStyles.caption,
+      color: theme.text.secondary,
+      textTransform: 'capitalize',
+      flexShrink: 0,
+    },
     payloadValue: { ...TextStyles.small, color: theme.text.primary, flex: 1, textAlign: 'right' },
-    rationaleSection: { gap: 6 },
-    rationaleLabel: { ...TextStyles.caption, color: theme.text.secondary, textTransform: 'uppercase', letterSpacing: 0.5 },
+    rationaleLabel: {
+      ...TextStyles.caption,
+      color: theme.text.secondary,
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+    },
     rationaleText: { ...TextStyles.small, color: theme.text.secondary, lineHeight: 20 },
     cardActions: { flexDirection: 'row', gap: Spacing.sm },
     approveBtn: {
@@ -100,14 +131,6 @@ function makeStyles(theme: Theme) {
       alignItems: 'center',
     },
     approveBtnText: { ...TextStyles.small, color: Colors.white, fontWeight: '600' },
-    editBtn: {
-      flex: 1,
-      backgroundColor: theme.border,
-      borderRadius: BorderRadius.md,
-      paddingVertical: 10,
-      alignItems: 'center',
-    },
-    editBtnText: { ...TextStyles.small, color: theme.text.primary },
     rejectBtn: {
       flex: 1,
       backgroundColor: 'rgba(239,68,68,0.15)',
@@ -127,12 +150,20 @@ function makeStyles(theme: Theme) {
     emptyIcon: { fontSize: 48 },
     emptyTitle: { ...TextStyles.h3, color: theme.text.primary },
     emptySubtitle: { ...TextStyles.body, color: theme.text.secondary, textAlign: 'center' },
-    spacer: { height: 40 },
+    errorText: { ...TextStyles.body, color: theme.error, textAlign: 'center' },
+    retryButton: {
+      paddingVertical: Spacing.sm,
+      paddingHorizontal: Spacing.lg,
+      borderRadius: BorderRadius.md,
+      borderWidth: 1,
+      borderColor: theme.border,
+    },
+    retryText: { ...TextStyles.button, color: theme.text.secondary },
   });
 }
 
 interface ApprovalCardProps {
-  action: MockAgentAction;
+  action: AgentAction;
   onApprove: () => void;
   onReject: () => void;
 }
@@ -145,23 +176,20 @@ function ApprovalCard({ action, onApprove, onReject }: ApprovalCardProps) {
 
   return (
     <View style={[styles.card, !isPending && styles.cardResolved]}>
-      <View style={styles.cardHeader}>
-        <View style={styles.cardTitleRow}>
-          <Text style={styles.agentRole}>{agentRoleLabel(action.agentRole)}</Text>
-          {!isPending && (
-            <Badge
-              label={action.approvalState === ApprovalState.APPROVED ? 'Approved' : 'Rejected'}
-              variant={action.approvalState === ApprovalState.APPROVED ? 'success' : 'error'}
-            />
-          )}
-        </View>
-        <View style={styles.actionRow}>
-          <Text style={styles.actionLabel}>{actionLabel(action.action)}</Text>
-          <Badge label={`${action.confidence}% confidence`} variant={confidenceVariant(action.confidence)} />
-        </View>
+      <View style={styles.cardTitleRow}>
+        <Text style={styles.agentRole}>{agentRoleLabel(action.agentRole)}</Text>
+        {!isPending && (
+          <Badge
+            label={action.approvalState === ApprovalState.APPROVED ? 'Approved' : 'Rejected'}
+            variant={action.approvalState === ApprovalState.APPROVED ? 'success' : 'error'}
+          />
+        )}
       </View>
 
-      {/* Payload preview */}
+      <View style={styles.actionRow}>
+        <Text style={styles.actionLabel}>{actionLabel(action.action)}</Text>
+      </View>
+
       <View style={styles.payloadSection}>
         {payloadEntries.map(([key, value]) => (
           <View key={key} style={styles.payloadRow}>
@@ -173,8 +201,7 @@ function ApprovalCard({ action, onApprove, onReject }: ApprovalCardProps) {
         ))}
       </View>
 
-      {/* Rationale */}
-      <View style={styles.rationaleSection}>
+      <View>
         <Text style={styles.rationaleLabel}>Why the agent did this</Text>
         <Text style={styles.rationaleText}>{action.rationale}</Text>
       </View>
@@ -183,9 +210,6 @@ function ApprovalCard({ action, onApprove, onReject }: ApprovalCardProps) {
         <View style={styles.cardActions}>
           <TouchableOpacity style={styles.approveBtn} onPress={onApprove} activeOpacity={0.8}>
             <Text style={styles.approveBtnText}>Approve</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.editBtn} activeOpacity={0.8}>
-            <Text style={styles.editBtnText}>Edit</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.rejectBtn} onPress={onReject} activeOpacity={0.8}>
             <Text style={styles.rejectBtnText}>Reject</Text>
@@ -196,13 +220,65 @@ function ApprovalCard({ action, onApprove, onReject }: ApprovalCardProps) {
   );
 }
 
+type ListItem =
+  | { kind: 'sectionLabel'; label: string; key: string }
+  | { kind: 'card'; action: AgentAction; key: string }
+  | { kind: 'empty'; key: string };
+
 export default function ApprovalsScreen() {
-  const { actions, approve, reject } = useApprovalsStore();
+  const { actions, isLoading, error, fetch, approve, reject } = useApprovalsStore();
   const theme = useTheme();
   const styles = makeStyles(theme);
 
-  const pending = actions.filter((a) => a.approvalState === ApprovalState.PENDING) as MockAgentAction[];
-  const resolved = actions.filter((a) => a.approvalState !== ApprovalState.PENDING) as MockAgentAction[];
+  useEffect(() => {
+    void fetch();
+  }, [fetch]);
+
+  const handleRefresh = useCallback(() => {
+    void fetch();
+  }, [fetch]);
+
+  if (isLoading && actions.length === 0) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.center}>
+          <ActivityIndicator color={Colors.accent} size="large" />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (error && actions.length === 0) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.center}>
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={handleRefresh}>
+            <Text style={styles.retryText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const pending = actions.filter((a) => a.approvalState === ApprovalState.PENDING);
+  const resolved = actions.filter((a) => a.approvalState !== ApprovalState.PENDING);
+
+  const items: ListItem[] = [];
+
+  if (pending.length > 0) {
+    items.push({ kind: 'sectionLabel', label: 'NEEDS YOUR REVIEW', key: 'label-pending' });
+    pending.forEach((a) => items.push({ kind: 'card', action: a, key: a.id }));
+  }
+
+  if (pending.length === 0 && resolved.length === 0) {
+    items.push({ kind: 'empty', key: 'empty' });
+  }
+
+  if (resolved.length > 0) {
+    items.push({ kind: 'sectionLabel', label: 'HISTORY', key: 'label-resolved' });
+    resolved.forEach((a) => items.push({ kind: 'card', action: a, key: a.id }));
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -215,45 +291,39 @@ export default function ApprovalsScreen() {
         )}
       </View>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
-        {pending.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>NEEDS YOUR REVIEW</Text>
-            {pending.map((action) => (
-              <ApprovalCard
-                key={action.id}
-                action={action}
-                onApprove={() => approve(action.id)}
-                onReject={() => reject(action.id)}
-              />
-            ))}
-          </View>
-        )}
-
-        {pending.length === 0 && (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyIcon}>✅</Text>
-            <Text style={styles.emptyTitle}>All caught up!</Text>
-            <Text style={styles.emptySubtitle}>No pending approvals. Agents are running smoothly.</Text>
-          </View>
-        )}
-
-        {resolved.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>HISTORY</Text>
-            {resolved.map((action) => (
-              <ApprovalCard
-                key={action.id}
-                action={action}
-                onApprove={() => approve(action.id)}
-                onReject={() => reject(action.id)}
-              />
-            ))}
-          </View>
-        )}
-
-        <View style={styles.spacer} />
-      </ScrollView>
+      <FlatList
+        data={items}
+        keyExtractor={(item) => item.key}
+        contentContainerStyle={styles.list}
+        refreshControl={
+          <RefreshControl
+            refreshing={isLoading}
+            onRefresh={handleRefresh}
+            tintColor={Colors.accent}
+          />
+        }
+        renderItem={({ item }) => {
+          if (item.kind === 'sectionLabel') {
+            return <Text style={styles.sectionLabel}>{item.label}</Text>;
+          }
+          if (item.kind === 'empty') {
+            return (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyIcon}>✅</Text>
+                <Text style={styles.emptyTitle}>All caught up!</Text>
+                <Text style={styles.emptySubtitle}>No pending approvals. Agents are running smoothly.</Text>
+              </View>
+            );
+          }
+          return (
+            <ApprovalCard
+              action={item.action}
+              onApprove={() => void approve(item.action.id)}
+              onReject={() => void reject(item.action.id)}
+            />
+          );
+        }}
+      />
     </SafeAreaView>
   );
 }

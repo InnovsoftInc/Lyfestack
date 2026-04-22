@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { Goal } from '@lyfestack/shared';
-import { createGoal as apiCreateGoal, generatePlan as apiGeneratePlan } from '../services/goals.api';
+import { createGoal as apiCreateGoal, generatePlan as apiGeneratePlan, getGoals as apiGetGoals } from '../services/goals.api';
 import type { CreateGoalPayload, DiagnosticAnswer, Plan } from '../services/goals.api';
 
 interface GoalsState {
@@ -11,6 +11,7 @@ interface GoalsState {
   setSelectedGoal: (goal: Goal | null) => void;
   setGoals: (goals: Goal[]) => void;
   clearError: () => void;
+  fetchGoals: () => Promise<void>;
   createGoal: (payload: CreateGoalPayload) => Promise<{ id: string }>;
   generatePlan: (goalId: string, templateId: string, answers: DiagnosticAnswer[], userId: string) => Promise<Plan>;
 }
@@ -24,6 +25,17 @@ export const useGoalsStore = create<GoalsState>((set) => ({
   setSelectedGoal: (goal) => set({ selectedGoal: goal }),
   setGoals: (goals) => set({ goals }),
   clearError: () => set({ error: null }),
+
+  fetchGoals: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      const goals = await apiGetGoals();
+      set({ isLoading: false, goals: goals as unknown as Goal[] });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to load goals';
+      set({ isLoading: false, error: message });
+    }
+  },
 
   createGoal: async (payload) => {
     set({ isLoading: true, error: null });

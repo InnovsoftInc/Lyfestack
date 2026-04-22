@@ -38,3 +38,19 @@ export async function getAgentActions(): Promise<AgentAction[]> {
   const res = await request<{ agents: AgentAction[] }>('/agents/actions');
   return res.agents;
 }
+
+export async function approveAction(id: string): Promise<AgentAction> {
+  const res = await request<{ action: AgentAction }>(`/agents/actions/${id}`, {
+    method: 'PATCH',
+    body: { approvalState: 'APPROVED' },
+  });
+  return res.action;
+}
+
+export async function rejectAction(id: string): Promise<AgentAction> {
+  const res = await request<{ action: AgentAction }>(`/agents/actions/${id}`, {
+    method: 'PATCH',
+    body: { approvalState: 'REJECTED' },
+  });
+  return res.action;
+}

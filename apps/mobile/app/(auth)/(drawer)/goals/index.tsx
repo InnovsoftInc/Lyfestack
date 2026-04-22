@@ -1,4 +1,13 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { useCallback, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  ActivityIndicator,
+  RefreshControl,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useTheme } from '../../../../hooks/useTheme';
@@ -17,13 +26,26 @@ function statusColor(status: GoalStatus) {
   }
 }
 
-function statusLabel(status: GoalStatus) {
-  return status.charAt(0) + status.slice(1).toLowerCase();
-}
-
 function makeStyles(theme: Theme) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: theme.background },
+    center: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      gap: Spacing.md,
+      padding: Spacing.lg,
+    },
+    errorText: { ...TextStyles.body, color: theme.error, textAlign: 'center' },
+    retryButton: {
+      paddingVertical: Spacing.sm,
+      paddingHorizontal: Spacing.lg,
+      borderRadius: BorderRadius.md,
+      borderWidth: 1,
+      borderColor: theme.border,
+    },
+    retryText: { ...TextStyles.button, color: theme.text.secondary },
+    list: { paddingBottom: 100 },
     header: {
       flexDirection: 'row',
       justifyContent: 'space-between',
@@ -33,7 +55,6 @@ function makeStyles(theme: Theme) {
     },
     heading: { ...TextStyles.h1, color: theme.text.primary },
     subheading: { ...TextStyles.small, color: theme.text.secondary, marginTop: 2 },
-    scroll: { flex: 1 },
     statsRow: {
       flexDirection: 'row',
       paddingHorizontal: Spacing.xl,
@@ -52,13 +73,13 @@ function makeStyles(theme: Theme) {
     },
     statValue: { ...TextStyles.h3, color: Colors.accent },
     statLabel: { ...TextStyles.caption, color: theme.text.secondary, textAlign: 'center' },
-    goalsList: { paddingHorizontal: Spacing.xl, gap: Spacing.md },
     sectionLabel: {
       ...TextStyles.caption,
       color: theme.text.secondary,
       letterSpacing: 1,
       textTransform: 'uppercase',
       marginBottom: Spacing.sm,
+      marginHorizontal: Spacing.xl,
     },
     goalCard: {
       backgroundColor: theme.surface,
@@ -67,8 +88,9 @@ function makeStyles(theme: Theme) {
       borderColor: theme.border,
       padding: Spacing.md,
       gap: Spacing.md,
+      marginHorizontal: Spacing.xl,
+      marginBottom: Spacing.md,
     },
-    goalCardHeader: { gap: 6 },
     goalTitleRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -78,7 +100,6 @@ function makeStyles(theme: Theme) {
     goalTitle: { ...TextStyles.h4, color: theme.text.primary, flex: 1 },
     statusDot: { width: 8, height: 8, borderRadius: 4 },
     goalDesc: { ...TextStyles.small, color: theme.text.secondary, lineHeight: 20 },
-    progressSection: { gap: Spacing.sm },
     progressLabelRow: { flexDirection: 'row', justifyContent: 'space-between' },
     progressLabel: { ...TextStyles.caption, color: theme.text.secondary },
     progressValue: { ...TextStyles.caption, color: Colors.accent, fontWeight: '700' },
@@ -88,14 +109,24 @@ function makeStyles(theme: Theme) {
       borderRadius: 3,
       overflow: 'hidden',
     },
-    progressFill: {
-      height: '100%',
-      backgroundColor: Colors.accent,
-      borderRadius: 3,
-    },
+    progressFill: { height: '100%', backgroundColor: Colors.accent, borderRadius: 3 },
     goalMeta: { flexDirection: 'row', justifyContent: 'space-between' },
     goalMetaText: { ...TextStyles.caption, color: theme.text.secondary },
-    spacer: { height: 100 },
+    emptyState: {
+      alignItems: 'center',
+      padding: Spacing['2xl'],
+      gap: Spacing.md,
+    },
+    emptyIcon: { fontSize: 48 },
+    emptyTitle: { ...TextStyles.h3, color: theme.text.primary },
+    emptySubtitle: { ...TextStyles.body, color: theme.text.secondary, textAlign: 'center' },
+    emptyButton: {
+      backgroundColor: Colors.accent,
+      paddingVertical: Spacing.sm,
+      paddingHorizontal: Spacing.xl,
+      borderRadius: BorderRadius.md,
+    },
+    emptyButtonText: { ...TextStyles.button, color: Colors.white },
     fab: {
       position: 'absolute',
       bottom: Spacing.xl,
@@ -116,15 +147,10 @@ function makeStyles(theme: Theme) {
   });
 }
 
-interface GoalCardProps {
-  goal: Goal;
-}
-
-function GoalCard({ goal }: GoalCardProps) {
+function GoalCard({ goal }: { goal: Goal }) {
   const theme = useTheme();
   const styles = makeStyles(theme);
   const completedMilestones = goal.milestones.filter((m) => m.completedAt).length;
-  const totalMilestones = goal.milestones.length;
 
   return (
     <TouchableOpacity
@@ -132,15 +158,13 @@ function GoalCard({ goal }: GoalCardProps) {
       onPress={() => router.push(`/(auth)/(drawer)/goals/${goal.id}`)}
       activeOpacity={0.8}
     >
-      <View style={styles.goalCardHeader}>
-        <View style={styles.goalTitleRow}>
-          <Text style={styles.goalTitle} numberOfLines={1}>{goal.title}</Text>
-          <View style={[styles.statusDot, { backgroundColor: statusColor(goal.status) }]} />
-        </View>
-        <Text style={styles.goalDesc} numberOfLines={2}>{goal.description}</Text>
+      <View style={styles.goalTitleRow}>
+        <Text style={styles.goalTitle} numberOfLines={1}>{goal.title}</Text>
+        <View style={[styles.statusDot, { backgroundColor: statusColor(goal.status) }]} />
       </View>
+      <Text style={styles.goalDesc} numberOfLines={2}>{goal.description}</Text>
 
-      <View style={styles.progressSection}>
+      <View>
         <View style={styles.progressLabelRow}>
           <Text style={styles.progressLabel}>Progress</Text>
           <Text style={styles.progressValue}>{goal.progressScore}%</Text>
@@ -152,7 +176,7 @@ function GoalCard({ goal }: GoalCardProps) {
 
       <View style={styles.goalMeta}>
         <Text style={styles.goalMetaText}>
-          {completedMilestones}/{totalMilestones} milestones
+          {completedMilestones}/{goal.milestones.length} milestones
         </Text>
         {goal.targetDate && (
           <Text style={styles.goalMetaText}>
@@ -164,11 +188,59 @@ function GoalCard({ goal }: GoalCardProps) {
   );
 }
 
+type ListItem =
+  | { kind: 'stats'; key: string }
+  | { kind: 'sectionLabel'; key: string }
+  | { kind: 'goal'; goal: Goal; key: string }
+  | { kind: 'empty'; key: string };
+
 export default function GoalsScreen() {
-  const { goals } = useGoalsStore();
+  const { goals, isLoading, error, fetchGoals } = useGoalsStore();
   const theme = useTheme();
   const styles = makeStyles(theme);
   const activeGoals = goals.filter((g) => g.status === GoalStatus.ACTIVE);
+
+  useEffect(() => {
+    void fetchGoals();
+  }, [fetchGoals]);
+
+  const handleRefresh = useCallback(() => {
+    void fetchGoals();
+  }, [fetchGoals]);
+
+  if (isLoading && goals.length === 0) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.center}>
+          <ActivityIndicator color={Colors.accent} size="large" />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (error && goals.length === 0) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.center}>
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={handleRefresh}>
+            <Text style={styles.retryText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const items: ListItem[] = [
+    { kind: 'stats', key: 'stats' },
+    { kind: 'sectionLabel', key: 'label-active' },
+  ];
+
+  if (activeGoals.length === 0) {
+    items.push({ kind: 'empty', key: 'empty' });
+  } else {
+    activeGoals.forEach((g) => items.push({ kind: 'goal', goal: g, key: g.id }));
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -179,40 +251,72 @@ export default function GoalsScreen() {
         </View>
       </View>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
-        <View style={styles.statsRow}>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>{activeGoals.length}</Text>
-            <Text style={styles.statLabel}>Active Goals</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>
-              {Math.round(activeGoals.reduce((sum, g) => sum + g.progressScore, 0) / Math.max(activeGoals.length, 1))}%
-            </Text>
-            <Text style={styles.statLabel}>Avg Progress</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>
-              {activeGoals.reduce((sum, g) => sum + g.milestones.filter((m) => m.completedAt).length, 0)}
-            </Text>
-            <Text style={styles.statLabel}>Milestones Hit</Text>
-          </View>
-        </View>
+      <FlatList
+        data={items}
+        keyExtractor={(item) => item.key}
+        contentContainerStyle={styles.list}
+        refreshControl={
+          <RefreshControl
+            refreshing={isLoading}
+            onRefresh={handleRefresh}
+            tintColor={Colors.accent}
+          />
+        }
+        renderItem={({ item }) => {
+          if (item.kind === 'stats') {
+            return (
+              <View style={styles.statsRow}>
+                <View style={styles.statCard}>
+                  <Text style={styles.statValue}>{activeGoals.length}</Text>
+                  <Text style={styles.statLabel}>Active Goals</Text>
+                </View>
+                <View style={styles.statCard}>
+                  <Text style={styles.statValue}>
+                    {Math.round(
+                      activeGoals.reduce((sum, g) => sum + g.progressScore, 0) /
+                        Math.max(activeGoals.length, 1),
+                    )}%
+                  </Text>
+                  <Text style={styles.statLabel}>Avg Progress</Text>
+                </View>
+                <View style={styles.statCard}>
+                  <Text style={styles.statValue}>
+                    {activeGoals.reduce(
+                      (sum, g) => sum + g.milestones.filter((m) => m.completedAt).length,
+                      0,
+                    )}
+                  </Text>
+                  <Text style={styles.statLabel}>Milestones Hit</Text>
+                </View>
+              </View>
+            );
+          }
+          if (item.kind === 'sectionLabel') {
+            return <Text style={styles.sectionLabel}>ACTIVE</Text>;
+          }
+          if (item.kind === 'empty') {
+            return (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyIcon}>🎯</Text>
+                <Text style={styles.emptyTitle}>No goals yet</Text>
+                <Text style={styles.emptySubtitle}>Create your first goal to start tracking progress.</Text>
+                <TouchableOpacity
+                  style={styles.emptyButton}
+                  onPress={() => router.push('/goal-setup')}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.emptyButtonText}>Create a Goal</Text>
+                </TouchableOpacity>
+              </View>
+            );
+          }
+          return <GoalCard goal={item.goal} />;
+        }}
+      />
 
-        <View style={styles.goalsList}>
-          <Text style={styles.sectionLabel}>ACTIVE</Text>
-          {activeGoals.map((goal) => (
-            <GoalCard key={goal.id} goal={goal} />
-          ))}
-        </View>
-
-        <View style={styles.spacer} />
-      </ScrollView>
-
-      {/* FAB */}
       <TouchableOpacity
         style={styles.fab}
-        onPress={() => router.push('/onboarding/goals')}
+        onPress={() => router.push('/goal-setup')}
         activeOpacity={0.85}
       >
         <Text style={styles.fabIcon}>+</Text>
