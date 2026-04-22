@@ -10,6 +10,7 @@ import { listTemplates, getTemplate } from './controllers/goalTemplate.controlle
 import { generatePlan } from './controllers/planning.controller';
 import { calculateScore } from './controllers/scoring.controller';
 import { generateBrief } from './controllers/dailyLoop.controller';
+import { runAgent, listAgentActions } from './controllers/agent.controller';
 
 const app = express();
 
@@ -28,6 +29,9 @@ app.post('/plans/generate', generatePlan);
 app.post('/scores/calculate', calculateScore);
 
 app.post('/brief/generate', generateBrief);
+
+app.post('/agents/run', runAgent);
+app.get('/agents/actions', listAgentActions);
 
 app.use(errorMiddleware);
 
