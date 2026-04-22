@@ -20,25 +20,6 @@ function makeSingleQueryMock(result: { data?: unknown; error?: unknown }) {
   return builder;
 }
 
-function makeListQueryMock(result: { data?: unknown; error?: unknown }) {
-  const builder = {
-    select: jest.fn().mockReturnThis(),
-    eq:     jest.fn().mockReturnThis(),
-    in:     jest.fn().mockResolvedValue(result),
-    single: jest.fn().mockResolvedValue(result),
-    limit:  jest.fn().mockReturnThis(),
-    range:  jest.fn().mockResolvedValue(result),
-    order:  jest.fn().mockReturnThis(),
-    insert: jest.fn().mockReturnThis(),
-    update: jest.fn().mockReturnThis(),
-    delete: jest.fn().mockResolvedValue(result),
-  };
-  // Make the builder itself awaitable (for findAll which doesn't call .single())
-  (builder as unknown as Promise<unknown> & typeof builder).then = (resolve: (v: unknown) => unknown) =>
-    Promise.resolve(result).then(resolve);
-  return builder;
-}
-
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe('UserRepository', () => {
