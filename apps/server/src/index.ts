@@ -9,6 +9,7 @@ import { healthCheck } from './controllers/health.controller';
 import templatesRouter from './routes/templates.routes';
 import planningRouter from './routes/planning.routes';
 import scoringRouter from './routes/scoring.routes';
+import dailyLoopRouter from './routes/dailyLoop.routes';
 
 const app = express();
 
@@ -21,6 +22,7 @@ app.get('/health', healthCheck);
 app.use('/templates', templatesRouter);
 app.use('/plans', planningRouter);
 app.use('/scores', scoringRouter);
+app.use('/daily-brief', dailyLoopRouter);
 
 app.use(errorMiddleware);
 
