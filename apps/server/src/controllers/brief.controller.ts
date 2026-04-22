@@ -22,7 +22,7 @@ function buildMockTasks(userId: string): Task[] {
       description: 'Complete your scheduled cardio session',
       type: TaskType.HABIT,
       status: TaskStatus.PENDING,
-      approvalState: ApprovalState.NOT_REQUIRED,
+      approvalState: ApprovalState.PENDING,
       priority: 90,
       estimatedMinutes: 30,
       confidenceScore: 0.9,
@@ -37,7 +37,7 @@ function buildMockTasks(userId: string): Task[] {
       description: 'Check in on your goal metrics and adjust tasks',
       type: TaskType.REFLECTION,
       status: TaskStatus.PENDING,
-      approvalState: ApprovalState.NOT_REQUIRED,
+      approvalState: ApprovalState.PENDING,
       priority: 75,
       estimatedMinutes: 15,
       confidenceScore: 0.8,
@@ -50,9 +50,9 @@ function buildMockTasks(userId: string): Task[] {
       userId,
       title: 'Write 500 words',
       description: 'Continue your writing habit',
-      type: TaskType.TASK,
+      type: TaskType.ACTION,
       status: TaskStatus.PENDING,
-      approvalState: ApprovalState.NOT_REQUIRED,
+      approvalState: ApprovalState.PENDING,
       priority: 70,
       estimatedMinutes: 25,
       confidenceScore: 0.85,
@@ -80,7 +80,7 @@ export class BriefController {
 
       const mockTasks = buildMockTasks(req.user.id);
       const brief = dailyBriefService.generateBrief(
-        { userId: req.user.id, engagementVelocity: 0.7 },
+        { userId: req.user.id, engagementVelocity: 0.7, timezone: 'UTC' },
         mockTasks,
       );
       res.json({ brief });

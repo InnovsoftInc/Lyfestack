@@ -42,9 +42,14 @@ export class GoalController {
     }
 
     try {
+      const { title, description, templateId, diagnosticAnswers, targetDate } = parsed.data;
       const goal = await this.goalService.createGoal({
         userId: req.user.id,
-        ...parsed.data,
+        title,
+        description,
+        ...(templateId !== undefined && { templateId }),
+        ...(diagnosticAnswers !== undefined && { diagnosticAnswers }),
+        ...(targetDate !== undefined && { targetDate }),
       });
       res.status(201).json({ goal });
     } catch (err) {

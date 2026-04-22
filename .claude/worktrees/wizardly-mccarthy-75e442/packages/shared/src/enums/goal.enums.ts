@@ -1,7 +1,0 @@
-export enum GoalStatus {
-  DRAFT = 'DRAFT',
-  ACTIVE = 'ACTIVE',
-  PAUSED = 'PAUSED',
-  COMPLETED = 'COMPLETED',
-  ABANDONED = 'ABANDONED',
-}

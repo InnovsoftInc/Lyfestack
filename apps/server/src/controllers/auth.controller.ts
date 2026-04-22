@@ -25,7 +25,11 @@ export class AuthController {
 
     try {
       const result = await this.authService.signUp(parsed.data);
-      res.status(201).json({ data: result });
+      if ('confirmationRequired' in result) {
+        res.status(202).json({ data: result });
+      } else {
+        res.status(201).json({ data: result });
+      }
     } catch (err) {
       next(err);
     }

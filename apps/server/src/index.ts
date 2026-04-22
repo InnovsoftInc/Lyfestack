@@ -17,6 +17,7 @@ import {
 import { executeAgent, getAvailableAgents } from './agents/agent.controller';
 import { createUsersRouter } from './routes/users.routes';
 import { createIntegrationsRouter } from './routes/integrations.routes';
+import { openclawRoutes } from './integrations/openclaw/openclaw.routes';
 import { startCronJobs } from './jobs/cron';
 import { createAuthMiddleware, requireAuth } from './middleware/auth.middleware';
 import { getSupabaseClient } from './config/database';
@@ -56,6 +57,9 @@ app.use('/users', createUsersRouter());
 
 // Phase 5 — Integrations (Calendar, Buffer)
 app.use('/integrations', createIntegrationsRouter());
+
+// OpenClaw bridge
+app.use('/api/openclaw', authMiddleware, requireAuth, openclawRoutes);
 
 app.use(errorMiddleware);
 

@@ -28,7 +28,7 @@ export function createGoalRouter(): Router {
     authMiddleware = createAuthMiddleware(getSupabaseClient());
   } catch {
     // If DB not configured, use a passthrough middleware
-    authMiddleware = (_req, _res, next) => next();
+    authMiddleware = (_req, _res, next): Promise<void> => Promise.resolve(next());
   }
 
   const router = Router();

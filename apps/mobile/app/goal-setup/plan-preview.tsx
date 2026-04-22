@@ -70,7 +70,7 @@ export default function PlanPreviewScreen() {
     setIsSaving(true);
     clearError();
     // Goal is already saved; navigate to goals tab
-    router.replace('/(auth)/(tabs)/goals');
+    router.replace('/(auth)/(drawer)/goals');
   }
 
   function handleRetry() {

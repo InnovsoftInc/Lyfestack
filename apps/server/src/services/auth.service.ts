@@ -20,13 +20,18 @@ export interface AuthResult {
   refreshToken: string;
 }
 
+export interface SignUpPendingResult {
+  confirmationRequired: true;
+  email: string;
+}
+
 export class AuthService {
   constructor(
     private readonly supabase: SupabaseClient,
     private readonly userRepository: UserRepository,
   ) {}
 
-  async signUp(data: SignUpData): Promise<AuthResult> {
+  async signUp(data: SignUpData): Promise<AuthResult | SignUpPendingResult> {
     const { data: authData, error } = await this.supabase.auth.signUp({
       email: data.email,
       password: data.password,
@@ -36,12 +41,23 @@ export class AuthService {
     });
 
     if (error) throw this.mapAuthError(error);
-    if (!authData.user || !authData.session) {
-      throw new AuthenticationError('Sign up failed — check your email for confirmation', 'SIGNUP_PENDING');
+    if (!authData.user) {
+      throw new AuthenticationError('Sign up failed', 'SIGNUP_FAILED');
+    }
+
+    // Email confirmation required — session won't exist until confirmed
+    if (!authData.session) {
+      return { confirmationRequired: true, email: data.email };
     }
 
     // User profile is auto-created by the DB trigger; fetch it
-    const profile = await this.userRepository.findById(authData.user.id);
+    let profile = await this.userRepository.findById(authData.user.id).catch((err: unknown) => {
+      const msg = err && typeof err === 'object' && 'message' in err
+        ? String((err as Record<string, unknown>)['message'])
+        : String(err);
+      throw new ExternalServiceError('Database', `Schema not initialised: ${msg}. Run migrations against your Supabase project.`);
+    });
+
     if (!profile) {
       // Fallback: create manually if trigger hasn't fired yet
       await this.userRepository.create({
@@ -49,9 +65,8 @@ export class AuthService {
         email: authData.user.email ?? data.email,
         name: data.name ?? null,
       });
-      const created = await this.userRepository.findById(authData.user.id);
-      if (!created) throw new ExternalServiceError('Database', 'Failed to create user profile');
-      return this.toAuthResult(created, authData.session);
+      profile = await this.userRepository.findById(authData.user.id);
+      if (!profile) throw new ExternalServiceError('Database', 'Failed to create user profile');
     }
 
     return this.toAuthResult(profile, authData.session);

@@ -1,59 +1,86 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 import type { User, Goal, DailyBrief, AgentAction } from '@lyfestack/shared';
 
 const API_BASE_KEY = '@lyfestack_api_base';
-const AUTH_TOKEN_KEY = '@lyfestack_auth_token';
+const AUTH_TOKEN_KEY = 'lyfestack_auth_token';
 
 let cachedBase: string | null = null;
 let cachedToken: string | null = null;
 
+// Non-sensitive: server URL stored in AsyncStorage
 export async function getApiBase(): Promise<string> {
   if (cachedBase) return cachedBase;
-  const saved = await AsyncStorage.getItem(API_BASE_KEY);
-  cachedBase = saved ?? 'http://localhost:3000';
+  try {
+    const saved = await AsyncStorage.getItem(API_BASE_KEY);
+    cachedBase = saved ?? 'http://localhost:3000';
+  } catch {
+    cachedBase = 'http://localhost:3000';
+  }
   return cachedBase;
 }
 
 export async function setApiBase(url: string): Promise<void> {
   cachedBase = url;
-  await AsyncStorage.setItem(API_BASE_KEY, url);
+  try { await AsyncStorage.setItem(API_BASE_KEY, url); } catch { /* best-effort */ }
 }
 
+// Sensitive: auth token stored in SecureStore (iOS Keychain / Android Keystore)
 export async function getAuthToken(): Promise<string | null> {
-  if (cachedToken) return cachedToken;
-  cachedToken = await AsyncStorage.getItem(AUTH_TOKEN_KEY);
+  if (cachedToken !== null) return cachedToken;
+  try {
+    cachedToken = await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
+  } catch {
+    cachedToken = null;
+  }
   return cachedToken;
 }
 
 export async function setAuthToken(token: string | null): Promise<void> {
   cachedToken = token;
-  if (token) {
-    await AsyncStorage.setItem(AUTH_TOKEN_KEY, token);
-  } else {
-    await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
-  }
+  try {
+    if (token) {
+      await SecureStore.setItemAsync(AUTH_TOKEN_KEY, token);
+    } else {
+      await SecureStore.deleteItemAsync(AUTH_TOKEN_KEY);
+    }
+  } catch { /* best-effort */ }
 }
 
-async function request<T>(
-  path: string,
-  options?: RequestInit & { auth?: boolean },
-): Promise<T> {
+export interface RequestOptions {
+  method?: string;
+  body?: unknown;
+  headers?: Record<string, string>;
+  auth?: boolean;
+  skipAuth?: boolean;
+}
+
+export async function request<T>(path: string, options?: RequestOptions): Promise<T> {
   const base = await getApiBase();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...(options?.headers as Record<string, string>),
+    ...options?.headers,
   };
 
-  if (options?.auth !== false) {
+  const skipAuth = options?.skipAuth === true || options?.auth === false;
+  if (!skipAuth) {
     const token = await getAuthToken();
     if (token) headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${base}${path}`, { ...options, headers });
+  const fetchOptions: RequestInit = { method: options?.method ?? 'GET', headers };
+  if (options?.body !== undefined) {
+    fetchOptions.body = typeof options.body === 'string'
+      ? options.body
+      : JSON.stringify(options.body);
+  }
+
+  const res = await fetch(`${base}${path}`, fetchOptions);
 
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    const message = body?.error?.message ?? `Request failed: ${res.status}`;
+    const errBody = await res.json().catch(() => ({})) as Record<string, unknown>;
+    const message = (errBody?.error as Record<string, unknown>)?.message as string
+      ?? `Request failed: ${res.status}`;
     throw new Error(message);
   }
 
@@ -67,19 +94,24 @@ export interface AuthResult {
   token: string;
 }
 
+export interface SignUpPendingResult {
+  confirmationRequired: true;
+  email: string;
+}
+
 export const authApi = {
   signup: (email: string, password: string, name?: string) =>
-    request<{ data: AuthResult }>('/auth/signup', {
+    request<{ data: AuthResult | SignUpPendingResult }>('/auth/signup', {
       method: 'POST',
-      body: JSON.stringify({ email, password, name }),
-      auth: false,
+      body: { email, password, name },
+      skipAuth: true,
     }).then((r) => r.data),
 
   login: (email: string, password: string) =>
     request<{ data: AuthResult }>('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
-      auth: false,
+      body: { email, password },
+      skipAuth: true,
     }).then((r) => r.data),
 
   logout: () =>
@@ -108,7 +140,7 @@ export const goalsApi = {
   ) =>
     request<{ plan: unknown }>(`/goals/${goalId}/plan`, {
       method: 'POST',
-      body: JSON.stringify(payload),
+      body: payload,
     }).then((r) => r.plan),
 
   getPlan: (goalId: string) =>
@@ -136,7 +168,7 @@ export const agentsApi = {
   execute: (agentKey: string, prompt: string, context?: Record<string, unknown>) =>
     request<{ output: unknown }>('/agents/execute', {
       method: 'POST',
-      body: JSON.stringify({ agentKey, prompt, context }),
+      body: { agentKey, prompt, context },
     }).then((r) => r.output),
 
   list: () =>

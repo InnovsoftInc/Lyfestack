@@ -12,13 +12,17 @@ export default function AuthScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
-  const { signup, login, isLoading, error } = useAuthStore();
+  const { signup, login, isLoading, error, confirmationPending } = useAuthStore();
 
   const handleEmailSignup = async () => {
     if (!email || !password) return;
     try {
       await signup(email, password, name || undefined);
-      router.replace('/(auth)/(drawer)/dashboard');
+      // confirmationPending is set synchronously in the store before this resolves
+      const pending = useAuthStore.getState().confirmationPending;
+      if (!pending) {
+        router.replace('/(auth)/(drawer)/dashboard');
+      }
     } catch {
       // error shown via store
     }
@@ -52,6 +56,24 @@ export default function AuthScreen() {
         </View>
 
         <View style={styles.content}>
+          {confirmationPending ? (
+            <View style={styles.confirmationBox}>
+              <Text style={styles.confirmationIcon}>✉️</Text>
+              <Text style={styles.title}>Check your email</Text>
+              <Text style={styles.subtitle}>
+                We sent a confirmation link to{' '}
+                <Text style={styles.emailHighlight}>{email}</Text>. Click the
+                link to activate your account, then come back to log in.
+              </Text>
+              <TouchableOpacity
+                style={[styles.continueButton, { marginTop: Spacing.xl }]}
+                onPress={() => setMode('login')}
+              >
+                <Text style={styles.continueText}>Go to Log In</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+          <>
           <View style={styles.titleSection}>
             <Text style={styles.title}>
               {mode === 'login' ? 'Welcome back' : 'Create your account'}
@@ -183,6 +205,8 @@ export default function AuthScreen() {
           <Text style={styles.legal}>
             By continuing, you agree to our Terms of Service and Privacy Policy.
           </Text>
+          </>
+          )}
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -257,4 +281,13 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginTop: 'auto',
   },
+  confirmationBox: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.md,
+    paddingHorizontal: Spacing.md,
+  },
+  confirmationIcon: { fontSize: 56 },
+  emailHighlight: { color: Colors.accent, fontWeight: '600' },
 });

@@ -20,7 +20,13 @@ export function errorMiddleware(
     return;
   }
 
-  const error = err instanceof Error ? err : new Error(String(err));
+  const error = err instanceof Error
+    ? err
+    : new Error(
+        err && typeof err === 'object' && 'message' in err
+          ? String((err as Record<string, unknown>)['message'])
+          : String(err),
+      );
   logger.error({ err: error, requestId: req.headers['x-request-id'] }, 'Unhandled error');
 
   res.status(500).json({
