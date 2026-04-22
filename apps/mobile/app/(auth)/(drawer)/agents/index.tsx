@@ -30,7 +30,7 @@ export default function AgentsScreen() {
         keyExtractor={(item) => item.name}
         contentContainerStyle={styles.list}
         renderItem={({ item }) => (
-          <TouchableOpacity style={styles.card} onPress={() => router.push(`/(auth)/(tabs)/agents/${item.name}` as any)}>
+          <TouchableOpacity style={styles.card} onPress={() => router.push(`/(auth)/(drawer)/agents/${item.name}` as any)}>
             <View style={styles.cardHeader}>
               <Text style={styles.agentName}>{item.name}</Text>
               <View style={[styles.statusDot, { backgroundColor: item.status === 'idle' ? '#22C55E' : '#666' }]} />
@@ -46,7 +46,7 @@ export default function AgentsScreen() {
         }
       />
 
-      <TouchableOpacity style={styles.fab} onPress={() => router.push('/(auth)/(tabs)/agents/create' as any)}>
+      <TouchableOpacity style={styles.fab} onPress={() => router.push('/(auth)/(drawer)/agents/create' as any)}>
         <Text style={styles.fabText}>+ New Agent</Text>
       </TouchableOpacity>
     </View>

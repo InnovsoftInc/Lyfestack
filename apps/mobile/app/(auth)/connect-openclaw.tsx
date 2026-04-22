@@ -75,7 +75,7 @@ export default function ConnectOpenClawScreen() {
   };
 
   const manualConnect = async () => {
-    if (\!ip.trim()) return;
+    if (!ip.trim()) return;
     setStatus('testing');
     setError('');
 
@@ -144,7 +144,7 @@ export default function ConnectOpenClawScreen() {
       <TouchableOpacity
         style={[styles.connectBtn, status === 'testing' && styles.connectBtnDisabled]}
         onPress={manualConnect}
-        disabled={status === 'testing' || \!ip.trim()}
+        disabled={status === 'testing' || !ip.trim()}
       >
         {status === 'testing' ? (
           <ActivityIndicator color="#000" size="small" />

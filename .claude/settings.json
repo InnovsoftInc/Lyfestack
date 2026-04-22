@@ -1,7 +1,27 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git checkout *)"
+      "Bash(git checkout *)",
+      "Bash(npm run *)",
+      "Bash(echo \"Started PID: $!\")",
+      "Bash(jobs -l)",
+      "Bash(curl -s http://localhost:3000/health)",
+      "Bash(curl -s http://localhost:4000/health)",
+      "Bash(curl -s http://localhost:8080/health)",
+      "Bash(echo \"Mobile PID: $!\")",
+      "Bash(echo \"Expo PID: $!\")",
+      "Bash(curl -s http://localhost:8082)",
+      "Bash(echo \"PID: $!\")",
+      "Bash(pkill -f \"Lyfestack.*expo\\\\|expo.*Lyfestack\\\\|expo.*8082\\\\|ts-node-dev.*Lyfestack\\\\|Lyfestack.*ts-node-dev\\\\|turbo.*Lyfestack\\\\|Lyfestack.*turbo\")",
+      "Bash(kill -9 88615 88594 88787 88786 88785 88784 88783 88782 88781 88780)",
+      "Bash(kill -9 86367 86326 86325)",
+      "Bash(node -e ' *)",
+      "Bash(python3 -c ' *)",
+      "Bash(xargs kill *)"
+    ],
+    "additionalDirectories": [
+      "/Users/openclaw/Documents/BusinessIdeas/Lyfestack/apps/mobile/app/(auth)/(tabs)/agents",
+      "/tmp"
     ]
   }
 }

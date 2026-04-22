@@ -16,7 +16,7 @@ export default function CreateAgentScreen() {
   const [creating, setCreating] = useState(false);
 
   const handleCreate = async () => {
-    if (\!name.trim() || \!role) return;
+    if (!name.trim() || !role) return;
     setCreating(true);
     await createAgent({ name: name.trim().toLowerCase().replace(/\s+/g, '-'), role, model, systemPrompt });
     setCreating(false);
@@ -52,7 +52,7 @@ export default function CreateAgentScreen() {
       <Text style={styles.label}>System Prompt</Text>
       <TextInput style={[styles.input, styles.textarea]} value={systemPrompt} onChangeText={setSystemPrompt} placeholder="Instructions for this agent..." placeholderTextColor="#555" multiline numberOfLines={4} textAlignVertical="top" />
 
-      <TouchableOpacity style={[styles.createBtn, (\!name.trim() || \!role || creating) && styles.createBtnDisabled]} onPress={handleCreate} disabled={\!name.trim() || \!role || creating}>
+      <TouchableOpacity style={[styles.createBtn, (!name.trim() || !role || creating) && styles.createBtnDisabled]} onPress={handleCreate} disabled={!name.trim() || !role || creating}>
         <Text style={styles.createBtnText}>{creating ? 'Creating...' : 'Create Agent'}</Text>
       </TouchableOpacity>
     </ScrollView>

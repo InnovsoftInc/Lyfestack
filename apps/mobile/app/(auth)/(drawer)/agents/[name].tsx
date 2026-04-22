@@ -15,7 +15,7 @@ export default function AgentChatScreen() {
   useEffect(() => { openChat(name); }, [name]);
 
   const handleSend = async () => {
-    if (\!input.trim() || sending) return;
+    if (!input.trim() || sending) return;
     setSending(true);
     const msg = input;
     setInput('');
@@ -55,7 +55,7 @@ export default function AgentChatScreen() {
           multiline
           onSubmitEditing={handleSend}
         />
-        <TouchableOpacity style={[styles.sendBtn, (\!input.trim() || sending) && styles.sendBtnDisabled]} onPress={handleSend} disabled={\!input.trim() || sending}>
+        <TouchableOpacity style={[styles.sendBtn, (!input.trim() || sending) && styles.sendBtnDisabled]} onPress={handleSend} disabled={!input.trim() || sending}>
           <Text style={styles.sendText}>{sending ? '...' : 'Send'}</Text>
         </TouchableOpacity>
       </View>

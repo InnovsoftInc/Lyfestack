@@ -31,7 +31,7 @@ function GoalCard({ goal }: GoalCardProps) {
   return (
     <TouchableOpacity
       style={styles.goalCard}
-      onPress={() => router.push(`/(auth)/(tabs)/goals/${goal.id}`)}
+      onPress={() => router.push(`/(auth)/(drawer)/goals/${goal.id}`)}
       activeOpacity={0.8}
     >
       <View style={styles.goalCardHeader}>

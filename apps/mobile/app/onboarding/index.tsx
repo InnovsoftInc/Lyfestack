@@ -45,7 +45,7 @@ export default function WelcomeScreen() {
             <Text style={styles.primaryButtonText}>Get Started</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            onPress={() => router.replace('/(auth)/(tabs)/dashboard')}
+            onPress={() => router.replace('/(auth)/(drawer)/dashboard')}
             activeOpacity={0.7}
           >
             <Text style={styles.signInText}>Already have an account? Sign in</Text>

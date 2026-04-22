@@ -8,13 +8,27 @@
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "paths": {
-      "@lyfestack/shared": ["../../packages/shared/src"],
-      "@/*": ["./*"]
+      "@lyfestack/shared": [
+        "../../packages/shared/src"
+      ],
+      "@/*": [
+        "./*"
+      ]
     }
   },
   "references": [
-    { "path": "../../packages/shared" }
+    {
+      "path": "../../packages/shared"
+    }
   ],
-  "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.d.ts", "expo-env.d.ts"],
-  "exclude": ["node_modules"]
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    ".expo/types/**/*.d.ts",
+    "expo-env.d.ts",
+    ".expo/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
 }

@@ -3,5 +3,5 @@ import { useAuthStore } from '../stores/auth.store';
 
 export default function Index() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-  return <Redirect href={isAuthenticated ? '/(auth)/(tabs)/dashboard' : '/onboarding'} />;
+  return <Redirect href={isAuthenticated ? '/(auth)/(drawer)/dashboard' : '/onboarding'} />;
 }

@@ -155,7 +155,7 @@ export default function ProfileScreen() {
           <View style={styles.settingsGroup}>
             <SettingRow
               label="Manage Integrations"
-              onPress={() => router.push('/(auth)/(tabs)/profile/integrations')}
+              onPress={() => router.push('/(auth)/(drawer)/profile/integrations')}
             />
           </View>
         </View>

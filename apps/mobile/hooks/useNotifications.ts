@@ -45,21 +45,21 @@ export function useNotifications(): void {
 
       switch (type) {
         case 'daily_brief':
-          router.push('/(auth)/(tabs)/dashboard');
+          router.push('/(auth)/(drawer)/dashboard');
           break;
         case 'task_reminder': {
           const taskId = data?.['taskId'] as string | undefined;
-          if (taskId) router.push(`/(auth)/(tabs)/goals/${taskId}`);
+          if (taskId) router.push(`/(auth)/(drawer)/goals/${taskId}`);
           break;
         }
         case 'streak_alert':
-          router.push('/(auth)/(tabs)/dashboard');
+          router.push('/(auth)/(drawer)/dashboard');
           break;
         case 'agent_complete':
-          router.push('/(auth)/(tabs)/approvals');
+          router.push('/(auth)/(drawer)/approvals');
           break;
         default:
-          router.push('/(auth)/(tabs)/dashboard');
+          router.push('/(auth)/(drawer)/dashboard');
       }
     });
     return remove;

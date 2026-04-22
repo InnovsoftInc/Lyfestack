@@ -60,7 +60,7 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
 
   deleteAgent: async (name) => {
     await openclawApi.deleteAgent(name);
-    set((s) => ({ agents: s.agents.filter((a) => a.name \!== name) }));
+    set((s) => ({ agents: s.agents.filter((a) => a.name !== name) }));
   },
 
   sendMessage: async (agentName, message) => {

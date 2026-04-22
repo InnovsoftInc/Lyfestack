@@ -14,13 +14,13 @@ export default function AuthScreen() {
   const handleSocialAuth = (provider: 'google' | 'apple') => {
     // TODO: wire to Supabase OAuth
     console.log(`Auth with ${provider}`);
-    router.replace('/(auth)/(tabs)/dashboard');
+    router.replace('/(auth)/(drawer)/dashboard');
   };
 
   const handleEmailAuth = () => {
     // TODO: wire to Supabase email auth
     if (email && password) {
-      router.replace('/(auth)/(tabs)/dashboard');
+      router.replace('/(auth)/(drawer)/dashboard');
     }
   };
 
