@@ -10,6 +10,7 @@ import templatesRouter from './routes/templates.routes';
 import planningRouter from './routes/planning.routes';
 import scoringRouter from './routes/scoring.routes';
 import dailyLoopRouter from './routes/dailyLoop.routes';
+import agentsRouter from './routes/agents.routes';
 
 const app = express();
 
@@ -23,6 +24,7 @@ app.use('/templates', templatesRouter);
 app.use('/plans', planningRouter);
 app.use('/scores', scoringRouter);
 app.use('/daily-brief', dailyLoopRouter);
+app.use('/agents', agentsRouter);
 
 app.use(errorMiddleware);
 
