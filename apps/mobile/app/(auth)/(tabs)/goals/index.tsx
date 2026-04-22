@@ -1,122 +1,104 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  ActivityIndicator,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { DarkTheme } from '../../../../theme/colors';
 import { TextStyles, Spacing, BorderRadius } from '../../../../theme';
-import { Colors, GoalStatus } from '@lyfestack/shared';
-import type { Goal } from '@lyfestack/shared';
+import { Colors } from '@lyfestack/shared';
 import { useGoalsStore } from '../../../../stores/goals.store';
+import type { Goal } from '../../../../services/goals.api';
 
-function statusColor(status: GoalStatus) {
-  switch (status) {
-    case GoalStatus.ACTIVE: return Colors.success;
-    case GoalStatus.PAUSED: return Colors.warning;
-    case GoalStatus.COMPLETED: return Colors.accent;
-    default: return Colors.gray400;
-  }
-}
-
-function statusLabel(status: GoalStatus) {
-  return status.charAt(0) + status.slice(1).toLowerCase();
-}
-
-interface GoalCardProps {
-  goal: Goal;
-}
-
-function GoalCard({ goal }: GoalCardProps) {
-  const completedMilestones = goal.milestones.filter((m) => m.completedAt).length;
-  const totalMilestones = goal.milestones.length;
-
-  return (
-    <TouchableOpacity
-      style={styles.goalCard}
-      onPress={() => router.push(`/(auth)/(tabs)/goals/${goal.id}`)}
-      activeOpacity={0.8}
-    >
-      <View style={styles.goalCardHeader}>
-        <View style={styles.goalTitleRow}>
-          <Text style={styles.goalTitle} numberOfLines={1}>{goal.title}</Text>
-          <View style={[styles.statusDot, { backgroundColor: statusColor(goal.status) }]} />
-        </View>
-        <Text style={styles.goalDesc} numberOfLines={2}>{goal.description}</Text>
-      </View>
-
-      <View style={styles.progressSection}>
-        <View style={styles.progressLabelRow}>
-          <Text style={styles.progressLabel}>Progress</Text>
-          <Text style={styles.progressValue}>{goal.progressScore}%</Text>
-        </View>
-        <View style={styles.progressTrack}>
-          <View style={[styles.progressFill, { width: `${goal.progressScore}%` }]} />
-        </View>
-      </View>
-
-      <View style={styles.goalMeta}>
-        <Text style={styles.goalMetaText}>
-          {completedMilestones}/{totalMilestones} milestones
-        </Text>
-        {goal.targetDate && (
-          <Text style={styles.goalMetaText}>
-            Due {new Date(goal.targetDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-          </Text>
-        )}
-      </View>
-    </TouchableOpacity>
-  );
-}
+const STATUS_COLOR: Record<string, string> = {
+  ACTIVE: Colors.success,
+  PAUSED: Colors.warning,
+  COMPLETED: Colors.accent,
+  ARCHIVED: Colors.gray500 ?? '#6B7280',
+};
 
 export default function GoalsScreen() {
-  const { goals } = useGoalsStore();
-  const activeGoals = goals.filter((g) => g.status === GoalStatus.ACTIVE);
+  const { goals, isLoading, error, fetchGoals } = useGoalsStore();
+
+  useEffect(() => {
+    void fetchGoals();
+  }, [fetchGoals]);
+
+  function renderGoal({ item }: { item: Goal }) {
+    return (
+      <View style={styles.card}>
+        <View style={styles.cardRow}>
+          <View style={styles.cardBody}>
+            <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
+            {item.description ? (
+              <Text style={styles.cardDesc} numberOfLines={2}>{item.description}</Text>
+            ) : null}
+            <View style={styles.cardMeta}>
+              <View style={[styles.statusDot, { backgroundColor: STATUS_COLOR[item.status] ?? Colors.gray500 }]} />
+              <Text style={styles.statusText}>{item.status}</Text>
+              {item.targetDate && (
+                <Text style={styles.dateText}> · Due {item.targetDate}</Text>
+              )}
+            </View>
+          </View>
+          <View style={styles.progressBadge}>
+            <Text style={styles.progressText}>{item.progressScore}%</Text>
+          </View>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <View>
-          <Text style={styles.heading}>Goals</Text>
-          <Text style={styles.subheading}>{activeGoals.length} active</Text>
-        </View>
+        <Text style={styles.heading}>Goals</Text>
+        <TouchableOpacity
+          style={styles.addButton}
+          onPress={() => router.push('/goal-setup')}
+        >
+          <Text style={styles.addButtonText}>+ New</Text>
+        </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
-        <View style={styles.statsRow}>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>{activeGoals.length}</Text>
-            <Text style={styles.statLabel}>Active Goals</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>
-              {Math.round(activeGoals.reduce((sum, g) => sum + g.progressScore, 0) / Math.max(activeGoals.length, 1))}%
-            </Text>
-            <Text style={styles.statLabel}>Avg Progress</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>
-              {activeGoals.reduce((sum, g) => sum + g.milestones.filter((m) => m.completedAt).length, 0)}
-            </Text>
-            <Text style={styles.statLabel}>Milestones Hit</Text>
-          </View>
+      {isLoading && goals.length === 0 ? (
+        <View style={styles.center}>
+          <ActivityIndicator color={Colors.accent} size="large" />
         </View>
-
-        <View style={styles.goalsList}>
-          <Text style={styles.sectionLabel}>ACTIVE</Text>
-          {activeGoals.map((goal) => (
-            <GoalCard key={goal.id} goal={goal} />
-          ))}
+      ) : error ? (
+        <View style={styles.center}>
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={() => void fetchGoals()}>
+            <Text style={styles.retryText}>Retry</Text>
+          </TouchableOpacity>
         </View>
-
-        <View style={styles.spacer} />
-      </ScrollView>
-
-      {/* FAB */}
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={() => router.push('/onboarding/goals')}
-        activeOpacity={0.85}
-      >
-        <Text style={styles.fabIcon}>+</Text>
-      </TouchableOpacity>
+      ) : goals.length === 0 ? (
+        <View style={styles.empty}>
+          <Text style={styles.emptyEmoji}>🎯</Text>
+          <Text style={styles.emptyTitle}>No goals yet</Text>
+          <Text style={styles.emptySubtitle}>
+            Add your first goal to get a personalized daily plan
+          </Text>
+          <TouchableOpacity
+            style={styles.ctaButton}
+            onPress={() => router.push('/goal-setup')}
+          >
+            <Text style={styles.ctaText}>Set First Goal</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <FlatList
+          data={goals}
+          keyExtractor={(g) => g.id}
+          contentContainerStyle={styles.list}
+          renderItem={renderGoal}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -125,91 +107,139 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: DarkTheme.background },
   header: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'flex-end',
-    padding: Spacing.xl,
+    padding: Spacing.lg,
     paddingBottom: Spacing.md,
   },
-  heading: { ...TextStyles.h1, color: DarkTheme.text.primary },
-  subheading: { ...TextStyles.small, color: DarkTheme.text.secondary, marginTop: 2 },
-  scroll: { flex: 1 },
-  statsRow: {
-    flexDirection: 'row',
-    paddingHorizontal: Spacing.xl,
-    gap: Spacing.sm,
-    marginBottom: Spacing.lg,
+  heading: {
+    ...TextStyles.h1,
+    color: DarkTheme.text.primary,
   },
-  statCard: {
+  addButton: {
+    backgroundColor: Colors.accent,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.full,
+  },
+  addButtonText: {
+    ...TextStyles.button,
+    color: Colors.white,
+  },
+  center: {
     flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: Spacing.lg,
+  },
+  list: {
+    padding: Spacing.lg,
+    paddingTop: Spacing.sm,
+    gap: Spacing.sm,
+  },
+  card: {
     backgroundColor: DarkTheme.surface,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    borderWidth: 1,
+    borderColor: DarkTheme.border,
+  },
+  cardRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  cardBody: {
+    flex: 1,
+  },
+  cardTitle: {
+    ...TextStyles.h4,
+    color: DarkTheme.text.primary,
+    marginBottom: 2,
+  },
+  cardDesc: {
+    ...TextStyles.small,
+    color: DarkTheme.text.secondary,
+    marginBottom: Spacing.xs,
+  },
+  cardMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 6,
+  },
+  statusText: {
+    ...TextStyles.caption,
+    color: DarkTheme.text.secondary,
+    textTransform: 'capitalize',
+  },
+  dateText: {
+    ...TextStyles.caption,
+    color: DarkTheme.text.secondary,
+  },
+  progressBadge: {
+    width: 48,
+    height: 48,
+    borderRadius: BorderRadius.full,
+    borderWidth: 2,
+    borderColor: Colors.accent,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  progressText: {
+    ...TextStyles.caption,
+    color: Colors.accent,
+    fontWeight: '700',
+  },
+  empty: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: Spacing.xl,
+    gap: Spacing.md,
+  },
+  emptyEmoji: {
+    fontSize: 48,
+  },
+  emptyTitle: {
+    ...TextStyles.h3,
+    color: DarkTheme.text.primary,
+  },
+  emptySubtitle: {
+    ...TextStyles.body,
+    color: DarkTheme.text.secondary,
+    textAlign: 'center',
+  },
+  ctaButton: {
+    backgroundColor: Colors.accent,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.xl,
+    borderRadius: BorderRadius.md,
+    marginTop: Spacing.md,
+  },
+  ctaText: {
+    ...TextStyles.button,
+    color: Colors.white,
+  },
+  errorText: {
+    ...TextStyles.body,
+    color: DarkTheme.error,
+    textAlign: 'center',
+    marginBottom: Spacing.md,
+  },
+  retryButton: {
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
     borderRadius: BorderRadius.md,
     borderWidth: 1,
     borderColor: DarkTheme.border,
-    padding: Spacing.md,
-    alignItems: 'center',
-    gap: 4,
   },
-  statValue: { ...TextStyles.h3, color: Colors.accent },
-  statLabel: { ...TextStyles.caption, color: DarkTheme.text.secondary, textAlign: 'center' },
-  goalsList: { paddingHorizontal: Spacing.xl, gap: Spacing.md },
-  sectionLabel: {
-    ...TextStyles.caption,
+  retryText: {
+    ...TextStyles.button,
     color: DarkTheme.text.secondary,
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    marginBottom: Spacing.sm,
   },
-  goalCard: {
-    backgroundColor: DarkTheme.surface,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
-    borderColor: DarkTheme.border,
-    padding: Spacing.md,
-    gap: Spacing.md,
-  },
-  goalCardHeader: { gap: 6 },
-  goalTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.sm,
-  },
-  goalTitle: { ...TextStyles.h4, color: DarkTheme.text.primary, flex: 1 },
-  statusDot: { width: 8, height: 8, borderRadius: 4 },
-  goalDesc: { ...TextStyles.small, color: DarkTheme.text.secondary, lineHeight: 20 },
-  progressSection: { gap: Spacing.sm },
-  progressLabelRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  progressLabel: { ...TextStyles.caption, color: DarkTheme.text.secondary },
-  progressValue: { ...TextStyles.caption, color: Colors.accent, fontWeight: '700' },
-  progressTrack: {
-    height: 6,
-    backgroundColor: DarkTheme.border,
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: Colors.accent,
-    borderRadius: 3,
-  },
-  goalMeta: { flexDirection: 'row', justifyContent: 'space-between' },
-  goalMetaText: { ...TextStyles.caption, color: DarkTheme.text.secondary },
-  spacer: { height: 100 },
-  fab: {
-    position: 'absolute',
-    bottom: Spacing.xl,
-    right: Spacing.xl,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: Colors.accent,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: Colors.accent,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  fabIcon: { fontSize: 28, color: Colors.white, lineHeight: 32, fontWeight: '400' },
 });

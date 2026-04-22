@@ -16,6 +16,10 @@ import {
 } from './engine/daily-loop/daily-brief.controller';
 import { executeAgent, getAvailableAgents } from './agents/agent.controller';
 import { startCronJobs } from './jobs/cron';
+import { createGoalRouter } from './routes/goal.routes';
+import { briefController } from './controllers/brief.controller';
+import { createAuthMiddleware, requireAuth } from './middleware/auth.middleware';
+import { getSupabaseClient } from './config/database';
 
 const app = express();
 
@@ -44,6 +48,24 @@ app.patch('/briefs/:id/tasks/:taskId', markTaskComplete);
 // T6.1 — Agents
 app.post('/agents/execute', executeAgent);
 app.get('/agents/actions', getAvailableAgents);
+
+// Phase 4 — Goal CRUD + Plan generation (authenticated)
+app.use('/api/goals', createGoalRouter());
+
+// Phase 4 — Brief API (authenticated)
+let _briefAuthMiddleware: ReturnType<typeof createAuthMiddleware> | null = null;
+function getBriefAuthMiddleware() {
+  if (!_briefAuthMiddleware) {
+    try {
+      _briefAuthMiddleware = createAuthMiddleware(getSupabaseClient());
+    } catch {
+      _briefAuthMiddleware = (_req, _res, next) => next();
+    }
+  }
+  return _briefAuthMiddleware;
+}
+app.get('/api/briefs/today', (req, res, next) => getBriefAuthMiddleware()(req, res, next), requireAuth, briefController.getTodayBrief);
+app.patch('/api/briefs/tasks/:id', (req, res, next) => getBriefAuthMiddleware()(req, res, next), requireAuth, briefController.updateTaskStatus);
 
 app.use(errorMiddleware);
 
