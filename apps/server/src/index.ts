@@ -6,6 +6,7 @@ import { requestIdMiddleware } from './middleware/requestId.middleware';
 import { loggerMiddleware } from './middleware/logger.middleware';
 import { errorMiddleware } from './middleware/error.middleware';
 import { healthCheck } from './controllers/health.controller';
+import templatesRouter from './routes/templates.routes';
 
 const app = express();
 
@@ -15,6 +16,7 @@ app.use(cors());
 app.use(express.json());
 
 app.get('/health', healthCheck);
+app.use('/templates', templatesRouter);
 
 app.use(errorMiddleware);
 
