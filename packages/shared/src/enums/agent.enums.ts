@@ -3,4 +3,7 @@ export enum AgentRole {
   EXECUTOR = 'EXECUTOR',
   REVIEWER = 'REVIEWER',
   COACH = 'COACH',
+  CONTENT = 'CONTENT',
+  RESEARCH = 'RESEARCH',
+  ANALYTICS = 'ANALYTICS',
 }
