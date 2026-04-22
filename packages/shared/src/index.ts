@@ -1,6 +1,14 @@
 // Types
 export type { User, TrustLevel } from './types/user';
-export type { Goal, GoalTemplate, GoalMilestone } from './types/goal';
+export type {
+  Goal,
+  GoalTemplate,
+  GoalMilestone,
+  DiagnosticQuestion,
+  DiagnosticQuestionType,
+  MilestoneTemplate,
+  ActionTemplate,
+} from './types/goal';
 export type { Task } from './types/task';
 export type { DailyBrief } from './types/brief';
 export type { AgentAction } from './types/agent';
