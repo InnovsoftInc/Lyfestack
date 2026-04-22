@@ -9,9 +9,15 @@ export interface Task {
   type: TaskType;
   status: TaskStatus;
   approvalState: ApprovalState;
+  priority?: number;
+  dueDate?: string;
   scheduledFor?: string;
+  estimatedMinutes?: number;
+  confidenceScore?: number;
   completedAt?: string;
   durationMinutes?: number;
+  agentGenerated?: boolean;
+  rollbackPlan?: string;
   createdAt: string;
   updatedAt: string;
 }

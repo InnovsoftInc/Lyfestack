@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-native",
+    "strict": true,
+    "noEmit": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "paths": {
+      "@lyfestack/shared": ["../../packages/shared/src"],
+      "@/*": ["./*"]
+    }
+  },
+  "references": [
+    { "path": "../../packages/shared" }
+  ],
+  "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.d.ts", "expo-env.d.ts"],
+  "exclude": ["node_modules"]
+}
