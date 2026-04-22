@@ -9,6 +9,7 @@ import { healthCheck } from './controllers/health.controller';
 import { listTemplates, getTemplate } from './controllers/goalTemplate.controller';
 import { generatePlan } from './controllers/planning.controller';
 import { calculateScore } from './controllers/scoring.controller';
+import { generateBrief } from './controllers/dailyLoop.controller';
 
 const app = express();
 
@@ -25,6 +26,8 @@ app.get('/templates/:id', getTemplate);
 app.post('/plans/generate', generatePlan);
 
 app.post('/scores/calculate', calculateScore);
+
+app.post('/brief/generate', generateBrief);
 
 app.use(errorMiddleware);
 
