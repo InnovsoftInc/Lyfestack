@@ -7,6 +7,7 @@ export enum TemplateCategory {
   HEALTH = 'HEALTH',
   PRODUCTIVITY = 'PRODUCTIVITY',
   LEARNING = 'LEARNING',
+  BUSINESS = 'BUSINESS',
 }
 
 export type QuestionType = 'text' | 'scale' | 'choice' | 'boolean';

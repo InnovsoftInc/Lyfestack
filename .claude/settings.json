@@ -24,7 +24,16 @@
       "Bash(ipconfig getifaddr *)",
       "Bash(openclaw agents *)",
       "Bash(python3 -m json.tool)",
-      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('agents', {}\\), indent=2\\)\\)\")"
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('agents', {}\\), indent=2\\)\\)\")",
+      "Bash(npm view *)",
+      "Bash(python3 -c \"import sys,json; v=json.load\\(sys.stdin\\); print\\([x for x in v if x.startswith\\('54.'\\)]\\)\")",
+      "Bash(npm pack *)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); [print\\(k,v\\) for k,v in d.items\\(\\) if any\\(x in k for x in ['splash','router','font','status','linking','notification','secure','device','reanimated','gesture','screens','safe-area']\\)]\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d.get\\('workspaces', 'no workspaces'\\)\\)\")",
+      "Bash(python3 -c \"import sys,json; v=json.load\\(sys.stdin\\); print\\([x for x in v if x.startswith\\('0.'\\) or x.startswith\\('1.'\\) or x.startswith\\('54.'\\) or x.startswith\\('14.'\\) or x.startswith\\('15.'\\) or x.startswith\\('53.'\\) or x.startswith\\('54.'\\) or \\(not x.startswith\\('55.'\\)\\)][-20:]\\)\")",
+      "Bash(python3 -c \"import sys,json; v=json.load\\(sys.stdin\\); print\\([x for x in v if x.startswith\\('0.29'\\) or x.startswith\\('0.30'\\) or x.startswith\\('0.28'\\)]\\)\")",
+      "Bash(python3 -c \"import sys,json; v=json.load\\(sys.stdin\\); print\\([x for x in v if x.startswith\\('4.'\\) or x.startswith\\('5.'\\)][:30]\\)\")",
+      "Bash(python3 -c \"import sys,json; v=json.load\\(sys.stdin\\); stable=[x for x in v if not 'canary' in x and not 'preview' in x and not 'alpha' in x]; print\\(stable[-10:]\\)\")"
     ],
     "additionalDirectories": [
       "/Users/openclaw/Documents/BusinessIdeas/Lyfestack/apps/mobile/app/(auth)/(tabs)/agents",

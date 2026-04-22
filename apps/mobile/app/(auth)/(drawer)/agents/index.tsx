@@ -1,7 +1,8 @@
 import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator } from 'react-native';
 import { useCallback } from 'react';
 import { useRouter } from 'expo-router';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, DrawerActions } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOpenClawStore } from '../../../../stores/openclaw.store';
 import { useTheme } from '../../../../hooks/useTheme';
 import { Spacing } from '../../../../theme';
@@ -39,8 +40,10 @@ export function AgentAvatar({ name, size = 48, bgColor }: { name: string; size?:
 
 export default function AgentsScreen() {
   const router = useRouter();
+  const navigation = useNavigation();
   const theme = useTheme();
   const s = styles(theme);
+  const insets = useSafeAreaInsets();
   const { connectionStatus, connectionError, agents, reconnect, fetchAgents } = useOpenClawStore();
 
   useFocusEffect(
@@ -52,7 +55,10 @@ export default function AgentsScreen() {
   return (
     <View style={s.container}>
       {/* Header */}
-      <View style={s.header}>
+      <View style={[s.header, { paddingTop: insets.top + Spacing.md }]}>
+        <TouchableOpacity onPress={() => navigation.dispatch(DrawerActions.openDrawer())} hitSlop={12} activeOpacity={0.6} style={s.menuBtn}>
+          <Text style={[s.menuIcon, { color: theme.text.primary }]}>☰</Text>
+        </TouchableOpacity>
         <Text style={s.title}>Agents</Text>
       </View>
 
@@ -139,11 +145,15 @@ const styles = (t: Theme) => StyleSheet.create({
   container: { flex: 1, backgroundColor: t.background },
 
   header: {
-    paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.xl + 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.md,
   },
-  title: { color: t.text.primary, fontSize: 34, fontWeight: '700', letterSpacing: 0.3 },
+  menuBtn: { padding: 4 },
+  menuIcon: { fontSize: 22 },
+  title: { color: t.text.primary, fontSize: 34, fontWeight: '700', letterSpacing: 0.3, flex: 1 },
 
   bannerWrap: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.sm },
   banner: {

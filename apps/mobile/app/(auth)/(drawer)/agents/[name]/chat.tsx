@@ -4,6 +4,7 @@ import {
 } from 'react-native';
 import { useState, useRef, useEffect } from 'react';
 import { useLocalSearchParams, router } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOpenClawStore } from '../../../../../stores/openclaw.store';
 import { useTheme } from '../../../../../hooks/useTheme';
 import { Spacing } from '../../../../../theme';
@@ -19,6 +20,7 @@ export default function AgentChatScreen() {
   const [sending, setSending] = useState(false);
   const listRef = useRef<FlatList>(null);
 
+  const insets = useSafeAreaInsets();
   const agent = agents.find((a) => a.name === name);
 
   useEffect(() => { openChat(name); }, [name]);
@@ -102,7 +104,7 @@ export default function AgentChatScreen() {
       )}
 
       {/* Input bar */}
-      <View style={s.inputBar}>
+      <View style={[s.inputBar, { paddingBottom: insets.bottom + Spacing.sm + 2 }]}>
         <TextInput
           style={s.input}
           value={input}

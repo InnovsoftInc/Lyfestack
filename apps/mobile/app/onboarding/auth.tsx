@@ -7,6 +7,8 @@ import type { Theme } from '../../theme/colors';
 import { TextStyles, Spacing, BorderRadius } from '../../theme';
 import { Colors } from '@lyfestack/shared';
 import { useAuthStore } from '../../stores/auth.store';
+import { useOnboardingStore } from '../../stores/onboarding.store';
+import { useGoalsStore } from '../../stores/goals.store';
 
 function makeStyles(theme: Theme) {
   return StyleSheet.create({
@@ -90,22 +92,50 @@ function makeStyles(theme: Theme) {
 }
 
 export default function AuthScreen() {
-  const { mode: initialMode } = useLocalSearchParams<{ mode?: string }>();
-  const [mode, setMode] = useState<'options' | 'email' | 'login'>(initialMode === 'login' ? 'login' : 'options');
+  const [mode, setMode] = useState<'options' | 'email'>('options');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const { signup, login, isLoading, error, confirmationPending } = useAuthStore();
+  const { selectedTemplateId, diagnosticAnswers, reset: resetOnboarding } = useOnboardingStore();
+  const { createGoal } = useGoalsStore();
   const theme = useTheme();
   const styles = makeStyles(theme);
+
+  const createGoalFromOnboarding = async () => {
+    if (selectedTemplateId) {
+      try {
+        const templateNames: Record<string, string> = {
+          'productivity': 'Personal Productivity',
+          'self-improvement': 'Self Improvement',
+          'solo-business': 'Solo Business Growth',
+          'social-media': 'Social Media Growth',
+          'fitness': 'Fitness & Health',
+        };
+        const answers = Object.entries(diagnosticAnswers).map(([questionId, answer]) => ({
+          questionId,
+          answer,
+        }));
+        await createGoal({
+          title: templateNames[selectedTemplateId] ?? selectedTemplateId,
+          description: `Goal created from ${templateNames[selectedTemplateId] ?? selectedTemplateId} template`,
+          templateId: `tmpl_${selectedTemplateId.replace(/-/g, '_')}`,
+          diagnosticAnswers: answers,
+        });
+        resetOnboarding();
+      } catch {
+        // Goal creation failed — user can create manually from Goals tab
+      }
+    }
+  };
 
   const handleEmailSignup = async () => {
     if (!email || !password) return;
     try {
       await signup(email, password, name || undefined);
-      // confirmationPending is set synchronously in the store before this resolves
       const pending = useAuthStore.getState().confirmationPending;
       if (!pending) {
+        await createGoalFromOnboarding();
         router.replace('/(auth)/(drawer)/dashboard');
       }
     } catch {
@@ -117,6 +147,7 @@ export default function AuthScreen() {
     if (!email || !password) return;
     try {
       await login(email, password);
+      await createGoalFromOnboarding();
       router.replace('/(auth)/(drawer)/dashboard');
     } catch {
       // error shown via store
@@ -152,7 +183,7 @@ export default function AuthScreen() {
               </Text>
               <TouchableOpacity
                 style={[styles.continueButton, { marginTop: Spacing.xl }]}
-                onPress={() => setMode('login')}
+                onPress={() => router.push('/login')}
               >
                 <Text style={styles.continueText}>Go to Log In</Text>
               </TouchableOpacity>
@@ -184,10 +215,10 @@ export default function AuthScreen() {
 
               <TouchableOpacity
                 style={[styles.emailButton, styles.loginButton]}
-                onPress={() => setMode('login')}
+                onPress={() => router.push('/login')}
                 activeOpacity={0.85}
               >
-                <Text style={[styles.emailButtonText, styles.loginButtonText]}>Log in</Text>
+                <Text style={[styles.emailButtonText, styles.loginButtonText]}>Already have an account? Sign in</Text>
               </TouchableOpacity>
             </View>
           ) : mode === 'email' ? (

@@ -224,6 +224,34 @@ export const TEMPLATE_REGISTRY: TemplateDefinition[] = [
     ],
   },
   {
+    id: 'tpl-solo-business',
+    name: 'Solo Business Growth',
+    description: 'Get your first clients, build revenue, and grow a sustainable solo business.',
+    category: TemplateCategory.BUSINESS,
+    durationDays: 90,
+    milestones: ['Audit & strategy complete', 'First marketing campaign live', 'First new client from strategy', 'Revenue target hit'],
+    defaultTaskTypes: ['ACTION', 'HABIT', 'MILESTONE'],
+    diagnosticQuestions: [
+      {
+        id: 'dq-biz-offer',
+        question: 'What service or product are you selling?',
+        type: 'text',
+      },
+      {
+        id: 'dq-biz-stage',
+        question: 'Where are you in your business journey?',
+        type: 'choice',
+        options: ['Just starting out', 'Have an idea, no clients yet', 'A few clients', 'Growing and scaling'],
+      },
+      {
+        id: 'dq-biz-revenue-goal',
+        question: 'What revenue goal are you aiming for in 90 days?',
+        type: 'choice',
+        options: ['$1K/mo', '$5K/mo', '$10K/mo', '$20K+/mo'],
+      },
+    ],
+  },
+  {
     id: 'tpl-learning-skill',
     name: 'Skill Acquisition Sprint',
     description: 'Master a new skill through deliberate daily practice in 45 days.',

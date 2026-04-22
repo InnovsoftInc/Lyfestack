@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
@@ -165,10 +166,12 @@ function GoalCard({ goal }: GoalCardProps) {
 }
 
 export default function GoalsScreen() {
-  const { goals } = useGoalsStore();
+  const { goals, fetchGoals } = useGoalsStore();
   const theme = useTheme();
   const styles = makeStyles(theme);
   const activeGoals = goals.filter((g) => g.status === GoalStatus.ACTIVE);
+
+  useEffect(() => { fetchGoals(); }, []);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -212,7 +215,7 @@ export default function GoalsScreen() {
       {/* FAB */}
       <TouchableOpacity
         style={styles.fab}
-        onPress={() => router.push('/onboarding/goals')}
+        onPress={() => router.push('/goal-setup')}
         activeOpacity={0.85}
       >
         <Text style={styles.fabIcon}>+</Text>

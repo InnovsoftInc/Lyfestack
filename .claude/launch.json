@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "server",
+      "runtimeExecutable": "yarn",
+      "runtimeArgs": ["workspace", "@lyfestack/server", "dev"],
+      "port": 3000
+    },
+    {
+      "name": "mobile",
+      "runtimeExecutable": "yarn",
+      "runtimeArgs": ["workspace", "@lyfestack/mobile", "start"],
+      "port": 8081
+    }
+  ]
+}

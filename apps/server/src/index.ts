@@ -19,6 +19,7 @@ import { createUsersRouter } from './routes/users.routes';
 import { createIntegrationsRouter } from './routes/integrations.routes';
 import { openclawRoutes } from './integrations/openclaw/openclaw.routes';
 import { getStatus as openclawStatus } from './integrations/openclaw/openclaw.controller';
+import { createGoalRouter } from './routes/goal.routes';
 import { startCronJobs } from './jobs/cron';
 import { createAuthMiddleware, requireAuth } from './middleware/auth.middleware';
 import { getSupabaseClient } from './config/database';
@@ -58,6 +59,9 @@ app.use('/users', createUsersRouter());
 
 // Phase 5 — Integrations (Calendar, Buffer)
 app.use('/integrations', createIntegrationsRouter());
+
+// Goals CRUD
+app.use('/api/goals', createGoalRouter());
 
 // OpenClaw bridge — status is public (used for connection discovery), rest requires auth
 app.get('/api/openclaw/status', openclawStatus);

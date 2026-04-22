@@ -6,7 +6,7 @@ import { TextStyles, Spacing, BorderRadius } from '../../../../theme';
 import { Colors, ApprovalState, AgentRole } from '@lyfestack/shared';
 import { useApprovalsStore } from '../../../../stores/approvals.store';
 import { Badge } from '../../../../components/ui';
-import type { MockAgentAction } from '../../../../utils/mockData';
+import type { AgentAction } from '@lyfestack/shared';
 
 function agentRoleLabel(role: AgentRole) {
   switch (role) {
@@ -132,7 +132,7 @@ function makeStyles(theme: Theme) {
 }
 
 interface ApprovalCardProps {
-  action: MockAgentAction;
+  action: AgentAction;
   onApprove: () => void;
   onReject: () => void;
 }
@@ -201,8 +201,8 @@ export default function ApprovalsScreen() {
   const theme = useTheme();
   const styles = makeStyles(theme);
 
-  const pending = actions.filter((a) => a.approvalState === ApprovalState.PENDING) as MockAgentAction[];
-  const resolved = actions.filter((a) => a.approvalState !== ApprovalState.PENDING) as MockAgentAction[];
+  const pending = actions.filter((a) => a.approvalState === ApprovalState.PENDING) as AgentAction[];
+  const resolved = actions.filter((a) => a.approvalState !== ApprovalState.PENDING) as AgentAction[];
 
   return (
     <SafeAreaView style={styles.container}>

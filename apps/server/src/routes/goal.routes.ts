@@ -2,24 +2,27 @@ import { Router } from 'express';
 import { GoalController } from '../controllers/goal.controller';
 import { GoalService } from '../services/goal.service';
 import { GoalRepository } from '../repositories/goal.repository';
+import { TaskRepository } from '../repositories/task.repository';
 import { createAuthMiddleware, requireAuth } from '../middleware/auth.middleware';
 
 let _goalRepository: GoalRepository | null = null;
+let _taskRepository: TaskRepository | null = null;
 
-function getGoalRepository(): GoalRepository | null {
-  if (_goalRepository) return _goalRepository;
+function getRepositories(): { goals: GoalRepository | null; tasks: TaskRepository | null } {
   try {
     const { getSupabaseClient } = require('../config/database') as { getSupabaseClient: () => import('@supabase/supabase-js').SupabaseClient };
     const supabase = getSupabaseClient();
-    _goalRepository = new GoalRepository(supabase);
-    return _goalRepository;
+    if (!_goalRepository) _goalRepository = new GoalRepository(supabase);
+    if (!_taskRepository) _taskRepository = new TaskRepository(supabase);
+    return { goals: _goalRepository, tasks: _taskRepository };
   } catch {
-    return null;
+    return { goals: null, tasks: null };
   }
 }
 
 export function createGoalRouter(): Router {
-  const goalService = new GoalService(getGoalRepository());
+  const { goals, tasks } = getRepositories();
+  const goalService = new GoalService(goals, tasks);
   const goalController = new GoalController(goalService);
 
   let authMiddleware: ReturnType<typeof createAuthMiddleware>;

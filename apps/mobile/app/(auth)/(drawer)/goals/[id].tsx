@@ -8,7 +8,7 @@ import { Colors } from '@lyfestack/shared';
 import { useGoalsStore } from '../../../../stores/goals.store';
 import { useBriefsStore } from '../../../../stores/briefs.store';
 import { Badge } from '../../../../components/ui';
-import type { MockTask } from '../../../../utils/mockData';
+import type { Task } from '@lyfestack/shared';
 
 function makeStyles(theme: Theme) {
   return StyleSheet.create({
@@ -144,7 +144,7 @@ export default function GoalDetailScreen() {
     );
   }
 
-  const goalTasks = (brief?.tasks as MockTask[] | undefined)?.filter((t) => t.goalId === id) ?? [];
+  const goalTasks = (brief?.tasks as Task[] | undefined)?.filter((t) => t.goalId === id) ?? [];
 
   const completedMilestones = goal.milestones.filter((m) => m.completedAt).length;
 
