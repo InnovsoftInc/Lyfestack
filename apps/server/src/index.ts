@@ -9,6 +9,7 @@ import { healthCheck } from './controllers/health.controller';
 import { getAllTemplates, getTemplateById } from './controllers/goal-template.controller';
 import { generatePlan, getPlan } from './controllers/plan.controller';
 import { getTodaysBrief, getBriefByDate, markTaskComplete } from './controllers/daily-brief.controller';
+import { executeAgentAction, getAgentActions } from './controllers/agent.controller';
 import { startCronJobs } from './jobs/cron';
 
 const app = express();
@@ -32,6 +33,10 @@ app.get('/goals/:goalId/plan', getPlan);
 app.get('/briefs/today', getTodaysBrief);
 app.get('/briefs/:date', getBriefByDate);
 app.patch('/briefs/:id/tasks/:taskId', markTaskComplete);
+
+// Agents
+app.post('/agents/execute', executeAgentAction);
+app.get('/agents/actions', getAgentActions);
 
 app.use(errorMiddleware);
 
