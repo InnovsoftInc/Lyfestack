@@ -11,6 +11,7 @@ import { useTheme } from '../../../../hooks/useTheme';
 import { Spacing } from '../../../../theme';
 import type { Theme } from '../../../../theme';
 import { AgentAvatar } from './index';
+import { NavBar } from '../../../../components/ui';
 
 const TRAITS = ['Analytical', 'Creative', 'Direct', 'Friendly', 'Precise', 'Witty', 'Empathetic', 'Strategic', 'Thorough', 'Bold'];
 const TONES = ['Professional', 'Casual', 'Technical', 'Simple', 'Formal', 'Conversational'];
@@ -125,14 +126,7 @@ export default function AgentProfileScreen() {
 
   return (
     <View style={s.container}>
-      {/* Nav bar */}
-      <View style={s.navBar}>
-        <TouchableOpacity onPress={() => router.back()} style={s.backBtn} hitSlop={12} activeOpacity={0.6}>
-          <Text style={s.backIcon}>‹</Text>
-        </TouchableOpacity>
-        <Text style={s.navTitle} numberOfLines={1}>{name}</Text>
-        <View style={{ width: 40 }} />
-      </View>
+      <NavBar title={name} />
 
       {/* Tab bar */}
       <View style={s.tabBar}>
@@ -297,15 +291,6 @@ export default function AgentProfileScreen() {
 const styles = (t: Theme) => StyleSheet.create({
   container: { flex: 1, backgroundColor: t.background },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-
-  navBar: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm + 2,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: t.border,
-  },
-  backBtn: { width: 40, alignItems: 'flex-start' },
-  backIcon: { color: t.accent, fontSize: 32, lineHeight: 36, fontWeight: '300' },
-  navTitle: { flex: 1, color: t.text.primary, fontSize: 17, fontWeight: '600', textAlign: 'center' },
 
   tabBar: {
     flexDirection: 'row',
