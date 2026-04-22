@@ -43,9 +43,10 @@ export async function registerForPushNotifications(): Promise<string | null> {
     });
   }
 
-  const token = await Notifications.getExpoPushTokenAsync({
-    projectId: process.env['EXPO_PUBLIC_PROJECT_ID'],
-  });
+  const projectId = process.env['EXPO_PUBLIC_PROJECT_ID'];
+  const token = await Notifications.getExpoPushTokenAsync(
+    projectId ? { projectId } : {},
+  );
 
   return token.data;
 }

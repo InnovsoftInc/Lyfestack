@@ -1,2 +1,2 @@
-export { DailyLoopEngine } from './daily-loop.engine';
-export type { DailyBriefOutput } from './daily-loop.engine';
+export { DailyLoopEngine, dailyLoopEngine } from './daily-loop.engine';
+export type { StoredBrief, BriefUser } from './daily-loop.types';

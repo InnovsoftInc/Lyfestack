@@ -11,6 +11,7 @@ import {
   Outfit_700Bold,
 } from '@expo-google-fonts/outfit';
 import { useNotifications } from '../hooks/useNotifications';
+import { useAuthStore } from '../stores/auth.store';
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -22,7 +23,12 @@ export default function RootLayout() {
     Outfit_700Bold,
   });
 
+  const restoreSession = useAuthStore((s) => s.restoreSession);
   useNotifications();
+
+  useEffect(() => {
+    void restoreSession();
+  }, [restoreSession]);
 
   useEffect(() => {
     if (fontsLoaded) {

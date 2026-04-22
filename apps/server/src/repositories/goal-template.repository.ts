@@ -41,9 +41,14 @@ export class GoalTemplateRepository extends BaseRepository<GoalTemplate, CreateG
       name: r.name,
       description: r.description ?? '',
       category: r.category,
+      icon: '',
       durationDays: r.duration_days,
+      diagnosticQuestions: Array.isArray(r.diagnostic_questions) ? (r.diagnostic_questions as GoalTemplate['diagnosticQuestions']) : [],
       milestones: Array.isArray(r.milestones) ? r.milestones : [],
       defaultTaskTypes: Array.isArray(r.allowed_actions) ? r.allowed_actions : [],
+      allowedActions: Array.isArray(r.allowed_actions) ? r.allowed_actions : [],
+      automationRules: [],
+      leadingIndicators: Array.isArray(r.leading_indicators) ? (r.leading_indicators as GoalTemplate['leadingIndicators']) : [],
     };
   }
 

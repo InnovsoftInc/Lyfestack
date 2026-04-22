@@ -3,24 +3,23 @@ import { agentOrchestrator } from './agent.orchestrator';
 
 export async function executeAgent(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { agentKey, userId, prompt, context, requestedActions } = req.body as {
+    const { agentKey, prompt, context, requestedActions } = req.body as {
       agentKey: string;
-      userId: string;
       prompt: string;
       context?: Record<string, unknown>;
       requestedActions?: string[];
     };
 
-    if (!agentKey || !userId || !prompt) {
+    if (!agentKey || !prompt) {
       res.status(400).json({
-        error: { code: 'MISSING_PARAMS', message: 'agentKey, userId, and prompt are required' },
+        error: { code: 'MISSING_PARAMS', message: 'agentKey and prompt are required' },
       });
       return;
     }
 
     const output = await agentOrchestrator.dispatch({
       agentKey,
-      input: { userId, prompt, ...(context !== undefined && { context }) },
+      input: { userId: req.user!.id, prompt, ...(context !== undefined && { context }) },
       ...(requestedActions !== undefined && { requestedActions }),
     });
 

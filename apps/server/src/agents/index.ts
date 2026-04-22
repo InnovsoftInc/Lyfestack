@@ -1,6 +1,6 @@
 export { AIClient } from './ai-client';
 export { BaseAgent } from './base.agent';
-export type { AgentResult } from './base.agent';
+export type { AgentOutput, AgentInput } from './base.agent';
 export { AgentOrchestrator } from './agent.orchestrator';
 export { ContentAgent } from './content.agent';
 export { ResearchAgent } from './research.agent';

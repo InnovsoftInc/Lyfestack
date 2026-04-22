@@ -12,6 +12,7 @@ interface UserRow {
   trust_tier: string;
   engagement_velocity: number;
   adaptive_task_cap: number;
+  onboarding_completed: boolean;
   push_token: string | null;
   created_at: string;
   updated_at: string;
@@ -33,6 +34,7 @@ export interface UpdateUserData {
   trust_tier?: TrustTier;
   engagement_velocity?: number;
   adaptive_task_cap?: number;
+  onboarding_completed?: boolean;
   push_token?: string | null;
 }
 
@@ -49,7 +51,7 @@ export class UserRepository extends BaseRepository<User, CreateUserData> {
       displayName: r.name ?? '',
       timezone: r.timezone,
       trustTier: r.trust_tier as TrustTier,
-      onboardingCompleted: false,
+      onboardingCompleted: r.onboarding_completed ?? false,
       createdAt: r.created_at,
       updatedAt: r.updated_at,
     };
@@ -81,6 +83,7 @@ export class UserRepository extends BaseRepository<User, CreateUserData> {
     if (data.engagement_velocity !== undefined)  dbData['engagement_velocity'] = data.engagement_velocity;
     if (data.adaptive_task_cap !== undefined)    dbData['adaptive_task_cap']   = data.adaptive_task_cap;
     if (data.push_token !== undefined)           dbData['push_token']          = data.push_token;
+    if (data.onboarding_completed !== undefined) dbData['onboarding_completed'] = data.onboarding_completed;
 
     return this.update(id, dbData as Partial<CreateUserData>);
   }

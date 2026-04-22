@@ -1,11 +1,11 @@
 import React from 'react';
-import { View, StyleSheet, ViewStyle } from 'react-native';
+import { View, StyleSheet, ViewStyle, StyleProp } from 'react-native';
 import { DarkTheme } from '../../theme/colors';
 import { Spacing, BorderRadius } from '../../theme';
 
 interface CardProps {
   children: React.ReactNode;
-  style?: ViewStyle;
+  style?: StyleProp<ViewStyle>;
   padded?: boolean;
   elevated?: boolean;
 }

@@ -1,6 +1,8 @@
 import 'dotenv/config';
 import { z } from 'zod';
 
+const isProduction = process.env['NODE_ENV'] === 'production';
+
 const configSchema = z.object({
   NODE_ENV: z.enum(['development', 'staging', 'production']).default('development'),
   PORT: z.coerce.number().default(3000),
@@ -21,7 +23,9 @@ const configSchema = z.object({
   GOOGLE_CLIENT_SECRET: z.string().optional(),
 
   EXPO_PUSH_ACCESS_TOKEN: z.string().optional(),
-  APP_BASE_URL: z.string().default('http://localhost:3000'),
+  APP_BASE_URL: isProduction
+    ? z.string().url()
+    : z.string().default('http://localhost:3000'),
 
   SENTRY_DSN: z.string().optional(),
 });

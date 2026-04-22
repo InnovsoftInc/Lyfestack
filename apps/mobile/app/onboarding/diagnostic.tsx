@@ -40,7 +40,7 @@ const QUESTIONS_BY_TEMPLATE: Record<string, Array<{
   ],
 };
 
-const DEFAULT_QUESTIONS = QUESTIONS_BY_TEMPLATE['productivity'];
+const DEFAULT_QUESTIONS = QUESTIONS_BY_TEMPLATE['productivity'] ?? [];
 
 export default function DiagnosticScreen() {
   const { selectedTemplateId, diagnosticAnswers, setAnswer } = useOnboardingStore();

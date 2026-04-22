@@ -1,2 +1,2 @@
-export { TaskScorer } from './task.scorer';
-export type { ScoredTask } from './task.scorer';
+export { TaskScorer, taskScorer } from './task.scorer';
+export type { ScoredTask, ScoringFactors, UserScoringContext } from './scoring.types';

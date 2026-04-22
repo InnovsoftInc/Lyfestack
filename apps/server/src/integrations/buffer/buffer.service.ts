@@ -106,7 +106,7 @@ export class BufferService {
         logger.warn({ userId }, 'No Buffer profiles found');
         return { success: false };
       }
-      targetProfileId = profiles[0].id;
+      targetProfileId = profiles[0]!.id;
     }
 
     const body = new URLSearchParams();
@@ -127,8 +127,9 @@ export class BufferService {
     }
 
     const data = (await res.json()) as { update?: { id: string } };
-    logger.info({ userId, bufferId: data.update?.id }, 'Post scheduled via Buffer');
-    return { success: true, bufferId: data.update?.id };
+    const bufferId = data.update?.id;
+    logger.info({ userId, bufferId }, 'Post scheduled via Buffer');
+    return bufferId ? { success: true, bufferId } : { success: true };
   }
 }
 

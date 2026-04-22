@@ -2,7 +2,7 @@ import type { Task, Goal, DailyBrief, AgentAction, User } from '@lyfestack/share
 import { TaskStatus, TaskType, ApprovalState, GoalStatus, AgentRole, TrustTier } from '@lyfestack/shared';
 
 const now = new Date().toISOString();
-const today = new Date().toISOString().split('T')[0];
+const today = new Date().toISOString().split('T')[0]!;
 
 export const mockUser: User = {
   id: 'user-1',

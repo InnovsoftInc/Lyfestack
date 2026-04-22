@@ -1,7 +1,2 @@
-import { startDailyBriefJob } from './daily-brief.job';
-import { startStreakCheckJob } from './streak-check.job';
-
-export function startAllJobs(): void {
-  startDailyBriefJob();
-  startStreakCheckJob();
-}
+export { runDailyBriefJob } from './daily-brief.job';
+export { runStreakCheckJob, updateStreak, getStreak } from './streak-check.job';

@@ -20,14 +20,18 @@ export const createAgent = async (req: Request, res: Response, next: NextFunctio
 
 export const deleteAgent = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    await service.deleteAgent(req.params.name);
+    const { name } = req.params;
+    if (!name) { res.status(400).json({ error: 'Agent name required' }); return; }
+    await service.deleteAgent(name);
     res.json({ success: true });
   } catch (err) { next(err); }
 };
 
 export const sendMessage = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const response = await service.sendMessage(req.params.name, req.body.message);
+    const { name } = req.params;
+    if (!name) { res.status(400).json({ error: 'Agent name required' }); return; }
+    const response = await service.sendMessage(name, req.body.message as string);
     res.json({ data: { response } });
   } catch (err) { next(err); }
 };

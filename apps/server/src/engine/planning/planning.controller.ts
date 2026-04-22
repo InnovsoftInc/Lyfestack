@@ -10,16 +10,15 @@ export function createPlan(req: Request, res: Response, next: NextFunction): voi
       return;
     }
 
-    const { templateId, answers, userId, engagementVelocity, currentTaskLoad } = req.body as {
+    const { templateId, answers, engagementVelocity, currentTaskLoad } = req.body as {
       templateId: string;
       answers: { questionId: string; value: string | number | boolean }[];
-      userId: string;
       engagementVelocity?: number;
       currentTaskLoad?: number;
     };
 
     const plan = planningService.createPlan(goalId, templateId, answers, {
-      userId,
+      userId: req.user!.id,
       trustTier: TrustTier.AUTONOMOUS,
       engagementVelocity: engagementVelocity ?? 0.5,
       currentTaskLoad: currentTaskLoad ?? 0,

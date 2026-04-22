@@ -1,26 +1,36 @@
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { DarkTheme } from '../../theme/colors';
 import { TextStyles, Spacing, BorderRadius } from '../../theme';
 import { Colors } from '@lyfestack/shared';
+import { useAuthStore } from '../../stores/auth.store';
 
 export default function AuthScreen() {
-  const [mode, setMode] = useState<'options' | 'email'>('options');
+  const [mode, setMode] = useState<'options' | 'email' | 'login'>('options');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const { signup, login, isLoading, error } = useAuthStore();
 
-  const handleSocialAuth = (provider: 'google' | 'apple') => {
-    // TODO: wire to Supabase OAuth
-    console.log(`Auth with ${provider}`);
-    router.replace('/(auth)/(drawer)/dashboard');
+  const handleEmailSignup = async () => {
+    if (!email || !password) return;
+    try {
+      await signup(email, password, name || undefined);
+      router.replace('/(auth)/(drawer)/dashboard');
+    } catch {
+      // error shown via store
+    }
   };
 
-  const handleEmailAuth = () => {
-    // TODO: wire to Supabase email auth
-    if (email && password) {
+  const handleEmailLogin = async () => {
+    if (!email || !password) return;
+    try {
+      await login(email, password);
       router.replace('/(auth)/(drawer)/dashboard');
+    } catch {
+      // error shown via store
     }
   };
 
@@ -43,48 +53,49 @@ export default function AuthScreen() {
 
         <View style={styles.content}>
           <View style={styles.titleSection}>
-            <Text style={styles.title}>Create your account</Text>
+            <Text style={styles.title}>
+              {mode === 'login' ? 'Welcome back' : 'Create your account'}
+            </Text>
             <Text style={styles.subtitle}>
-              Your plan is ready. Sign up to unlock it and start your first daily brief tomorrow morning.
+              {mode === 'login'
+                ? 'Sign in to continue your goals.'
+                : 'Your plan is ready. Sign up to unlock it and start your first daily brief tomorrow morning.'}
             </Text>
           </View>
 
+          {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
           {mode === 'options' ? (
             <View style={styles.authOptions}>
-              <TouchableOpacity
-                style={styles.socialButton}
-                onPress={() => handleSocialAuth('google')}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.socialIcon}>G</Text>
-                <Text style={styles.socialText}>Continue with Google</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.socialButton}
-                onPress={() => handleSocialAuth('apple')}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.socialIcon}>󰀵</Text>
-                <Text style={styles.socialText}>Continue with Apple</Text>
-              </TouchableOpacity>
-
-              <View style={styles.divider}>
-                <View style={styles.dividerLine} />
-                <Text style={styles.dividerText}>or</Text>
-                <View style={styles.dividerLine} />
-              </View>
-
               <TouchableOpacity
                 style={styles.emailButton}
                 onPress={() => setMode('email')}
                 activeOpacity={0.85}
               >
-                <Text style={styles.emailButtonText}>Continue with Email</Text>
+                <Text style={styles.emailButtonText}>Sign up with Email</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.emailButton, styles.loginButton]}
+                onPress={() => setMode('login')}
+                activeOpacity={0.85}
+              >
+                <Text style={[styles.emailButtonText, styles.loginButtonText]}>Log in</Text>
               </TouchableOpacity>
             </View>
-          ) : (
+          ) : mode === 'email' ? (
             <View style={styles.emailForm}>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Name (optional)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Your name"
+                  placeholderTextColor={DarkTheme.text.secondary}
+                  value={name}
+                  onChangeText={setName}
+                  autoCapitalize="words"
+                />
+              </View>
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Email</Text>
                 <TextInput
@@ -111,16 +122,60 @@ export default function AuthScreen() {
               </View>
 
               <TouchableOpacity
-                style={[styles.continueButton, !(email && password) && styles.continueButtonDisabled]}
-                onPress={handleEmailAuth}
-                disabled={!(email && password)}
+                style={[styles.continueButton, (!(email && password) || isLoading) && styles.continueButtonDisabled]}
+                onPress={handleEmailSignup}
+                disabled={!(email && password) || isLoading}
                 activeOpacity={0.85}
               >
-                <Text style={styles.continueText}>Create Account</Text>
+                {isLoading
+                  ? <ActivityIndicator color={Colors.white} />
+                  : <Text style={styles.continueText}>Create Account</Text>}
               </TouchableOpacity>
 
               <TouchableOpacity onPress={() => setMode('options')}>
-                <Text style={styles.backToOptions}>← Other sign-up options</Text>
+                <Text style={styles.backToOptions}>← Other options</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.emailForm}>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Email</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="you@example.com"
+                  placeholderTextColor={DarkTheme.text.secondary}
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+              </View>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Password</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Password"
+                  placeholderTextColor={DarkTheme.text.secondary}
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry
+                />
+              </View>
+
+              <TouchableOpacity
+                style={[styles.continueButton, (!(email && password) || isLoading) && styles.continueButtonDisabled]}
+                onPress={handleEmailLogin}
+                disabled={!(email && password) || isLoading}
+                activeOpacity={0.85}
+              >
+                {isLoading
+                  ? <ActivityIndicator color={Colors.white} />
+                  : <Text style={styles.continueText}>Log In</Text>}
+              </TouchableOpacity>
+
+              <TouchableOpacity onPress={() => setMode('options')}>
+                <Text style={styles.backToOptions}>← Back</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -149,42 +204,12 @@ const styles = StyleSheet.create({
   progress: { flexDirection: 'row', gap: 6 },
   progressDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: DarkTheme.border },
   progressDotActive: { backgroundColor: Colors.accent, width: 20 },
-  content: {
-    flex: 1,
-    padding: Spacing.xl,
-    gap: Spacing.xl,
-  },
+  content: { flex: 1, padding: Spacing.xl, gap: Spacing.xl },
   titleSection: { gap: Spacing.sm },
   title: { ...TextStyles.h2, color: DarkTheme.text.primary },
   subtitle: { ...TextStyles.body, color: DarkTheme.text.secondary, lineHeight: 26 },
+  errorText: { ...TextStyles.small, color: '#EF4444', textAlign: 'center' },
   authOptions: { gap: Spacing.md },
-  socialButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-    backgroundColor: DarkTheme.surface,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    borderColor: DarkTheme.border,
-    paddingVertical: 14,
-    paddingHorizontal: Spacing.lg,
-  },
-  socialIcon: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: DarkTheme.text.primary,
-    width: 24,
-    textAlign: 'center',
-  },
-  socialText: { ...TextStyles.bodyMedium, color: DarkTheme.text.primary },
-  divider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-    marginVertical: Spacing.sm,
-  },
-  dividerLine: { flex: 1, height: 1, backgroundColor: DarkTheme.border },
-  dividerText: { ...TextStyles.small, color: DarkTheme.text.secondary },
   emailButton: {
     borderRadius: BorderRadius.md,
     borderWidth: 1,
@@ -192,7 +217,11 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     alignItems: 'center',
   },
+  loginButton: {
+    backgroundColor: DarkTheme.surface,
+  },
   emailButtonText: { ...TextStyles.bodyMedium, color: DarkTheme.text.primary },
+  loginButtonText: { color: DarkTheme.text.secondary },
   emailForm: { gap: Spacing.md },
   inputGroup: { gap: Spacing.sm },
   inputLabel: { ...TextStyles.small, color: DarkTheme.text.secondary, fontWeight: '600' },
