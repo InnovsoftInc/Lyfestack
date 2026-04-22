@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { Goal } from '@lyfestack/shared';
 import { GoalStatus, TaskStatus, ApprovalState, TrustTier } from '@lyfestack/shared';
 import { NotFoundError, ValidationError } from '../errors/AppError';
+import { logger } from '../utils/logger';
 import type { GoalRepository } from '../repositories/goal.repository';
 import type { TaskRepository } from '../repositories/task.repository';
 import { templateService } from '../templates/template.service';
@@ -66,7 +67,8 @@ export class GoalService {
         });
         await this._generateTasks(saved.id, userId, templateId, diagnosticAnswers ?? []);
         return saved;
-      } catch {
+      } catch (err) {
+        logger.warn({ err }, '[GoalService] DB save failed, falling back to in-memory');
         goalStore.set(id, goal);
         return goal;
       }
@@ -116,7 +118,11 @@ export class GoalService {
   async getGoals(userId: string): Promise<Goal[]> {
     if (this.goalRepository) {
       try {
-        return await this.goalRepository.findByUserId(userId);
+        const dbGoals = await this.goalRepository.findByUserId(userId);
+        const memGoals = Array.from(goalStore.values()).filter((g) => g.userId === userId);
+        if (dbGoals.length > 0 || memGoals.length === 0) return dbGoals;
+        // DB returned empty but we have in-memory goals (DB write failed earlier)
+        return memGoals;
       } catch {
         // fall through to in-memory
       }

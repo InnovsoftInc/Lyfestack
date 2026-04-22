@@ -1,4 +1,5 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { useMemo } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useTheme } from '../../hooks/useTheme';
@@ -6,8 +7,28 @@ import type { Theme } from '../../theme/colors';
 import { TextStyles, Spacing, BorderRadius } from '../../theme';
 import { Colors } from '@lyfestack/shared';
 import { useOnboardingStore } from '../../stores/onboarding.store';
+import type { GeneratedPlan } from '../../stores/onboarding.store';
 
-const TEMPLATE_PLANS: Record<string, { title: string; summary: string; milestones: { week: string; title: string; description: string }[]; tasks: string[] }> = {
+interface PlanDisplay {
+  title: string;
+  summary: string;
+  milestones: { week: string; title: string; description: string }[];
+  tasks: string[];
+}
+
+function fromGeneratedPlan(plan: GeneratedPlan): PlanDisplay {
+  return {
+    title: plan.title,
+    summary: plan.description,
+    milestones: plan.milestones.map((m) => {
+      const week = Math.max(1, Math.ceil((m.dueDayOffset || 7) / 7));
+      return { week: `Week ${week}`, title: m.title, description: m.title };
+    }),
+    tasks: plan.tasks.slice(0, 3).map((t) => t.title),
+  };
+}
+
+const TEMPLATE_PLANS: Record<string, PlanDisplay> = {
   'productivity': {
     title: 'Your 30-Day Productivity Plan',
     summary: 'Based on your answers, here\'s a focused plan to build better systems and eliminate distractions.',
@@ -103,8 +124,11 @@ function makeStyles(theme: Theme) {
 }
 
 export default function PlanPreviewScreen() {
-  const { selectedTemplateId } = useOnboardingStore();
-  const plan = TEMPLATE_PLANS[selectedTemplateId ?? 'productivity'] ?? TEMPLATE_PLANS['productivity'];
+  const { selectedTemplateId, generatedPlan } = useOnboardingStore();
+  const plan = useMemo<PlanDisplay>(() => {
+    if (generatedPlan) return fromGeneratedPlan(generatedPlan);
+    return TEMPLATE_PLANS[selectedTemplateId ?? 'productivity'] ?? TEMPLATE_PLANS['productivity']!;
+  }, [generatedPlan, selectedTemplateId]);
   const theme = useTheme();
   const styles = makeStyles(theme);
 

@@ -112,14 +112,20 @@ export default function AuthScreen() {
           'social-media': 'Social Media Growth',
           'fitness': 'Fitness & Health',
         };
-        const answers = Object.entries(diagnosticAnswers).map(([questionId, answer]) => ({
+        // Map onboarding template slugs to server template registry IDs
+        const serverTemplateIds: Record<string, string> = {
+          'productivity': 'tpl-productivity-focus',
+          'fitness': 'tpl-fitness-beginner',
+          'solo-business': 'tpl-solo-business',
+        };
+        const answers = Object.entries(diagnosticAnswers).map(([questionId, value]) => ({
           questionId,
-          answer,
+          value,
         }));
         await createGoal({
           title: templateNames[selectedTemplateId] ?? selectedTemplateId,
           description: `Goal created from ${templateNames[selectedTemplateId] ?? selectedTemplateId} template`,
-          templateId: `tmpl_${selectedTemplateId.replace(/-/g, '_')}`,
+          ...(serverTemplateIds[selectedTemplateId] && { templateId: serverTemplateIds[selectedTemplateId] }),
           diagnosticAnswers: answers,
         });
         resetOnboarding();

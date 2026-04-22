@@ -189,7 +189,7 @@ export default function DiagnosticScreen() {
       <View style={styles.footer}>
         <TouchableOpacity
           style={[styles.continueButton, !allAnswered && styles.continueButtonDisabled]}
-          onPress={() => router.push('/onboarding/preview')}
+          onPress={() => router.push('/onboarding/generating')}
           disabled={!allAnswered}
           activeOpacity={0.85}
         >
