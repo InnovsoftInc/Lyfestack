@@ -20,6 +20,34 @@ export interface AgentFile {
   modifiedAt: string;
 }
 
+export interface OpenClawConfig {
+  gateway: {
+    port: number;
+    mode: string;
+    bind: string;
+  };
+  agentDefaults: {
+    primaryModel: string;
+    fallbackModels: string[];
+  };
+  codingTool: string;
+}
+
+type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] };
+
+export interface AuthProfileInfo {
+  name: string;
+  provider: string;
+  mode: string;
+  maskedKey?: string;
+  envVar?: string;
+}
+
+function maskKey(key: string): string {
+  if (key.length <= 8) return '***';
+  return key.slice(0, 10) + '...' + key.slice(-4);
+}
+
 export interface OpenClawAgent {
   name: string;
   role: string;
@@ -249,5 +277,75 @@ export class OpenClawService {
     } catch {
       return { running: false, agentCount: 0 };
     }
+  }
+
+  async getConfig(): Promise<OpenClawConfig> {
+    const cfg = await readOpenclawJson();
+    return {
+      gateway: {
+        port: cfg?.gateway?.port ?? 18789,
+        mode: cfg?.gateway?.mode ?? 'local',
+        bind: cfg?.gateway?.bind ?? 'loopback',
+      },
+      agentDefaults: {
+        primaryModel: cfg?.agents?.defaults?.model?.primary ?? 'openrouter/auto',
+        fallbackModels: cfg?.agents?.defaults?.model?.fallbacks ?? [],
+      },
+      codingTool: cfg?.commands?.native ?? 'auto',
+    };
+  }
+
+  async updateConfig(updates: DeepPartial<OpenClawConfig>): Promise<void> {
+    const cfg = await readOpenclawJson();
+    if (updates.agentDefaults?.primaryModel !== undefined) {
+      cfg.agents ??= {};
+      cfg.agents.defaults ??= {};
+      cfg.agents.defaults.model ??= {};
+      cfg.agents.defaults.model.primary = updates.agentDefaults.primaryModel;
+    }
+    if (updates.agentDefaults?.fallbackModels !== undefined) {
+      cfg.agents ??= {};
+      cfg.agents.defaults ??= {};
+      cfg.agents.defaults.model ??= {};
+      cfg.agents.defaults.model.fallbacks = updates.agentDefaults.fallbackModels;
+    }
+    if (updates.codingTool !== undefined) {
+      cfg.commands ??= {};
+      cfg.commands.native = updates.codingTool;
+    }
+    await writeOpenclawJson(cfg);
+    logger.info({ updates }, 'OpenClaw config updated');
+  }
+
+  async getAuthProfiles(): Promise<AuthProfileInfo[]> {
+    const cfg = await readOpenclawJson();
+    const profiles: Record<string, any> = cfg?.auth?.profiles ?? {};
+    const env: Record<string, string> = cfg?.env ?? {};
+
+    return Object.entries(profiles).map(([name, profile]) => {
+      const providerUpper = (profile.provider as string | undefined)?.toUpperCase();
+      const envVar = providerUpper ? `${providerUpper}_API_KEY` : undefined;
+      const rawKey = envVar ? env[envVar] : undefined;
+      return {
+        name,
+        provider: profile.provider ?? '',
+        mode: profile.mode ?? '',
+        maskedKey: rawKey ? maskKey(rawKey) : undefined,
+        envVar,
+      } satisfies AuthProfileInfo;
+    });
+  }
+
+  async updateAuthProfile(name: string, key: string): Promise<void> {
+    const cfg = await readOpenclawJson();
+    const profile = cfg?.auth?.profiles?.[name];
+    if (!profile) throw new Error(`Auth profile '${name}' not found`);
+    const providerUpper = (profile.provider as string | undefined)?.toUpperCase();
+    if (!providerUpper) throw new Error('Cannot determine env var for profile');
+    const envVar = `${providerUpper}_API_KEY`;
+    cfg.env ??= {};
+    cfg.env[envVar] = key;
+    await writeOpenclawJson(cfg);
+    logger.info({ profile: name, envVar }, 'Auth profile key updated');
   }
 }

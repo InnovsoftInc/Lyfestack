@@ -109,6 +109,18 @@ export const openclawApi = {
       method: 'PUT', body: JSON.stringify({ content }),
     }),
 
+  getConfig: () => request('/config'),
+  updateConfig: (updates: {
+    agentDefaults?: { primaryModel?: string; fallbackModels?: string[] };
+    codingTool?: string;
+  }) => request('/config', { method: 'PATCH', body: JSON.stringify(updates) }),
+  getAuthProfiles: () => request('/auth-profiles'),
+  updateAuthProfile: (name: string, key: string) =>
+    request(`/auth-profiles/${encodeURIComponent(name)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ key }),
+    }),
+
   // Sessions
   listSessions: (limit = 20) => request(`/sessions?limit=${limit}`),
   getSession: (key: string) => request(`/sessions/detail?key=${encodeURIComponent(key)}`),

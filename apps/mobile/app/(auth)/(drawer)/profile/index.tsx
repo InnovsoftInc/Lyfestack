@@ -274,6 +274,11 @@ export default function ProfileScreen() {
               label="Manage Agents"
               onPress={() => router.push('/(auth)/(drawer)/agents')}
             />
+            <View style={styles.divider} />
+            <SettingRow
+              label="OpenClaw Settings"
+              onPress={() => router.push('/(auth)/(drawer)/profile/openclaw-settings')}
+            />
           </View>
         </View>
 

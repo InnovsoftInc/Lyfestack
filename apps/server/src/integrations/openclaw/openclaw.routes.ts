@@ -10,11 +10,19 @@ import {
   getAgentFile,
   updateAgentFile,
   sendMessage,
+  getConfig,
+  updateConfig,
+  getAuthProfiles,
+  updateAuthProfile,
 } from './openclaw.controller';
 
 const router = Router();
 
 router.get('/status', getStatus);
+router.get('/config', getConfig);
+router.patch('/config', updateConfig);
+router.get('/auth-profiles', getAuthProfiles);
+router.patch('/auth-profiles/:name', updateAuthProfile);
 router.get('/agents', listAgents);
 router.post('/agents', createAgent);
 router.get('/agents/:name', getAgent);
