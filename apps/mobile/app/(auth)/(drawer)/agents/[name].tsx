@@ -1,10 +1,16 @@
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { useState, useRef, useEffect } from 'react';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, router } from 'expo-router';
 import { useOpenClawStore } from '../../../../stores/openclaw.store';
+import { useTheme } from '../../../../hooks/useTheme';
+import { Spacing, BorderRadius } from '../../../../theme';
+import type { Theme } from '../../../../theme';
+import { AgentAvatar } from './index';
 
 export default function AgentChatScreen() {
   const { name } = useLocalSearchParams<{ name: string }>();
+  const theme = useTheme();
+  const s = styles(theme);
   const { activeChat, openChat, sendMessage, agents } = useOpenClawStore();
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -28,66 +34,73 @@ export default function AgentChatScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={s.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={90}
     >
-      <View style={styles.header}>
-        <Text style={styles.agentTitle}>{name}</Text>
-        {agent && <Text style={styles.agentMeta}>{agent.role} · {agent.model}</Text>}
+      <View style={s.header}>
+        <TouchableOpacity onPress={() => router.back()} style={s.backBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Text style={s.backIcon}>‹</Text>
+        </TouchableOpacity>
+        <AgentAvatar name={name} size={40} />
+        <View style={s.headerInfo}>
+          <Text style={s.agentTitle}>{name}</Text>
+          {agent && <Text style={s.agentMeta}>{agent.role}</Text>}
+        </View>
       </View>
 
       <FlatList
         ref={listRef}
         data={messages}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.messages}
+        contentContainerStyle={s.messages}
         renderItem={({ item }) => (
           <View style={[
-            styles.bubble,
-            item.role === 'user' ? styles.userBubble :
-            item.isError ? styles.errorBubble : styles.agentBubble,
+            s.bubble,
+            item.role === 'user' ? s.userBubble :
+            item.isError ? s.errorBubble : s.agentBubble,
           ]}>
-            {item.isError && <Text style={styles.errorLabel}>Error</Text>}
+            {item.isError && <Text style={s.errorLabel}>Error</Text>}
             <Text style={[
-              styles.bubbleText,
-              item.role === 'user' && styles.userText,
-              item.isError && styles.errorText,
+              s.bubbleText,
+              item.role === 'user' && s.userText,
+              item.isError && s.errorText,
             ]}>
               {item.content}
             </Text>
           </View>
         )}
-        ListEmptyComponent={<Text style={styles.emptyChat}>Send a message to start</Text>}
+        ListEmptyComponent={<Text style={s.emptyChat}>Send a message to start</Text>}
         onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
       />
 
       {sending && (
-        <View style={styles.typingRow}>
-          <ActivityIndicator size="small" color="#555" />
-          <Text style={styles.typingText}>{name} is thinking...</Text>
+        <View style={s.typingRow}>
+          <AgentAvatar name={name} size={24} />
+          <ActivityIndicator size="small" color={theme.text.secondary} />
+          <Text style={s.typingText}>{name} is thinking...</Text>
         </View>
       )}
 
-      <View style={styles.inputRow}>
+      <View style={s.inputRow}>
         <TextInput
-          style={styles.input}
+          style={s.input}
           value={input}
           onChangeText={setInput}
           placeholder="Message agent..."
-          placeholderTextColor="#555"
+          placeholderTextColor={theme.text.secondary}
           multiline
           editable={!sending}
           onSubmitEditing={handleSend}
         />
         <TouchableOpacity
-          style={[styles.sendBtn, (!input.trim() || sending) && styles.sendBtnDisabled]}
+          style={[s.sendBtn, (!input.trim() || sending) && s.sendBtnDisabled]}
           onPress={handleSend}
           disabled={!input.trim() || sending}
         >
           {sending
-            ? <ActivityIndicator size="small" color="#000" />
-            : <Text style={styles.sendText}>Send</Text>
+            ? <ActivityIndicator size="small" color={theme.text.inverse} />
+            : <Text style={[s.sendText, (!input.trim() || sending) && s.sendTextDisabled]}>Send</Text>
           }
         </TouchableOpacity>
       </View>
@@ -95,26 +108,63 @@ export default function AgentChatScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000' },
-  header: { padding: 16, backgroundColor: '#111', borderBottomWidth: 1, borderBottomColor: '#222' },
-  agentTitle: { color: '#EDEDED', fontSize: 20, fontWeight: '700' },
-  agentMeta: { color: '#666', fontSize: 12, marginTop: 2 },
-  messages: { padding: 16, paddingBottom: 8 },
-  bubble: { maxWidth: '80%', padding: 12, borderRadius: 12, marginBottom: 8 },
-  userBubble: { alignSelf: 'flex-end', backgroundColor: '#0EA5E9' },
-  agentBubble: { alignSelf: 'flex-start', backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: '#222' },
-  errorBubble: { alignSelf: 'flex-start', backgroundColor: '#1a0000', borderWidth: 1, borderColor: '#3a0000' },
-  bubbleText: { color: '#EDEDED', fontSize: 14, lineHeight: 20 },
-  userText: { color: '#000' },
-  errorLabel: { color: '#EF4444', fontSize: 10, fontWeight: '700', textTransform: 'uppercase', marginBottom: 4 },
-  errorText: { color: '#EF4444' },
-  emptyChat: { color: '#444', textAlign: 'center', paddingTop: 80, fontSize: 15 },
-  typingRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, gap: 8 },
-  typingText: { color: '#555', fontSize: 13 },
-  inputRow: { flexDirection: 'row', padding: 12, borderTopWidth: 1, borderTopColor: '#222', backgroundColor: '#0a0a0a', alignItems: 'flex-end' },
-  input: { flex: 1, backgroundColor: '#111', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, color: '#EDEDED', fontSize: 15, maxHeight: 100, borderWidth: 1, borderColor: '#222' },
-  sendBtn: { marginLeft: 8, backgroundColor: '#0EA5E9', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, minWidth: 60, alignItems: 'center' },
-  sendBtnDisabled: { backgroundColor: '#333' },
-  sendText: { color: '#000', fontWeight: '700', fontSize: 14 },
+const styles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.background },
+
+  header: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm + 4,
+    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm + 2,
+    backgroundColor: t.surface,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: t.border,
+  },
+  backBtn: { paddingRight: Spacing.xs },
+  backIcon: { color: t.text.primary, fontSize: 32, lineHeight: 36, fontWeight: '300' },
+  headerInfo: { flex: 1 },
+  agentTitle: { color: t.text.primary, fontSize: 17, fontWeight: '700' },
+  agentMeta: { color: t.text.secondary, fontSize: 12, marginTop: 1 },
+
+  messages: { padding: Spacing.md, paddingBottom: Spacing.sm },
+
+  bubble: { maxWidth: '80%', padding: Spacing.sm + 4, borderRadius: BorderRadius.md, marginBottom: Spacing.sm },
+  userBubble: { alignSelf: 'flex-end', backgroundColor: t.accent },
+  agentBubble: {
+    alignSelf: 'flex-start', backgroundColor: t.surface,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: t.border,
+  },
+  errorBubble: {
+    alignSelf: 'flex-start', backgroundColor: t.error + '18',
+    borderWidth: StyleSheet.hairlineWidth, borderColor: t.error + '55',
+  },
+  bubbleText: { color: t.text.primary, fontSize: 14, lineHeight: 20 },
+  userText: { color: t.text.inverse },
+  errorLabel: { color: t.error, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', marginBottom: 4 },
+  errorText: { color: t.error },
+
+  emptyChat: { color: t.text.secondary, textAlign: 'center', paddingTop: 80, fontSize: 15 },
+
+  typingRow: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.xs + 2,
+    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
+  },
+  typingText: { color: t.text.secondary, fontSize: 13 },
+
+  inputRow: {
+    flexDirection: 'row', padding: Spacing.sm + 4,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.border,
+    backgroundColor: t.surface, alignItems: 'flex-end',
+  },
+  input: {
+    flex: 1, backgroundColor: t.background,
+    borderRadius: BorderRadius.md, paddingHorizontal: Spacing.md - 2,
+    paddingVertical: Spacing.sm + 2, color: t.text.primary, fontSize: 15,
+    maxHeight: 100, borderWidth: StyleSheet.hairlineWidth, borderColor: t.border,
+  },
+  sendBtn: {
+    marginLeft: Spacing.sm, backgroundColor: t.accent,
+    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm + 2,
+    borderRadius: BorderRadius.md, minWidth: 60, alignItems: 'center',
+  },
+  sendBtnDisabled: { backgroundColor: t.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: t.border },
+  sendText: { color: t.text.inverse, fontWeight: '700', fontSize: 14 },
+  sendTextDisabled: { color: t.text.secondary },
 });
