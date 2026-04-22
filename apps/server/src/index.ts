@@ -15,6 +15,7 @@ import {
   markTaskComplete,
 } from './engine/daily-loop/daily-brief.controller';
 import { executeAgent, getAvailableAgents } from './agents/agent.controller';
+import { createOpenClawRouter } from './integrations/openclaw/openclaw.routes';
 import { startCronJobs } from './jobs/cron';
 
 const app = express();
@@ -44,6 +45,9 @@ app.patch('/briefs/:id/tasks/:taskId', markTaskComplete);
 // T6.1 — Agents
 app.post('/agents/execute', executeAgent);
 app.get('/agents/actions', getAvailableAgents);
+
+// OpenClaw Bridge
+app.use('/openclaw', createOpenClawRouter());
 
 app.use(errorMiddleware);
 
