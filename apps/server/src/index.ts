@@ -6,6 +6,7 @@ import { requestIdMiddleware } from './middleware/requestId.middleware';
 import { loggerMiddleware } from './middleware/logger.middleware';
 import { errorMiddleware } from './middleware/error.middleware';
 import { healthCheck } from './controllers/health.controller';
+import { getAllTemplates, getTemplateById } from './controllers/goal-template.controller';
 
 const app = express();
 
@@ -15,6 +16,10 @@ app.use(cors());
 app.use(express.json());
 
 app.get('/health', healthCheck);
+
+// Templates
+app.get('/templates', getAllTemplates);
+app.get('/templates/:id', getTemplateById);
 
 app.use(errorMiddleware);
 
