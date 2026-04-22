@@ -3,7 +3,6 @@ import { v4 as uuidv4 } from 'uuid';
 import { TaskType, TaskStatus, ApprovalState } from '@lyfestack/shared';
 import type { Task } from '@lyfestack/shared';
 import { dailyBriefService } from './daily-brief.service';
-import { NotFoundError } from '../../errors/AppError';
 
 function buildMockTasks(userId: string): Task[] {
   const now = new Date().toISOString();
@@ -58,16 +57,14 @@ function buildMockTasks(userId: string): Task[] {
 
 export function getBriefForToday(req: Request, res: Response, next: NextFunction): void {
   try {
-    let brief;
-    try {
-      brief = dailyBriefService.getBriefForToday(req.user!.id);
-    } catch (err) {
-      if (!(err instanceof NotFoundError)) throw err;
-      brief = dailyBriefService.generateBrief(
-        { userId: req.user!.id, engagementVelocity: 0.7, timezone: 'UTC' },
-        buildMockTasks(req.user!.id),
+    const userId = req.user!.id;
+    if (!dailyBriefService.hasBriefForToday(userId)) {
+      dailyBriefService.generateBrief(
+        { userId, engagementVelocity: 0.7, timezone: 'UTC' },
+        buildMockTasks(userId),
       );
     }
+    const brief = dailyBriefService.getBriefForToday(userId);
     res.json({ brief });
   } catch (err) {
     next(err);

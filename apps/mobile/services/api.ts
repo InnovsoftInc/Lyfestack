@@ -8,6 +8,14 @@ const AUTH_TOKEN_KEY = 'lyfestack_auth_token';
 let cachedBase: string | null = null;
 let cachedToken: string | null = null;
 
+type UnauthorizedHandler = () => void;
+let unauthorizedHandler: UnauthorizedHandler | null = null;
+let handlingUnauthorized = false;
+
+export function registerUnauthorizedHandler(handler: UnauthorizedHandler) {
+  unauthorizedHandler = handler;
+}
+
 // Non-sensitive: server URL stored in AsyncStorage
 export async function getApiBase(): Promise<string> {
   if (cachedBase) return cachedBase;
@@ -76,6 +84,14 @@ export async function request<T>(path: string, options?: RequestOptions): Promis
   }
 
   const res = await fetch(`${base}${path}`, fetchOptions);
+
+  if (res.status === 401 && !skipAuth && !handlingUnauthorized) {
+    handlingUnauthorized = true;
+    cachedToken = null;
+    await setAuthToken(null).catch(() => {});
+    unauthorizedHandler?.();
+    handlingUnauthorized = false;
+  }
 
   if (!res.ok) {
     const errBody = await res.json().catch(() => ({})) as Record<string, unknown>;

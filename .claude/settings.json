@@ -18,11 +18,18 @@
       "Bash(node -e ' *)",
       "Bash(python3 -c ' *)",
       "Bash(xargs kill *)",
-      "Bash(npx ts-node *)"
+      "Bash(npx ts-node *)",
+      "Bash(curl -s ifconfig.me)",
+      "Bash(curl -s -4 ifconfig.me)",
+      "Bash(ipconfig getifaddr *)",
+      "Bash(openclaw agents *)",
+      "Bash(python3 -m json.tool)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('agents', {}\\), indent=2\\)\\)\")"
     ],
     "additionalDirectories": [
       "/Users/openclaw/Documents/BusinessIdeas/Lyfestack/apps/mobile/app/(auth)/(tabs)/agents",
-      "/tmp"
+      "/tmp",
+      "/Users/openclaw/Documents/BusinessIdeas/Lyfestack/apps/mobile/app/(auth)/(drawer)/agents"
     ]
   }
 }

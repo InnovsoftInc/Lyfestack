@@ -27,6 +27,50 @@ export const deleteAgent = async (req: Request, res: Response, next: NextFunctio
   } catch (err) { next(err); }
 };
 
+export const getAgent = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { name } = req.params;
+    const agent = await service.getAgent(name);
+    if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
+    res.json({ data: agent });
+  } catch (err) { next(err); }
+};
+
+export const updateAgent = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { name } = req.params;
+    await service.updateAgent(name, req.body);
+    res.json({ success: true });
+  } catch (err) { next(err); }
+};
+
+export const listAgentFiles = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const files = await service.listAgentFiles(req.params.name);
+    res.json({ data: files });
+  } catch (err) { next(err); }
+};
+
+export const getAgentFile = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const content = await service.getAgentFile(req.params.name, req.params.filename);
+    res.json({ data: { filename: req.params.filename, content } });
+  } catch (err: any) {
+    if (err.message?.includes('not accessible')) { res.status(403).json({ error: err.message }); return; }
+    next(err);
+  }
+};
+
+export const updateAgentFile = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await service.updateAgentFile(req.params.name, req.params.filename, req.body.content as string);
+    res.json({ success: true });
+  } catch (err: any) {
+    if (err.message?.includes('not writable')) { res.status(403).json({ error: err.message }); return; }
+    next(err);
+  }
+};
+
 export const sendMessage = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { name } = req.params;

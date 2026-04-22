@@ -33,6 +33,11 @@ export class DailyBriefService {
     return toPublicBrief(stored);
   }
 
+  hasBriefForToday(userId: string): boolean {
+    const date = new Date().toISOString().slice(0, 10);
+    return briefStore.get(userId)?.has(date) ?? false;
+  }
+
   getBriefForToday(userId: string): DailyBrief {
     const date = new Date().toISOString().slice(0, 10);
     return this.getBriefForDate(userId, date);

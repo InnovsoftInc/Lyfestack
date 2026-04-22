@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { User } from '@lyfestack/shared';
-import { authApi, setAuthToken, getAuthToken } from '../services/api';
+import { authApi, setAuthToken, getAuthToken, registerUnauthorizedHandler } from '../services/api';
 
 interface AuthState {
   user: User | null;
@@ -82,3 +82,8 @@ export const useAuthStore = create<AuthState>((set) => ({
   setUser: (user, token) =>
     set({ user, isAuthenticated: !!user, authToken: token ?? null }),
 }));
+
+registerUnauthorizedHandler(async () => {
+  await setAuthToken(null);
+  useAuthStore.setState({ user: null, isAuthenticated: false, authToken: null });
+});

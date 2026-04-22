@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { openclawApi } from '../services/openclaw.api';
+import { openclawApi, tryConnect, autoDiscover } from '../services/openclaw.api';
 
 interface Agent {
   name: string;
@@ -15,73 +15,214 @@ interface ChatMessage {
   role: 'user' | 'agent';
   content: string;
   timestamp: string;
+  isError?: boolean;
 }
 
 interface OpenClawStore {
   connectionStatus: 'disconnected' | 'connecting' | 'connected';
+  connectionUrl: string | null;
+  connectionError: string | null;
   agents: Agent[];
   activeChat: { agentName: string; messages: ChatMessage[] } | null;
   connect: () => Promise<void>;
+  reconnect: () => Promise<void>;
   fetchAgents: () => Promise<void>;
   createAgent: (config: { name: string; role: string; model: string; systemPrompt: string }) => Promise<void>;
   deleteAgent: (name: string) => Promise<void>;
   sendMessage: (agentName: string, message: string) => Promise<void>;
   openChat: (agentName: string) => void;
   closeChat: () => void;
+  startHeartbeat: () => void;
+  stopHeartbeat: () => void;
+}
+
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+const HEARTBEAT_MS = 15_000;
+
+function log(msg: string, data?: unknown) {
+  const ts = new Date().toLocaleTimeString('en-CA', { hour12: false });
+  if (data !== undefined) {
+    console.log(`[OpenClaw ${ts}] ${msg}`, data);
+  } else {
+    console.log(`[OpenClaw ${ts}] ${msg}`);
+  }
 }
 
 export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
   connectionStatus: 'disconnected',
+  connectionUrl: null,
+  connectionError: null,
   agents: [],
   activeChat: null,
 
   connect: async () => {
-    set({ connectionStatus: 'connecting' });
-    try {
-      const res = await openclawApi.getStatus();
-      set({ connectionStatus: res.data.running ? 'connected' : 'disconnected' });
-      if (res.data.running) await get().fetchAgents();
-    } catch {
-      set({ connectionStatus: 'disconnected' });
+    if (get().connectionStatus === 'connecting') {
+      log('connect() skipped — already connecting');
+      return;
     }
+    log('connect() starting...');
+    set({ connectionStatus: 'connecting', connectionError: null });
+
+    try {
+      // Fast path: try saved connection
+      const fast = await tryConnect();
+      if (fast) {
+        log('connect() fast path succeeded', { url: fast });
+        set({ connectionStatus: 'connected', connectionUrl: fast });
+        await get().fetchAgents();
+        get().startHeartbeat();
+        return;
+      }
+
+      log('connect() fast path failed — starting auto-discover...');
+      const found = await autoDiscover();
+      if (found) {
+        log('connect() auto-discover succeeded', { url: found });
+        set({ connectionStatus: 'connected', connectionUrl: found });
+        await get().fetchAgents();
+        get().startHeartbeat();
+      } else {
+        log('connect() auto-discover failed — no server found');
+        set({ connectionStatus: 'disconnected', connectionError: 'Server not found on network. Make sure it is running.' });
+      }
+    } catch (err: any) {
+      log('connect() error', err?.message);
+      set({ connectionStatus: 'disconnected', connectionError: err?.message ?? 'Connection failed' });
+    }
+  },
+
+  reconnect: async () => {
+    log('reconnect() — forcing full reconnect');
+    get().stopHeartbeat();
+    set({ connectionStatus: 'disconnected', connectionError: null });
+    await get().connect();
   },
 
   fetchAgents: async () => {
     try {
+      log('fetchAgents()');
       const res = await openclawApi.listAgents();
-      set({ agents: res.data });
-    } catch { /* silent */ }
+      const agents = res.data ?? [];
+      log('fetchAgents() got agents', { count: agents.length });
+      set({ agents });
+    } catch (err: any) {
+      log('fetchAgents() error — marking disconnected', err?.message);
+      set({ connectionStatus: 'disconnected', connectionError: 'Lost connection to server' });
+      get().stopHeartbeat();
+    }
   },
 
   createAgent: async (config) => {
+    log('createAgent()', { name: config.name });
     await openclawApi.createAgent(config);
     await get().fetchAgents();
   },
 
   deleteAgent: async (name) => {
+    log('deleteAgent()', { name });
     await openclawApi.deleteAgent(name);
     set((s) => ({ agents: s.agents.filter((a) => a.name !== name) }));
   },
 
   sendMessage: async (agentName, message) => {
-    const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', content: message, timestamp: new Date().toISOString() };
+    const userMsg: ChatMessage = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: message,
+      timestamp: new Date().toISOString(),
+    };
     set((s) => ({
-      activeChat: s.activeChat ? { ...s.activeChat, messages: [...s.activeChat.messages, userMsg] } : { agentName, messages: [userMsg] },
+      activeChat: s.activeChat
+        ? { ...s.activeChat, messages: [...s.activeChat.messages, userMsg] }
+        : { agentName, messages: [userMsg] },
     }));
     try {
+      log('sendMessage()', { agentName });
       const res = await openclawApi.sendMessage(agentName, message);
-      const agentMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'agent', content: res.data.response, timestamp: new Date().toISOString() };
+      const agentMsg: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        role: 'agent',
+        content: res.data?.response ?? res.data?.message ?? JSON.stringify(res.data),
+        timestamp: new Date().toISOString(),
+      };
       set((s) => ({
-        activeChat: s.activeChat ? { ...s.activeChat, messages: [...s.activeChat.messages, agentMsg] } : null,
+        activeChat: s.activeChat
+          ? { ...s.activeChat, messages: [...s.activeChat.messages, agentMsg] }
+          : null,
       }));
     } catch (err: any) {
-      const errMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'agent', content: `Error: ${err.message}`, timestamp: new Date().toISOString() };
+      log('sendMessage() error', err?.message);
+      const errMsg: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        role: 'agent',
+        content: err?.message ?? 'Failed to get response',
+        timestamp: new Date().toISOString(),
+        isError: true,
+      };
       set((s) => ({
-        activeChat: s.activeChat ? { ...s.activeChat, messages: [...s.activeChat.messages, errMsg] } : null,
+        activeChat: s.activeChat
+          ? { ...s.activeChat, messages: [...s.activeChat.messages, errMsg] }
+          : null,
       }));
     }
   },
 
-  openChat: (agentName) => set({ activeChat: { agentName, messages: [] } }),
+  openChat: (agentName) => {
+    const current = get().activeChat;
+    if (current?.agentName === agentName) return;
+    log('openChat()', { agentName });
+    set({ activeChat: { agentName, messages: [] } });
+  },
+
   closeChat: () => set({ activeChat: null }),
+
+  startHeartbeat: () => {
+    if (heartbeatTimer) return;
+    log(`startHeartbeat() — checking every ${HEARTBEAT_MS / 1000}s`);
+    heartbeatTimer = setInterval(async () => {
+      const { connectionStatus, fetchAgents } = useOpenClawStore.getState();
+      if (connectionStatus === 'connecting') return;
+
+      try {
+        await openclawApi.getStatus();
+        if (connectionStatus === 'disconnected') {
+          log('heartbeat — server back online, reconnecting');
+          useOpenClawStore.setState({ connectionStatus: 'connected', connectionError: null });
+          await fetchAgents();
+        } else {
+          log('heartbeat — ok');
+        }
+      } catch {
+        if (connectionStatus === 'connected') {
+          log('heartbeat — connection lost, attempting fast reconnect...');
+          useOpenClawStore.setState({ connectionStatus: 'disconnected', connectionError: 'Lost connection to server' });
+          // Try fast path only (don't trigger full network scan)
+          const url = await tryConnect();
+          if (url) {
+            log('heartbeat — fast reconnect succeeded', { url });
+            useOpenClawStore.setState({ connectionStatus: 'connected', connectionUrl: url, connectionError: null });
+            await fetchAgents();
+          } else {
+            log('heartbeat — fast reconnect failed, staying disconnected');
+          }
+        } else {
+          log('heartbeat — still disconnected, trying fast reconnect...');
+          const url = await tryConnect();
+          if (url) {
+            log('heartbeat — reconnected from disconnected state', { url });
+            useOpenClawStore.setState({ connectionStatus: 'connected', connectionUrl: url, connectionError: null });
+            await fetchAgents();
+          }
+        }
+      }
+    }, HEARTBEAT_MS);
+  },
+
+  stopHeartbeat: () => {
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+      log('stopHeartbeat()');
+    }
+  },
 }));
