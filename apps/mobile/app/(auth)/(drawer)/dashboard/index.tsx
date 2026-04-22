@@ -1,226 +1,201 @@
+import { useCallback, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
+  FlatList,
   TouchableOpacity,
-  Dimensions,
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { DarkTheme } from '../../../../theme/colors';
 import { TextStyles, Spacing, BorderRadius } from '../../../../theme';
-import { Colors, ApprovalState, TaskType } from '@lyfestack/shared';
-import { useBriefsStore } from '../../../../stores/briefs.store';
-import { useAuthStore } from '../../../../stores/auth.store';
-import { Card, Badge, ProgressRing } from '../../../../components/ui';
-import type { MockTask } from '../../../../utils/mockData';
+import { Colors } from '@lyfestack/shared';
+import { useBriefStore } from '../../../../stores/brief.store';
+import type { BriefTask } from '../../../../services/briefs.api';
 
-const { width } = Dimensions.get('window');
-const CARD_WIDTH = width - Spacing.xl * 2;
+const TASK_TYPE_ICON: Record<string, string> = {
+  HABIT: '🔁',
+  TASK: '✅',
+  REFLECTION: '💭',
+  MILESTONE: '🏆',
+  RESEARCH: '🔍',
+  CONTENT: '✍️',
+};
 
-function getGreeting() {
-  const hour = new Date().getHours();
-  if (hour < 12) return 'Good morning';
-  if (hour < 17) return 'Good afternoon';
-  return 'Good evening';
-}
-
-function formatDate(date: Date) {
-  return date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
-}
-
-function taskTypeBadge(type: TaskType): { label: string; variant: 'primary' | 'success' | 'warning' | 'neutral' } {
-  switch (type) {
-    case TaskType.HABIT: return { label: 'Habit', variant: 'success' };
-    case TaskType.ACTION: return { label: 'Action', variant: 'primary' };
-    case TaskType.MILESTONE: return { label: 'Milestone', variant: 'warning' };
-    default: return { label: type, variant: 'neutral' };
-  }
-}
-
-function confidenceColor(score: number) {
-  if (score >= 85) return Colors.success;
-  if (score >= 65) return Colors.warning;
-  return Colors.error;
-}
-
-interface TaskCardProps {
-  task: MockTask;
-}
-
-function TaskCard({ task }: TaskCardProps) {
-  const badge = taskTypeBadge(task.type);
-  const isPending = task.approvalState === ApprovalState.PENDING;
+function TaskCard({
+  task,
+  onComplete,
+}: {
+  task: BriefTask;
+  onComplete: (id: string) => void;
+}) {
+  const isComplete = task.status === 'COMPLETED' || task.completedAt != null;
 
   return (
-    <Card style={[styles.taskCard, { width: CARD_WIDTH }]} elevated>
-      <View style={styles.taskCardHeader}>
-        <Badge label={badge.label} variant={badge.variant} />
-        <View style={styles.confidenceRow}>
-          <Text style={styles.confidenceLabel}>AI confidence</Text>
-          <Text style={[styles.confidenceScore, { color: confidenceColor(task.confidence) }]}>
-            {task.confidence}%
+    <View style={[styles.taskCard, isComplete && styles.taskCardDone]}>
+      <View style={styles.taskRow}>
+        <Text style={styles.taskIcon}>{TASK_TYPE_ICON[task.type] ?? '•'}</Text>
+        <View style={styles.taskBody}>
+          <Text style={[styles.taskTitle, isComplete && styles.taskTitleDone]} numberOfLines={2}>
+            {task.title}
           </Text>
+          {task.description ? (
+            <Text style={styles.taskDesc} numberOfLines={1}>{task.description}</Text>
+          ) : null}
+          <View style={styles.taskMeta}>
+            {task.estimatedMinutes ? (
+              <Text style={styles.metaChip}>⏱ {task.estimatedMinutes}m</Text>
+            ) : null}
+            {task.priority != null ? (
+              <Text style={styles.metaChip}>↑ {task.priority}</Text>
+            ) : null}
+          </View>
         </View>
+        {!isComplete && (
+          <TouchableOpacity
+            style={styles.doneButton}
+            onPress={() => onComplete(task.id)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={styles.doneButtonText}>Done</Text>
+          </TouchableOpacity>
+        )}
+        {isComplete && (
+          <View style={styles.completedBadge}>
+            <Text style={styles.completedText}>✓</Text>
+          </View>
+        )}
       </View>
-
-      <Text style={styles.taskTitle}>{task.title}</Text>
-      <Text style={styles.taskDesc} numberOfLines={2}>{task.description}</Text>
-
-      {task.durationMinutes && (
-        <Text style={styles.taskMeta}>⏱ {task.durationMinutes} min</Text>
-      )}
-
-      {isPending ? (
-        <View style={styles.taskActions}>
-          <TouchableOpacity style={[styles.actionBtn, styles.actionApprove]} activeOpacity={0.8}>
-            <Text style={styles.actionApproveText}>Approve</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionBtn, styles.actionDefer]} activeOpacity={0.8}>
-            <Text style={styles.actionDeferText}>Defer</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionBtn, styles.actionComplete]} activeOpacity={0.8}>
-            <Text style={styles.actionCompleteText}>Done</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <View style={styles.taskActions}>
-          <TouchableOpacity style={[styles.actionBtn, styles.actionComplete, { flex: 1 }]} activeOpacity={0.8}>
-            <Text style={styles.actionCompleteText}>Mark Complete</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionBtn, styles.actionDefer]} activeOpacity={0.8}>
-            <Text style={styles.actionDeferText}>Defer</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-    </Card>
+    </View>
   );
 }
 
 export default function DashboardScreen() {
-  const { user } = useAuthStore();
-  const { brief, streak, completionRate } = useBriefsStore();
-  const today = new Date();
+  const { brief, isLoading, error, fetchTodayBrief, completeTask } = useBriefStore();
 
-  const automations = brief?.insights ?? [];
+  useEffect(() => {
+    void fetchTodayBrief();
+  }, [fetchTodayBrief]);
+
+  const handleRefresh = useCallback(() => {
+    void fetchTodayBrief();
+  }, [fetchTodayBrief]);
+
+  const handleComplete = useCallback(
+    (taskId: string) => {
+      if (!brief) return;
+      void completeTask(brief.id, taskId);
+    },
+    [brief, completeTask],
+  );
+
+  if (isLoading && !brief) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.center}>
+          <ActivityIndicator color={Colors.accent} size="large" />
+          <Text style={styles.loadingText}>Loading your brief...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (error && !brief) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.center}>
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={handleRefresh}>
+            <Text style={styles.retryText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const completedCount = brief?.tasks.filter(
+    (t) => t.status === 'COMPLETED' || t.completedAt != null,
+  ).length ?? 0;
+  const totalCount = brief?.tasks.length ?? 0;
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
-        {/* Header */}
-        <View style={styles.header}>
-          <View style={styles.headerText}>
-            <Text style={styles.greeting}>{getGreeting()}, {user?.displayName ?? 'there'} 👋</Text>
-            <Text style={styles.date}>{formatDate(today)}</Text>
-          </View>
-        </View>
+      <FlatList
+        data={brief?.tasks ?? []}
+        keyExtractor={(t) => t.id}
+        contentContainerStyle={styles.list}
+        refreshControl={
+          <RefreshControl
+            refreshing={isLoading}
+            onRefresh={handleRefresh}
+            tintColor={Colors.accent}
+          />
+        }
+        ListHeaderComponent={
+          <View style={styles.header}>
+            <Text style={styles.greeting}>{brief?.greeting ?? 'Good morning'}</Text>
+            <Text style={styles.summary}>{brief?.summary ?? 'Pull down to load your brief.'}</Text>
 
-        {/* Momentum Ring */}
-        <View style={styles.momentumSection}>
-          <View style={styles.momentumCard}>
-            <ProgressRing progress={completionRate} size={96} strokeWidth={8} color={Colors.accent}>
-              <Text style={styles.ringPercent}>{Math.round(completionRate * 100)}%</Text>
-            </ProgressRing>
-            <View style={styles.momentumInfo}>
-              <Text style={styles.momentumTitle}>Weekly Momentum</Text>
-              <Text style={styles.momentumSubtitle}>
-                {Math.round(completionRate * 100)}% of tasks completed
-              </Text>
-              <View style={styles.streakRow}>
-                <Text style={styles.streakFire}>🔥</Text>
-                <Text style={styles.streakText}>{streak}-day streak</Text>
+            {totalCount > 0 && (
+              <View style={styles.progressRow}>
+                <View style={styles.progressBar}>
+                  <View
+                    style={[
+                      styles.progressFill,
+                      { width: `${totalCount > 0 ? (completedCount / totalCount) * 100 : 0}%` },
+                    ]}
+                  />
+                </View>
+                <Text style={styles.progressLabel}>
+                  {completedCount}/{totalCount} done
+                </Text>
               </View>
-            </View>
-          </View>
-        </View>
+            )}
 
-        {/* Daily Brief Summary */}
-        {brief?.summary && (
-          <View style={styles.briefSummary}>
-            <Text style={styles.sectionLabel}>DAILY BRIEF</Text>
-            <Text style={styles.briefText}>{brief.summary}</Text>
+            {brief?.insights && brief.insights.length > 0 && (
+              <View style={styles.insightsBox}>
+                {brief.insights.map((insight, i) => (
+                  <Text key={i} style={styles.insightText}>
+                    💡 {insight}
+                  </Text>
+                ))}
+              </View>
+            )}
+
+            {totalCount > 0 && (
+              <Text style={styles.sectionLabel}>Today's Tasks</Text>
+            )}
           </View>
+        }
+        renderItem={({ item }) => (
+          <TaskCard task={item} onComplete={handleComplete} />
         )}
-
-        {/* Task Cards — horizontal scroll */}
-        <View style={styles.tasksSection}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionLabel}>TODAY'S FOCUS</Text>
-            <Text style={styles.taskCount}>{brief?.tasks.length ?? 0} tasks</Text>
-          </View>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            pagingEnabled
-            contentContainerStyle={styles.taskScroll}
-            snapToInterval={CARD_WIDTH + Spacing.md}
-            decelerationRate="fast"
-          >
-            {(brief?.tasks as MockTask[] | undefined)?.map((task) => (
-              <TaskCard key={task.id} task={task} />
-            ))}
-          </ScrollView>
-          <Text style={styles.scrollHint}>← swipe to see all tasks →</Text>
-        </View>
-
-        {/* Automations */}
-        <View style={styles.automationsSection}>
-          <Text style={styles.sectionLabel}>INSIGHTS & AUTOMATIONS</Text>
-          {automations.map((insight, i) => (
-            <TouchableOpacity key={i} style={styles.automationRow} activeOpacity={0.7}>
-              <View style={styles.automationDot} />
-              <Text style={styles.automationText}>{insight}</Text>
-              <Text style={styles.automationArrow}>›</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* Footer */}
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>Powered by Lyfestack • {streak}-day streak 🔥</Text>
-        </View>
-      </ScrollView>
+        ListEmptyComponent={
+          !isLoading ? (
+            <View style={styles.emptyTasks}>
+              <Text style={styles.emptyEmoji}>🎉</Text>
+              <Text style={styles.emptyTitle}>All clear!</Text>
+              <Text style={styles.emptySubtitle}>No tasks scheduled today.</Text>
+            </View>
+          ) : null
+        }
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: DarkTheme.background },
-  scroll: { flex: 1 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    padding: Spacing.xl,
-    paddingBottom: Spacing.md,
-  },
-  headerText: { gap: 4 },
-  greeting: { ...TextStyles.h3, color: DarkTheme.text.primary },
-  date: { ...TextStyles.small, color: DarkTheme.text.secondary },
-  momentumSection: { paddingHorizontal: Spacing.xl, marginBottom: Spacing.lg },
-  momentumCard: {
-    flexDirection: 'row',
+  center: {
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
-    gap: Spacing.lg,
-    backgroundColor: DarkTheme.surface,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
-    borderColor: DarkTheme.border,
-    padding: Spacing.md,
+    gap: Spacing.md,
+    padding: Spacing.lg,
   },
-  momentumInfo: { flex: 1, gap: 4 },
-  momentumTitle: { ...TextStyles.h4, color: DarkTheme.text.primary },
-  momentumSubtitle: { ...TextStyles.small, color: DarkTheme.text.secondary },
-  streakRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 },
-  streakFire: { fontSize: 16 },
-  streakText: { ...TextStyles.bodyMedium, color: Colors.warning },
-  ringPercent: { ...TextStyles.small, color: DarkTheme.text.primary, fontWeight: '700' },
-  briefSummary: {
-    paddingHorizontal: Spacing.xl,
-    marginBottom: Spacing.lg,
-    gap: Spacing.sm,
-  },
-  briefText: {
+  loadingText: {
     ...TextStyles.body,
     color: DarkTheme.text.secondary,
     lineHeight: 26,
@@ -230,75 +205,174 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: DarkTheme.border,
   },
-  tasksSection: { marginBottom: Spacing.lg },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.xl,
+  list: {
+    paddingBottom: Spacing['2xl'],
+  },
+  header: {
+    padding: Spacing.lg,
+    paddingBottom: Spacing.md,
+  },
+  greeting: {
+    ...TextStyles.h2,
+    color: DarkTheme.text.primary,
+    marginBottom: Spacing.xs,
+  },
+  summary: {
+    ...TextStyles.body,
+    color: DarkTheme.text.secondary,
     marginBottom: Spacing.md,
   },
-  sectionLabel: {
-    ...TextStyles.caption,
-    color: DarkTheme.text.secondary,
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-  },
-  taskCount: { ...TextStyles.caption, color: Colors.accent },
-  taskScroll: { paddingHorizontal: Spacing.xl, gap: Spacing.md },
-  taskCard: { flexShrink: 0, gap: Spacing.sm },
-  taskCardHeader: {
+  progressRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: Spacing.sm,
+    marginBottom: Spacing.md,
   },
-  confidenceRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  confidenceLabel: { ...TextStyles.caption, color: DarkTheme.text.secondary },
-  confidenceScore: { ...TextStyles.caption, fontWeight: '700' },
-  taskTitle: { ...TextStyles.h4, color: DarkTheme.text.primary },
-  taskDesc: { ...TextStyles.small, color: DarkTheme.text.secondary, lineHeight: 20 },
-  taskMeta: { ...TextStyles.caption, color: DarkTheme.text.secondary },
-  taskActions: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.sm },
-  actionBtn: {
-    paddingVertical: 8,
-    paddingHorizontal: Spacing.md,
+  progressBar: {
+    flex: 1,
+    height: 6,
+    backgroundColor: DarkTheme.surface,
+    borderRadius: BorderRadius.full,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: Colors.accent,
+    borderRadius: BorderRadius.full,
+  },
+  progressLabel: {
+    ...TextStyles.caption,
+    color: DarkTheme.text.secondary,
+    minWidth: 60,
+    textAlign: 'right',
+  },
+  insightsBox: {
+    backgroundColor: DarkTheme.surface,
     borderRadius: BorderRadius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+    gap: Spacing.xs,
   },
-  actionApprove: { backgroundColor: Colors.accent, flex: 1 },
-  actionDefer: { backgroundColor: DarkTheme.border },
-  actionComplete: { backgroundColor: 'rgba(34,197,94,0.15)', borderWidth: 1, borderColor: Colors.success },
-  actionApproveText: { ...TextStyles.small, color: Colors.white, fontWeight: '600' },
-  actionDeferText: { ...TextStyles.small, color: DarkTheme.text.secondary },
-  actionCompleteText: { ...TextStyles.small, color: Colors.success, fontWeight: '600' },
-  scrollHint: {
-    ...TextStyles.caption,
+  insightText: {
+    ...TextStyles.small,
     color: DarkTheme.text.secondary,
-    textAlign: 'center',
-    marginTop: Spacing.sm,
-    opacity: 0.6,
+    lineHeight: 20,
   },
-  automationsSection: { paddingHorizontal: Spacing.xl, marginBottom: Spacing.lg, gap: Spacing.sm },
-  automationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
+  sectionLabel: {
+    ...TextStyles.bodyMedium,
+    color: DarkTheme.text.secondary,
+    marginTop: Spacing.sm,
+    marginBottom: Spacing.xs,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  taskCard: {
+    marginHorizontal: Spacing.lg,
+    marginBottom: Spacing.sm,
     backgroundColor: DarkTheme.surface,
     borderRadius: BorderRadius.md,
     padding: Spacing.md,
     borderWidth: 1,
     borderColor: DarkTheme.border,
   },
-  automationDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: Colors.accent,
-    flexShrink: 0,
+  taskCardDone: {
+    opacity: 0.5,
   },
-  automationText: { ...TextStyles.small, color: DarkTheme.text.primary, flex: 1, lineHeight: 20 },
-  automationArrow: { ...TextStyles.bodyMedium, color: DarkTheme.text.secondary },
-  footer: { padding: Spacing.xl, alignItems: 'center' },
-  footerText: { ...TextStyles.caption, color: DarkTheme.text.secondary, opacity: 0.6 },
+  taskRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.sm,
+  },
+  taskIcon: {
+    fontSize: 20,
+    marginTop: 2,
+    width: 28,
+  },
+  taskBody: {
+    flex: 1,
+  },
+  taskTitle: {
+    ...TextStyles.bodyMedium,
+    color: DarkTheme.text.primary,
+    marginBottom: 2,
+  },
+  taskTitleDone: {
+    textDecorationLine: 'line-through',
+    color: DarkTheme.text.secondary,
+  },
+  taskDesc: {
+    ...TextStyles.small,
+    color: DarkTheme.text.secondary,
+    marginBottom: Spacing.xs,
+  },
+  taskMeta: {
+    flexDirection: 'row',
+    gap: Spacing.xs,
+  },
+  metaChip: {
+    ...TextStyles.caption,
+    color: DarkTheme.text.secondary,
+    backgroundColor: DarkTheme.background,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.sm,
+  },
+  doneButton: {
+    backgroundColor: Colors.accent,
+    paddingVertical: 6,
+    paddingHorizontal: Spacing.sm,
+    borderRadius: BorderRadius.sm,
+    alignSelf: 'flex-start',
+  },
+  doneButtonText: {
+    ...TextStyles.caption,
+    color: Colors.white,
+    fontWeight: '600',
+  },
+  completedBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: BorderRadius.full,
+    backgroundColor: DarkTheme.success,
+    justifyContent: 'center',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+  },
+  completedText: {
+    color: Colors.white,
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  emptyTasks: {
+    alignItems: 'center',
+    padding: Spacing.xl,
+    gap: Spacing.sm,
+  },
+  emptyEmoji: {
+    fontSize: 40,
+  },
+  emptyTitle: {
+    ...TextStyles.h3,
+    color: DarkTheme.text.primary,
+  },
+  emptySubtitle: {
+    ...TextStyles.body,
+    color: DarkTheme.text.secondary,
+  },
+  retryButton: {
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: DarkTheme.border,
+  },
+  retryText: {
+    ...TextStyles.button,
+    color: DarkTheme.text.secondary,
+  },
+  errorText: {
+    ...TextStyles.body,
+    color: DarkTheme.error,
+    textAlign: 'center',
+  },
 });
