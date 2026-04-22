@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useTheme } from '../../hooks/useTheme';
 import { Spacing } from '../../theme';
@@ -12,9 +13,10 @@ interface NavBarProps {
 
 export function NavBar({ title, onBack, right }: NavBarProps) {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
 
   return (
-    <View style={[styles.bar, { borderBottomColor: theme.border }]}>
+    <View style={[styles.bar, { borderBottomColor: theme.border, paddingTop: insets.top + Spacing.sm }]}>
       <TouchableOpacity
         style={styles.backBtn}
         onPress={onBack ?? (() => router.back())}
