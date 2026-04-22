@@ -1,6 +1,6 @@
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { DarkTheme } from '../../theme/colors';
 import { TextStyles, Spacing, BorderRadius } from '../../theme';
@@ -8,7 +8,8 @@ import { Colors } from '@lyfestack/shared';
 import { useAuthStore } from '../../stores/auth.store';
 
 export default function AuthScreen() {
-  const [mode, setMode] = useState<'options' | 'email' | 'login'>('options');
+  const { mode: initialMode } = useLocalSearchParams<{ mode?: string }>();
+  const [mode, setMode] = useState<'options' | 'email' | 'login'>(initialMode === 'login' ? 'login' : 'options');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
