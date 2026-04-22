@@ -1,5 +1,6 @@
 // Types
 export type { User, TrustLevel } from './types/user';
+export type { OpenClawAgent, OpenClawMessage, OpenClawConnection, OpenClawSession } from './types/openclaw';
 export type { Goal, GoalTemplate, GoalMilestone } from './types/goal';
 export type { Task } from './types/task';
 export type { DailyBrief } from './types/brief';
