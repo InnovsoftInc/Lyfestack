@@ -24,9 +24,21 @@ async function request(path: string, options?: RequestInit) {
 export const openclawApi = {
   getStatus: () => request('/status'),
   listAgents: () => request('/agents'),
-  createAgent: (config: { name: string; role: string; model: string; systemPrompt: string }) =>
+  createAgent: (config: { name: string; model?: string }) =>
     request('/agents', { method: 'POST', body: JSON.stringify(config) }),
   deleteAgent: (name: string) => request(`/agents/${name}`, { method: 'DELETE' }),
-  sendMessage: (name: string, message: string) =>
-    request(`/agents/${name}/message`, { method: 'POST', body: JSON.stringify({ message }) }),
+  sendMessage: (agentId: string, message: string) =>
+    request(`/agents/${encodeURIComponent(agentId)}/message`, {
+      method: 'POST',
+      body: JSON.stringify({ message }),
+    }),
+
+  // Sessions
+  listSessions: (limit = 20) => request(`/sessions?limit=${limit}`),
+  getSession: (key: string) => request(`/sessions/detail?key=${encodeURIComponent(key)}`),
+  createSession: (agentId: string, label?: string) =>
+    request('/sessions', {
+      method: 'POST',
+      body: JSON.stringify({ agentId, label }),
+    }),
 };
