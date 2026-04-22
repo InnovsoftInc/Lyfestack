@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm test *)",
+      "Bash(npx jest *)",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(./node_modules/.bin/jest --testPathPattern=\"user.repository\" --no-coverage)",
+      "Bash(/Users/openclaw/Documents/BusinessIdeas/Lyfestack/.claude/worktrees/serene-nobel-aa5fce/node_modules/.bin/jest --testPathPattern=\"user.repository\" --no-coverage)",
+      "Bash(/Users/openclaw/Documents/BusinessIdeas/Lyfestack/.claude/worktrees/serene-nobel-aa5fce/node_modules/.bin/jest --testPathPattern=\"user.repository\")",
+      "Bash(echo \"=== EXIT $? ===\")",
+      "Bash(npm run *)",
+      "Bash(git push *)"
+    ]
+  }
+}
