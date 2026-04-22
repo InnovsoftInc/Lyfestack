@@ -7,6 +7,7 @@ import { loggerMiddleware } from './middleware/logger.middleware';
 import { errorMiddleware } from './middleware/error.middleware';
 import { healthCheck } from './controllers/health.controller';
 import templateRoutes from './routes/template.routes';
+import planRoutes from './routes/plan.routes';
 
 const app = express();
 
@@ -17,6 +18,7 @@ app.use(express.json());
 
 app.get('/health', healthCheck);
 app.use('/api/templates', templateRoutes);
+app.use('/api/plans', planRoutes);
 
 app.use(errorMiddleware);
 
