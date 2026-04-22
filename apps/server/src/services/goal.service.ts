@@ -8,6 +8,7 @@ import { templateService } from '../templates/template.service';
 import { planningEngine } from '../engine/planning/planning.engine';
 import { planningService } from '../engine/planning/planning.service';
 import type { DiagnosticAnswer } from '../templates/template.types';
+import { logger } from '../utils/logger';
 
 export interface CreateGoalInput {
   userId: string;
@@ -18,7 +19,7 @@ export interface CreateGoalInput {
   targetDate?: string;
 }
 
-// In-memory goal store — used when DB (Supabase) is not configured
+// In-memory goal store — only used when DB (Supabase) is not configured
 const goalStore = new Map<string, Goal>();
 
 export class GoalService {
@@ -55,23 +56,31 @@ export class GoalService {
     };
 
     if (this.goalRepository) {
+      // Let DB errors propagate — caller sees a real failure, not a fake success
+      const saved = await this.goalRepository.create({
+        user_id: userId,
+        title: goal.title,
+        description: goal.description,
+        status: GoalStatus.ACTIVE,
+        ...(templateId && { template_id: templateId }),
+        ...(targetDate && { target_date: targetDate }),
+      });
+
+      // Task generation is best-effort: goal is already persisted, so log and continue
       try {
-        const saved = await this.goalRepository.create({
-          user_id: userId,
-          title: goal.title,
-          description: goal.description,
-          status: GoalStatus.ACTIVE,
-          ...(templateId && { template_id: templateId }),
-          ...(targetDate && { target_date: targetDate }),
-        });
         await this._generateTasks(saved.id, userId, templateId, diagnosticAnswers ?? []);
-        return saved;
-      } catch {
-        goalStore.set(id, goal);
-        return goal;
+      } catch (err) {
+        logger.error({ goalId: saved.id, err }, 'Task generation failed; goal saved without tasks');
       }
+
+      return saved;
     }
 
+    // No DB configured — warn loudly and store in-memory only
+    logger.warn(
+      { userId, title },
+      'Database not configured — storing goal in-memory only (will be lost on restart)',
+    );
     goalStore.set(id, goal);
     return goal;
   }
@@ -83,8 +92,13 @@ export class GoalService {
     answers: DiagnosticAnswer[],
   ): Promise<void> {
     if (!templateId || !this.taskRepository) return;
-    const template = templateService.getById(templateId);
-    if (!template) return;
+
+    let template;
+    try {
+      template = await templateService.getById(templateId);
+    } catch {
+      return; // template not found — skip task generation silently
+    }
 
     const plan = planningEngine.generatePlan(template, answers, {
       userId,
@@ -117,8 +131,8 @@ export class GoalService {
     if (this.goalRepository) {
       try {
         return await this.goalRepository.findByUserId(userId);
-      } catch {
-        // fall through to in-memory
+      } catch (err) {
+        logger.error({ userId, err }, 'Failed to fetch goals from DB, falling back to in-memory');
       }
     }
     return Array.from(goalStore.values()).filter((g) => g.userId === userId);
@@ -129,8 +143,8 @@ export class GoalService {
       try {
         const goal = await this.goalRepository.findById(id);
         if (goal && goal.userId === userId) return goal;
-      } catch {
-        // fall through to in-memory
+      } catch (err) {
+        logger.error({ goalId: id, userId, err }, 'Failed to fetch goal from DB, falling back to in-memory');
       }
     }
     const goal = goalStore.get(id);
@@ -144,7 +158,7 @@ export class GoalService {
     answers: DiagnosticAnswer[],
     userId: string,
   ) {
-    const template = templateService.getById(templateId);
+    const template = await templateService.getById(templateId);
     if (!template) throw new NotFoundError(`Template ${templateId}`);
 
     return planningService.createPlan(goalId, templateId, answers, {

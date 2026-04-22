@@ -11,17 +11,17 @@ import type { UserContext } from './planning.types';
 const planStore = new Map<string, Plan>();
 
 export class PlanningService {
-  createPlan(
+  async createPlan(
     goalId: string,
     templateId: string,
     answers: DiagnosticAnswer[],
     context: UserContext,
-  ): Plan {
+  ): Promise<Plan> {
     if (planStore.has(goalId)) {
       throw new ValidationError(`Plan already exists for goal ${goalId}`, 'PLAN_EXISTS');
     }
 
-    const template = templateService.getById(templateId);
+    const template = await templateService.getById(templateId);
     const draft = planningEngine.generatePlan(template, answers, context);
 
     const now = new Date().toISOString();

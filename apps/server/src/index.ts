@@ -20,6 +20,7 @@ import { createIntegrationsRouter } from './routes/integrations.routes';
 import { openclawRoutes } from './integrations/openclaw/openclaw.routes';
 import { getStatus as openclawStatus } from './integrations/openclaw/openclaw.controller';
 import { createGoalRouter } from './routes/goal.routes';
+import { createGoalBuilderRouter } from './routes/goal-builder.routes';
 import { startCronJobs } from './jobs/cron';
 import { createAuthMiddleware, requireAuth } from './middleware/auth.middleware';
 import { getSupabaseClient } from './config/database';
@@ -62,6 +63,13 @@ app.use('/integrations', createIntegrationsRouter());
 
 // Goals CRUD
 app.use('/api/goals', createGoalRouter());
+
+// Goal builder — AI-guided setup (OpenClaw back-and-forth)
+app.use('/api/goal-builder', createGoalBuilderRouter());
+
+// Templates also available under /api/templates prefix
+app.get('/api/templates', getTemplates);
+app.get('/api/templates/:id', getTemplateById);
 
 // OpenClaw bridge — status is public (used for connection discovery), rest requires auth
 app.get('/api/openclaw/status', openclawStatus);
