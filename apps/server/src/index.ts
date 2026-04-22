@@ -7,6 +7,7 @@ import { loggerMiddleware } from './middleware/logger.middleware';
 import { errorMiddleware } from './middleware/error.middleware';
 import { healthCheck } from './controllers/health.controller';
 import { listTemplates, getTemplate } from './controllers/goalTemplate.controller';
+import { generatePlan } from './controllers/planning.controller';
 
 const app = express();
 
@@ -19,6 +20,8 @@ app.get('/health', healthCheck);
 
 app.get('/templates', listTemplates);
 app.get('/templates/:id', getTemplate);
+
+app.post('/plans/generate', generatePlan);
 
 app.use(errorMiddleware);
 
