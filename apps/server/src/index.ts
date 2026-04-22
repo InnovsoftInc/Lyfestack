@@ -18,6 +18,8 @@ import { executeAgent, getAvailableAgents } from './agents/agent.controller';
 import { createUsersRouter } from './routes/users.routes';
 import { createIntegrationsRouter } from './routes/integrations.routes';
 import { startCronJobs } from './jobs/cron';
+import { createAuthMiddleware, requireAuth } from './middleware/auth.middleware';
+import { getSupabaseClient } from './config/database';
 
 const app = express();
 
@@ -26,26 +28,28 @@ app.use(loggerMiddleware);
 app.use(cors());
 app.use(express.json());
 
+const authMiddleware = createAuthMiddleware(getSupabaseClient());
+
 // Core
 app.get('/health', healthCheck);
 app.use('/auth', createAuthRouter());
 
-// T4.1 — Templates
+// T4.1 — Templates (public)
 app.get('/templates', getTemplates);
 app.get('/templates/:id', getTemplateById);
 
 // T4.2 — Planning
-app.post('/goals/:goalId/plan', createPlan);
-app.get('/goals/:goalId/plan', getPlan);
+app.post('/goals/:goalId/plan', authMiddleware, requireAuth, createPlan);
+app.get('/goals/:goalId/plan', authMiddleware, requireAuth, getPlan);
 
 // T5.2 — Daily Briefs
-app.get('/briefs/today', getBriefForToday);
-app.get('/briefs/:date', getBriefForDate);
-app.patch('/briefs/:id/tasks/:taskId', markTaskComplete);
+app.get('/briefs/today', authMiddleware, requireAuth, getBriefForToday);
+app.get('/briefs/:date', authMiddleware, requireAuth, getBriefForDate);
+app.patch('/briefs/:id/tasks/:taskId', authMiddleware, requireAuth, markTaskComplete);
 
 // T6.1 — Agents
-app.post('/agents/execute', executeAgent);
-app.get('/agents/actions', getAvailableAgents);
+app.post('/agents/execute', authMiddleware, requireAuth, executeAgent);
+app.get('/agents/actions', authMiddleware, requireAuth, getAvailableAgents);
 
 // Phase 5 — Users / Push tokens
 app.use('/users', createUsersRouter());

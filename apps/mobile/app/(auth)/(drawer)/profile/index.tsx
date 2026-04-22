@@ -160,6 +160,22 @@ export default function ProfileScreen() {
           </View>
         </View>
 
+        {/* OpenClaw Connection */}
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>OPENCLAW</Text>
+          <View style={styles.settingsGroup}>
+            <SettingRow
+              label="Connect to Mac"
+              onPress={() => router.push('/(auth)/connect-openclaw')}
+            />
+            <View style={styles.divider} />
+            <SettingRow
+              label="Manage Agents"
+              onPress={() => router.push('/(auth)/(drawer)/agents')}
+            />
+          </View>
+        </View>
+
         {/* Account */}
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>ACCOUNT</Text>

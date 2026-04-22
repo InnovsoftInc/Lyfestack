@@ -17,7 +17,9 @@
       "Bash(kill -9 86367 86326 86325)",
       "Bash(node -e ' *)",
       "Bash(python3 -c ' *)",
-      "Bash(xargs kill *)"
+      "Bash(xargs kill *)",
+      "Bash(npm list *)",
+      "Bash(npx tsc *)"
     ],
     "additionalDirectories": [
       "/Users/openclaw/Documents/BusinessIdeas/Lyfestack/apps/mobile/app/(auth)/(tabs)/agents",

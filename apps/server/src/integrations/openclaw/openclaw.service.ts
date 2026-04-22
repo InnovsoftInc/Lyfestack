@@ -24,7 +24,7 @@ export class OpenClawService {
       const agents: OpenClawAgent[] = [];
 
       for (const entry of entries) {
-        if (\!entry.isDirectory()) continue;
+        if (!entry.isDirectory()) continue;
         try {
           const configPath = path.join(agentsDir, entry.name, 'agent', 'config.json');
           const raw = await fs.readFile(configPath, 'utf-8').catch(() => '{}');
