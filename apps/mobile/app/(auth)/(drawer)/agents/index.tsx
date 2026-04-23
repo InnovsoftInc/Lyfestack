@@ -93,7 +93,7 @@ export default function AgentsScreen() {
         renderItem={({ item }) => (
           <TouchableOpacity
             style={s.card}
-            onPress={() => router.push(`/(auth)/(drawer)/agents/${item.name}/chat` as any)}
+            onPress={() => router.push(`/(auth)/(drawer)/agents/${item.name}` as any)}
             activeOpacity={0.7}
           >
             <View style={s.cardLeft}>
