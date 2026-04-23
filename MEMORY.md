@@ -24,6 +24,7 @@
 - **AI:** OpenClaw (sole brain — no direct OpenRouter/OpenAI calls from backend)
 - **Monorepo:** Turborepo with npm workspaces
 - **Repo:** github.com/InnovsoftInc/Lyfestack
+- **Primary branch:** `main` (not `master`)
 
 ## Architecture Decisions
 - **OpenClaw is the only AI layer** — backend is a thin proxy, no built-in agents

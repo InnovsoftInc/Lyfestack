@@ -48,10 +48,29 @@ router.delete('/skills/:name', deleteSkill);
 
 export { router as openclawRoutes };
 
-// Sessions (chat history — stub returning empty until persistence is implemented)
-router.get('/sessions', (_req, res) => { res.json({ data: [] }); });
-router.get('/sessions/detail', (_req, res) => { res.json({ data: { messages: [] } }); });
-router.post('/sessions', (req, res) => { res.status(201).json({ data: { key: `session-${Date.now()}`, ...req.body } }); });
+// Sessions — read-through to ~/.openclaw/agents/<agent>/sessions/*.jsonl
+import { listSessions, getSession } from './sessions.service';
+
+router.get('/sessions', async (req, res, next) => {
+  try {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 200);
+    res.json({ data: await listSessions(limit) });
+  } catch (err) { next(err); }
+});
+
+router.get('/sessions/detail', async (req, res, next) => {
+  try {
+    const key = typeof req.query.key === 'string' ? req.query.key : '';
+    if (!key) { res.status(400).json({ error: 'key is required' }); return; }
+    const opts: { limit?: number; beforeIndex?: number; afterIndex?: number } = {};
+    if (req.query.limit !== undefined) opts.limit = Number(req.query.limit);
+    if (req.query.beforeIndex !== undefined) opts.beforeIndex = Number(req.query.beforeIndex);
+    if (req.query.afterIndex !== undefined) opts.afterIndex = Number(req.query.afterIndex);
+    const session = await getSession(key, opts);
+    if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
+    res.json({ data: session });
+  } catch (err) { next(err); }
+});
 
 // Usage tracking
 import { getUsageSummary, getUsageHistory, getUsageByAgent, getUsageByModel } from './usage-tracker';

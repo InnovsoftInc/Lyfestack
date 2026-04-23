@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getAuthToken } from './api';
+import { request as authedRequest } from './api';
 
 let cachedBase: string | null = null;
 
@@ -73,17 +73,13 @@ export async function autoDiscover(): Promise<string | null> {
   return null;
 }
 
-async function request(path: string, options?: RequestInit) {
-  const base = await getBase();
-  const token = await getAuthToken();
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options?.headers as Record<string, string>),
-  };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-  const res = await fetch(`${base}/api/openclaw${path}`, { ...options, headers });
-  if (!res.ok) throw new Error(`OpenClaw API error: ${res.status}`);
-  return res.json();
+async function request(path: string, options?: RequestInit): Promise<unknown> {
+  const body = options?.body;
+  return authedRequest<unknown>(`/api/openclaw${path}`, {
+    ...(options?.method && { method: options.method }),
+    ...(body !== undefined && body !== null && { body }),
+    ...(options?.headers && { headers: options.headers as Record<string, string> }),
+  });
 }
 
 export async function streamAgentMessage(
@@ -94,51 +90,22 @@ export async function streamAgentMessage(
   onError: (err: Error) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const base = await getBase();
-  const token = await getAuthToken();
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    'Accept': 'text/event-stream',
-  };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-
-  let res: Response;
+  // React Native's fetch does not expose res.body as a ReadableStream, so SSE
+  // can't be consumed chunk-by-chunk. Delegate to the authenticated request
+  // helper (which handles token refresh on 401) and emit the full reply.
   try {
-    res = await fetch(
-      `${base}/api/openclaw/agents/${encodeURIComponent(agentId)}/message/stream`,
-      { method: 'POST', headers, body: JSON.stringify({ message }), signal: signal as any },
+    if (signal?.aborted) return;
+    const payload = await authedRequest<{ data?: { response?: string } }>(
+      `/api/openclaw/agents/${encodeURIComponent(agentId)}/message`,
+      { method: 'POST', body: { message } },
     );
+    if (signal?.aborted) return;
+    const response = payload?.data?.response ?? '';
+    if (response) onChunk(response);
+    onDone(response);
   } catch (err: any) {
-    if (err?.name !== 'AbortError') onError(err instanceof Error ? err : new Error(err?.message ?? 'fetch failed'));
-    return;
-  }
-
-  if (!res.ok) { onError(new Error(`OpenClaw API error: ${res.status}`)); return; }
-  if (!res.body) { onError(new Error('No response body')); return; }
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? '';
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        try {
-          const data = JSON.parse(line.slice(6));
-          if (data.error) { onError(new Error(data.error)); return; }
-          if (data.done) { onDone(data.response); return; }
-          if (data.chunk) onChunk(data.chunk);
-        } catch { /* skip malformed SSE line */ }
-      }
-    }
-  } catch (err: any) {
-    if (err?.name !== 'AbortError') onError(err instanceof Error ? err : new Error(err?.message ?? 'stream read failed'));
+    if (err?.name === 'AbortError' || signal?.aborted) return;
+    onError(err instanceof Error ? err : new Error(err?.message ?? 'request failed'));
   }
 }
 
@@ -179,7 +146,13 @@ export const openclawApi = {
 
   // Sessions
   listSessions: (limit: number = 20) => request(`/sessions?limit=${limit}`),
-  getSession: (key: string) => request(`/sessions/detail?key=${encodeURIComponent(key)}`),
+  getSession: (key: string, opts?: { limit?: number; beforeIndex?: number; afterIndex?: number }) => {
+    const qs = [`key=${encodeURIComponent(key)}`];
+    if (opts?.limit !== undefined) qs.push(`limit=${opts.limit}`);
+    if (opts?.beforeIndex !== undefined) qs.push(`beforeIndex=${opts.beforeIndex}`);
+    if (opts?.afterIndex !== undefined) qs.push(`afterIndex=${opts.afterIndex}`);
+    return request(`/sessions/detail?${qs.join('&')}`);
+  },
   createSession: (agentId: string, label?: string) =>
     request('/sessions', {
       method: 'POST',

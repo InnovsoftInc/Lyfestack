@@ -61,6 +61,8 @@ interface OpenClawStore {
   openChat: (agentName: string) => void;
   closeChat: () => void;
   loadChatHistory: (agentName: string, messages: ChatMessage[]) => void;
+  appendChatMessages: (agentName: string, messages: ChatMessage[]) => void;
+  prependChatMessages: (agentName: string, messages: ChatMessage[]) => void;
   startHeartbeat: () => void;
   stopHeartbeat: () => void;
 }
@@ -326,6 +328,26 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
     if (current?.agentName === agentName && current.messages.length === 0) {
       set({ activeChat: { agentName, messages } });
     }
+  },
+
+  appendChatMessages: (agentName, messages) => {
+    const { activeChat } = get();
+    if (!activeChat || activeChat.agentName !== agentName) return;
+    if (!messages.length) return;
+    const existing = new Set(activeChat.messages.map((m) => m.id));
+    const fresh = messages.filter((m) => !existing.has(m.id));
+    if (!fresh.length) return;
+    set({ activeChat: { ...activeChat, messages: [...activeChat.messages, ...fresh] } });
+  },
+
+  prependChatMessages: (agentName, messages) => {
+    const { activeChat } = get();
+    if (!activeChat || activeChat.agentName !== agentName) return;
+    if (!messages.length) return;
+    const existing = new Set(activeChat.messages.map((m) => m.id));
+    const fresh = messages.filter((m) => !existing.has(m.id));
+    if (!fresh.length) return;
+    set({ activeChat: { ...activeChat, messages: [...fresh, ...activeChat.messages] } });
   },
 
   startHeartbeat: () => {

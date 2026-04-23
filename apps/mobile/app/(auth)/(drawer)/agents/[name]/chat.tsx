@@ -7,9 +7,30 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MarkedBase from 'react-native-marked';
+import * as Clipboard from 'expo-clipboard';
 const Marked = MarkedBase as any;
+
+function CopyButton({ content, theme, variant = 'agent' }: { content: string; theme: Theme; variant?: 'agent' | 'user' }) {
+  const [copied, setCopied] = useState(false);
+  const onPress = async () => {
+    await Clipboard.setStringAsync(content);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+  const color = variant === 'user' ? 'rgba(255,255,255,0.85)' : theme.text.secondary;
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      hitSlop={6}
+      activeOpacity={0.6}
+      style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 2, paddingHorizontal: 4 }}
+    >
+      <Text style={{ color, fontSize: 11, fontWeight: '600' }}>{copied ? '✓ Copied' : '⧉ Copy'}</Text>
+    </TouchableOpacity>
+  );
+}
 import { useOpenClawStore } from '../../../../../stores/openclaw.store';
-import type { ChatErrorType, ChatAttachment } from '../../../../../stores/openclaw.store';
+import type { ChatErrorType, ChatAttachment, ChatMessage } from '../../../../../stores/openclaw.store';
 import { openclawApi } from '../../../../../services/openclaw.api';
 import { useTheme } from '../../../../../hooks/useTheme';
 import { Spacing, BorderRadius } from '../../../../../theme';
@@ -85,8 +106,8 @@ function AttachmentChip({ attachment, onRemove, theme }: { attachment: ChatAttac
 
 function AgentBubble({ content, streaming, theme, colorScheme }: { content: string; streaming?: boolean; theme: Theme; colorScheme: 'light' | 'dark' }) {
   const markdownTheme = {
-    code: { backgroundColor: theme.background, color: theme.text.primary, borderRadius: BorderRadius.sm, padding: 8, fontFamily: 'Courier', fontSize: 12 },
-    codespan: { backgroundColor: theme.background, color: theme.accent, fontFamily: 'Courier', fontSize: 13 },
+    code: { backgroundColor: theme.surface, color: theme.text.primary, borderRadius: 12, padding: 12, fontFamily: 'Courier', fontSize: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border },
+    codespan: { backgroundColor: theme.surface, color: theme.accent, fontFamily: 'Courier', fontSize: 13 },
     heading1: { color: theme.text.primary, fontSize: 18, fontWeight: '700' as const, marginTop: 8, marginBottom: 4 },
     heading2: { color: theme.text.primary, fontSize: 15, fontWeight: '700' as const, marginTop: 6, marginBottom: 2 },
     heading3: { color: theme.text.primary, fontSize: 13, fontWeight: '700' as const, marginTop: 4 },
@@ -105,9 +126,9 @@ function AgentBubble({ content, streaming, theme, colorScheme }: { content: stri
   };
 
   return (
-    <View style={{ alignSelf: 'flex-start', maxWidth: '88%', backgroundColor: theme.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border, borderRadius: 20, borderBottomLeftRadius: 6, marginBottom: Spacing.sm, overflow: 'hidden' }}>
+    <View style={{ alignSelf: 'flex-start', maxWidth: '88%', marginBottom: Spacing.xs }}>
       {streaming && content.length === 0 ? (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, padding: 12 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8 }}>
           <ActivityIndicator size="small" color={theme.text.secondary} />
           <Text style={{ color: theme.text.secondary, fontSize: 13 }}>thinking...</Text>
         </View>
@@ -116,7 +137,7 @@ function AgentBubble({ content, streaming, theme, colorScheme }: { content: stri
           value={content || ' '}
           flatListProps={{
             scrollEnabled: false,
-            contentContainerStyle: { paddingHorizontal: 14, paddingVertical: 10 },
+            contentContainerStyle: { paddingTop: 4, paddingBottom: 4, paddingHorizontal: 0 },
             style: { backgroundColor: 'transparent' },
           } as any}
           theme={markdownTheme as any}
@@ -124,7 +145,7 @@ function AgentBubble({ content, streaming, theme, colorScheme }: { content: stri
         />
       )}
       {streaming && content.length > 0 && (
-        <View style={{ width: 6, height: 14, backgroundColor: theme.accent, marginLeft: 14, marginBottom: 10, borderRadius: 1 }} />
+        <View style={{ width: 6, height: 14, backgroundColor: theme.accent, marginLeft: 2, marginBottom: 6, borderRadius: 1 }} />
       )}
     </View>
   );
@@ -146,7 +167,20 @@ export default function AgentChatScreen() {
   const [workspaceFiles, setWorkspaceFiles] = useState<Array<{ filename: string; preview: string }>>([]);
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
+  const [pinnedToBottom, setPinnedToBottom] = useState(true);
   const listRef = useRef<FlatList>(null);
+  const pinnedRef = useRef(true);
+  const sessionRef = useRef<{ key: string; oldestIndex: number; newestIndex: number; total: number } | null>(null);
+  const loadingOlderRef = useRef(false);
+
+  const PAGE_SIZE = 50;
+
+  const mapMessage = (m: any): ChatMessage => ({
+    id: `msg-${m.index}-${m.role}`,
+    role: m.role === 'user' ? 'user' : 'agent',
+    content: m.content,
+    timestamp: m.timestamp ?? new Date().toISOString(),
+  });
   const insets = useSafeAreaInsets();
   const agent = agents.find((a) => a.name === name);
   const isStreaming = !!streamAbort;
@@ -157,21 +191,76 @@ export default function AgentChatScreen() {
       setCurrentModel(res.data?.model ?? 'openrouter/auto');
       setFallbackModels(res.data?.fallbackModels ?? []);
     }).catch(() => {});
+
+    let cancelled = false;
+    sessionRef.current = null;
     setLoadingHistory(true);
-    openclawApi.listSessions(10).then((res: any) => {
-      const agentSessions = (res.data ?? []).filter((s: any) => s.agentId === name || s.label?.includes(name));
-      if (agentSessions.length > 0) {
-        openclawApi.getSession(agentSessions[0].key).then((sessionRes: any) => {
-          const history = (sessionRes.data?.messages ?? []).map((m: any, i: number) => ({
-            id: `history-${i}`,
-            role: m.role === 'user' ? 'user' as const : 'agent' as const,
-            content: m.content,
-            timestamp: m.timestamp ?? new Date().toISOString(),
-          }));
-          if (history.length > 0) useOpenClawStore.getState().loadChatHistory(name, history);
-        }).catch(() => {});
+
+    const initial = async () => {
+      try {
+        const res: any = await openclawApi.listSessions(20);
+        const agentSessions = (res.data ?? []).filter((s: any) => s.agentId === name || s.label?.includes(name));
+        if (!agentSessions.length) return;
+        const key = agentSessions[0].key;
+        const sessionRes: any = await openclawApi.getSession(key, { limit: PAGE_SIZE });
+        if (cancelled) return;
+        const data = sessionRes.data ?? {};
+        const messages: ChatMessage[] = (data.messages ?? []).map(mapMessage);
+        sessionRef.current = {
+          key,
+          oldestIndex: data.firstIndex ?? -1,
+          newestIndex: data.lastIndex ?? -1,
+          total: data.total ?? messages.length,
+        };
+        if (messages.length) useOpenClawStore.getState().loadChatHistory(name, messages);
+      } catch { /* next tick */ }
+    };
+
+    const syncTail = async () => {
+      const sref = sessionRef.current;
+      if (!sref) return;
+      if (useOpenClawStore.getState().streamAbort) return;
+      try {
+        const res: any = await openclawApi.getSession(sref.key, { afterIndex: sref.newestIndex });
+        if (cancelled) return;
+        const data = res.data ?? {};
+        const messages: ChatMessage[] = (data.messages ?? []).map(mapMessage);
+        if (!messages.length) return;
+        sref.newestIndex = data.lastIndex ?? sref.newestIndex;
+        sref.total = data.total ?? sref.total;
+        useOpenClawStore.getState().appendChatMessages(name, messages);
+      } catch { /* next tick */ }
+    };
+
+    initial().finally(() => { if (!cancelled) setLoadingHistory(false); });
+
+    const interval = setInterval(syncTail, 3000);
+
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [name]);
+
+  const loadOlder = useCallback(async () => {
+    const sref = sessionRef.current;
+    if (!sref || loadingOlderRef.current) return;
+    if (sref.oldestIndex <= 0) return;
+    loadingOlderRef.current = true;
+    try {
+      const res: any = await openclawApi.getSession(sref.key, {
+        beforeIndex: sref.oldestIndex,
+        limit: PAGE_SIZE,
+      });
+      const data = res.data ?? {};
+      const messages: ChatMessage[] = (data.messages ?? []).map(mapMessage);
+      if (messages.length) {
+        sref.oldestIndex = data.firstIndex ?? sref.oldestIndex;
+        useOpenClawStore.getState().prependChatMessages(name, messages);
+      } else {
+        sref.oldestIndex = 0;
       }
-    }).catch(() => {}).finally(() => setLoadingHistory(false));
+    } catch { /* retry on next scroll */ }
+    finally {
+      loadingOlderRef.current = false;
+    }
   }, [name]);
 
   const handleModelChange = async (model: string) => {
@@ -217,9 +306,28 @@ export default function AgentChatScreen() {
     const attachments = [...pendingAttachments];
     setInput('');
     setPendingAttachments([]);
+    pinnedRef.current = true;
+    setPinnedToBottom(true);
     await sendMessageStream(name, msg, attachments);
     setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
   }, [input, isStreaming, pendingAttachments, name, sendMessageStream]);
+
+  const scrollToBottom = useCallback(() => {
+    pinnedRef.current = true;
+    setPinnedToBottom(true);
+    listRef.current?.scrollToEnd({ animated: true });
+  }, []);
+
+  const handleScroll = useCallback((e: any) => {
+    const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
+    const distanceFromBottom = contentSize.height - (layoutMeasurement.height + contentOffset.y);
+    const atBottom = distanceFromBottom < 80;
+    if (atBottom !== pinnedRef.current) {
+      pinnedRef.current = atBottom;
+      setPinnedToBottom(atBottom);
+    }
+    if (contentOffset.y < 600) loadOlder();
+  }, [loadOlder]);
 
   const messages = activeChat?.messages ?? [];
 
@@ -314,7 +422,12 @@ export default function AgentChatScreen() {
             return <ErrorBadge type={item.errorType} rawMessage={item.content} theme={theme} />;
           }
           if (item.role === 'agent') {
-            return <AgentBubble content={item.content} streaming={item.streaming} theme={theme} colorScheme={colorScheme} />;
+            return (
+              <View style={{ marginBottom: Spacing.sm }}>
+                <AgentBubble content={item.content} streaming={item.streaming} theme={theme} colorScheme={colorScheme} />
+                {!item.streaming && <AgentAvatar name={name} size={24} />}
+              </View>
+            );
           }
           return (
             <View>
@@ -345,8 +458,22 @@ export default function AgentChatScreen() {
             </View>
           )
         }
-        onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
+        onScroll={handleScroll}
+        scrollEventThrottle={50}
+        onContentSizeChange={() => { if (pinnedRef.current) listRef.current?.scrollToEnd({ animated: false }); }}
+        maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
       />
+
+      {!pinnedToBottom && messages.length > 0 && (
+        <TouchableOpacity
+          style={[s.scrollFab, { bottom: insets.bottom + 90 + (pendingAttachments.length > 0 ? 40 : 0) }]}
+          onPress={scrollToBottom}
+          activeOpacity={0.8}
+          hitSlop={6}
+        >
+          <Text style={s.scrollFabIcon}>↓</Text>
+        </TouchableOpacity>
+      )}
 
       {/* Pending attachments row */}
       {pendingAttachments.length > 0 && (
@@ -445,6 +572,25 @@ const styles = (t: Theme) => StyleSheet.create({
     paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs,
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.border,
   },
+
+  scrollFab: {
+    position: 'absolute',
+    right: Spacing.md,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: t.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: t.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+  },
+  scrollFabIcon: { color: t.text.primary, fontSize: 18, fontWeight: '700' },
 
   inputBar: {
     flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.sm,

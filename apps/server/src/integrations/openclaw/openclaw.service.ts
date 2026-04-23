@@ -1,11 +1,8 @@
-import { exec, spawn } from 'child_process';
-import { promisify } from 'util';
+import { spawn } from 'child_process';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { logger } from '../../utils/logger';
 import { usageTracker } from './usage-tracker';
-
-const execAsync = promisify(exec);
 const OPENCLAW_CONFIG = path.join(process.env.HOME ?? '', '.openclaw');
 const OPENCLAW_JSON = path.join(OPENCLAW_CONFIG, 'openclaw.json');
 const WORKSPACE = path.join(OPENCLAW_CONFIG, 'workspace');
@@ -129,30 +126,51 @@ export class OpenClawService {
 
   async sendMessage(agentName: string, message: string): Promise<string> {
     const startTime = Date.now();
-    try {
-      const bin = await this.resolveOpenclawBin();
-      const escaped = message.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-      const { stdout } = await execAsync(
-        `"${bin}" agent --agent ${agentName} -m "${escaped}"`,
-        { timeout: 120000 }
-      );
-      const response = stdout.trim();
-      this.getAgent(agentName)
-        .then((agent) =>
-          usageTracker.track({
-            agentName,
-            model: agent?.model ?? 'unknown',
-            message,
-            response,
-            duration: Date.now() - startTime,
-          })
-        )
-        .catch(() => {});
-      return response;
-    } catch (err: any) {
-      logger.error({ agent: agentName, err: err.message }, 'OpenClaw message failed');
-      throw new Error(`Agent ${agentName} failed: ${err.message}`);
-    }
+    const bin = await this.resolveOpenclawBin();
+
+    return new Promise<string>((resolve, reject) => {
+      const child = spawn(bin, ['agent', '--agent', agentName, '-m', message], {
+        env: { ...process.env },
+      });
+
+      let stdout = '';
+      let stderr = '';
+      const timeout = setTimeout(() => {
+        child.kill('SIGTERM');
+        reject(new Error(`Agent ${agentName} timed out after 10 minutes`));
+      }, 600_000);
+
+      child.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
+      child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
+
+      child.on('error', (err) => {
+        clearTimeout(timeout);
+        logger.error({ agent: agentName, err: err.message }, 'OpenClaw message failed');
+        reject(new Error(`Agent ${agentName} failed: ${err.message}`));
+      });
+
+      child.on('close', (code) => {
+        clearTimeout(timeout);
+        if (code === 0) {
+          const response = stdout.trim();
+          this.getAgent(agentName)
+            .then((agent) =>
+              usageTracker.track({
+                agentName,
+                model: agent?.model ?? 'unknown',
+                message,
+                response,
+                duration: Date.now() - startTime,
+              })
+            )
+            .catch(() => {});
+          resolve(response);
+        } else {
+          logger.error({ agent: agentName, code, stderr: stderr.slice(-500) }, 'OpenClaw message failed');
+          reject(new Error(`Agent ${agentName} exited with code ${code ?? 'unknown'}`));
+        }
+      });
+    });
   }
 
   async sendMessageStream(
