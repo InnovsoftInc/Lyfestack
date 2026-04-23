@@ -1,174 +1,294 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import cron from 'node-cron';
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import { logger } from '../utils/logger';
 
-const execAsync = promisify(exec);
-const OPENCLAW_CONFIG = path.join(process.env.HOME ?? '', '.openclaw');
-const AUTOMATIONS_FILE = path.join(OPENCLAW_CONFIG, 'automations.json');
+const OPENCLAW_DIR = path.join(process.env.HOME ?? '', '.openclaw');
+const OPENCLAW_CONFIG = path.join(OPENCLAW_DIR, 'openclaw.json');
+const WORKSPACE_DIR = path.join(OPENCLAW_DIR, 'workspace');
 
-export interface Automation {
+export interface Routine {
   id: string;
   name: string;
-  agentName: string;
-  cronExpression: string;
-  scheduleLabel: string;
-  message: string;
+  description: string;
+  type: 'heartbeat' | 'hook' | 'cron' | 'custom';
+  schedule: string;
+  trigger?: string;
+  agentName?: string;
+  model?: string;
+  channel?: string;
   enabled: boolean;
-  createdAt: string;
-  lastRunAt?: string;
-  nextRunAt?: string;
-  lastResult?: string;
-  lastRunStatus?: 'success' | 'error';
+  source: 'openclaw' | 'lyfestack';
+  lastRun?: string;
+  config?: Record<string, unknown>;
 }
 
-const activeTasks = new Map<string, cron.ScheduledTask>();
+export type Automation = Routine;
 
-async function readAutomations(): Promise<Automation[]> {
+interface HookMapping {
+  match: { path: string };
+  action?: string;
+  wakeMode?: string;
+  name?: string;
+  sessionKey?: string;
+  messageTemplate?: string;
+  deliver?: boolean;
+  channel?: string;
+  to?: string;
+  model?: string;
+  enabled?: boolean;
+  [key: string]: unknown;
+}
+
+interface OpenClawConfig {
+  agents?: {
+    defaults?: {
+      heartbeat?: {
+        every: string;
+        activeHours?: { start: string; end: string; timezone: string };
+        model?: string;
+        [key: string]: unknown;
+      };
+      [key: string]: unknown;
+    };
+  };
+  hooks?: {
+    mappings?: HookMapping[];
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+async function readConfig(): Promise<OpenClawConfig> {
   try {
-    const raw = await fs.readFile(AUTOMATIONS_FILE, 'utf-8');
-    return JSON.parse(raw) as Automation[];
+    return JSON.parse(await fs.readFile(OPENCLAW_CONFIG, 'utf-8')) as OpenClawConfig;
   } catch {
-    return [];
+    return {};
   }
 }
 
-async function writeAutomations(automations: Automation[]): Promise<void> {
-  await fs.mkdir(OPENCLAW_CONFIG, { recursive: true });
-  await fs.writeFile(AUTOMATIONS_FILE, JSON.stringify(automations, null, 2));
+async function writeConfig(config: OpenClawConfig): Promise<void> {
+  await fs.writeFile(OPENCLAW_CONFIG, JSON.stringify(config, null, 2));
+}
+
+function formatInterval(every: string): string {
+  const m = every.match(/^(\d+)([smhd])$/);
+  if (!m) return every;
+  const labels: Record<string, string> = { s: 'sec', m: 'min', h: 'hr', d: 'day' };
+  const n = Number(m[1]);
+  const unit = labels[m[2]!] ?? m[2]!;
+  return `Every ${n} ${unit}${n !== 1 ? 's' : ''}`;
+}
+
+async function scanCronFiles(): Promise<Routine[]> {
+  const routines: Routine[] = [];
+
+  async function walk(dir: string): Promise<void> {
+    let entries: string[];
+    try {
+      entries = await fs.readdir(dir);
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry);
+      let stat;
+      try {
+        stat = await fs.stat(full);
+      } catch {
+        continue;
+      }
+      if (stat.isDirectory()) {
+        await walk(full);
+      } else if (entry.endsWith('.cron')) {
+        let content: string;
+        try {
+          content = await fs.readFile(full, 'utf-8');
+        } catch {
+          continue;
+        }
+        const lines = content.split('\n').filter((l) => l.trim() && !l.trim().startsWith('#'));
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i]!.trim();
+          const parts = line.split(/\s+/);
+          if (parts.length < 6) continue;
+          const cronExpr = parts.slice(0, 5).join(' ');
+          const command = parts.slice(5).join(' ');
+          const relPath = path.relative(WORKSPACE_DIR, full);
+          const baseName = path.basename(full, '.cron')
+            .replace(/_/g, ' ')
+            .replace(/\b\w/g, (c) => c.toUpperCase());
+          routines.push({
+            id: `cron:${relPath}:${i}`,
+            name: baseName,
+            description: command,
+            type: 'cron',
+            schedule: cronExpr,
+            trigger: 'cron',
+            enabled: true,
+            source: 'openclaw',
+            config: { file: full, command, cronExpr },
+          });
+        }
+      }
+    }
+  }
+
+  await walk(WORKSPACE_DIR);
+  return routines;
 }
 
 export class AutomationsService {
-  async list(): Promise<Automation[]> {
-    return readAutomations();
+  async list(): Promise<Routine[]> {
+    const config = await readConfig();
+    const routines: Routine[] = [];
+
+    // 1. Heartbeat
+    const hb = config.agents?.defaults?.heartbeat;
+    if (hb) {
+      const activeStr = hb.activeHours
+        ? ` · ${hb.activeHours.start}–${hb.activeHours.end} ${hb.activeHours.timezone}`
+        : '';
+      routines.push({
+        id: 'openclaw:heartbeat',
+        name: 'Agent Heartbeat',
+        description: `${formatInterval(hb.every)}${activeStr}`,
+        type: 'heartbeat',
+        schedule: formatInterval(hb.every),
+        trigger: 'interval',
+        model: hb.model as string | undefined,
+        enabled: true,
+        source: 'openclaw',
+        config: hb as Record<string, unknown>,
+      });
+    }
+
+    // 2. Hooks
+    for (const hook of config.hooks?.mappings ?? []) {
+      const hookPath = hook.match?.path ?? 'unknown';
+      routines.push({
+        id: `hook:${hookPath}`,
+        name: hook.name ?? `/${hookPath} Hook`,
+        description: hook.messageTemplate?.slice(0, 120) ?? `Webhook trigger: /${hookPath}`,
+        type: 'hook',
+        schedule: `Webhook /${hookPath}`,
+        trigger: 'webhook',
+        model: hook.model,
+        channel: hook.channel,
+        enabled: hook.enabled !== false,
+        source: 'openclaw',
+        config: hook as Record<string, unknown>,
+      });
+    }
+
+    // 3. Cron files
+    routines.push(...(await scanCronFiles()));
+
+    return routines;
   }
 
   async create(data: {
     name: string;
-    agentName: string;
-    cronExpression: string;
-    scheduleLabel: string;
-    message: string;
-    enabled?: boolean;
-  }): Promise<Automation> {
-    const automations = await readAutomations();
-    const automation: Automation = {
-      id: `auto-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      name: data.name,
-      agentName: data.agentName,
-      cronExpression: data.cronExpression,
-      scheduleLabel: data.scheduleLabel,
-      message: data.message,
-      enabled: data.enabled ?? true,
-      createdAt: new Date().toISOString(),
+    triggerPath: string;
+    messageTemplate: string;
+    agentName?: string;
+    model?: string;
+    channel?: string;
+    deliver?: boolean;
+  }): Promise<Routine> {
+    if (!data.name?.trim()) throw new Error('name is required');
+    if (!data.triggerPath?.trim()) throw new Error('triggerPath is required');
+    if (!data.messageTemplate?.trim()) throw new Error('messageTemplate is required');
+
+    const config = await readConfig();
+    if (!config.hooks) config.hooks = { mappings: [] };
+    if (!config.hooks.mappings) config.hooks.mappings = [];
+
+    const hookPath = data.triggerPath.toLowerCase().trim().replace(/[^a-z0-9-]/g, '-');
+    const hook: HookMapping = {
+      match: { path: hookPath },
+      action: 'agent',
+      wakeMode: 'now',
+      name: data.name.trim(),
+      sessionKey: `hook:${hookPath}:{{payload.id}}`,
+      messageTemplate: data.messageTemplate.trim(),
+      deliver: data.deliver ?? true,
+      channel: data.channel ?? 'telegram',
+      model: data.model,
+      enabled: true,
     };
-    automations.push(automation);
-    await writeAutomations(automations);
-    if (automation.enabled) this.scheduleTask(automation);
-    logger.info({ id: automation.id, name: automation.name }, 'Automation created');
-    return automation;
+
+    config.hooks.mappings.push(hook);
+    await writeConfig(config);
+    logger.info({ name: data.name, path: hookPath }, '[RoutinesService] Hook created');
+
+    return {
+      id: `hook:${hookPath}`,
+      name: data.name.trim(),
+      description: `Webhook trigger: /${hookPath}`,
+      type: 'hook',
+      schedule: `Webhook /${hookPath}`,
+      trigger: 'webhook',
+      agentName: data.agentName,
+      model: data.model,
+      channel: data.channel ?? 'telegram',
+      enabled: true,
+      source: 'openclaw',
+      config: hook as Record<string, unknown>,
+    };
   }
 
   async delete(id: string): Promise<void> {
-    const automations = await readAutomations();
-    const filtered = automations.filter((a) => a.id !== id);
-    await writeAutomations(filtered);
-    this.unscheduleTask(id);
-    logger.info({ id }, 'Automation deleted');
+    if (!id.startsWith('hook:')) {
+      throw new Error(`Cannot delete "${id}" — only hook routines can be removed from the app`);
+    }
+    const hookPath = id.slice('hook:'.length);
+    const config = await readConfig();
+    if (config.hooks?.mappings) {
+      const before = config.hooks.mappings.length;
+      config.hooks.mappings = config.hooks.mappings.filter((m) => m.match?.path !== hookPath);
+      if (config.hooks.mappings.length === before) throw new Error(`Hook /${hookPath} not found`);
+      await writeConfig(config);
+    }
+    logger.info({ id }, '[RoutinesService] Hook deleted');
   }
 
-  async toggle(id: string, enabled: boolean): Promise<Automation | null> {
-    const automations = await readAutomations();
-    const idx = automations.findIndex((a) => a.id === id);
+  async toggle(id: string, enabled: boolean): Promise<Routine | null> {
+    if (!id.startsWith('hook:')) return null;
+    const hookPath = id.slice('hook:'.length);
+    const config = await readConfig();
+    const mappings = config.hooks?.mappings ?? [];
+    const idx = mappings.findIndex((m) => m.match?.path === hookPath);
     if (idx === -1) return null;
-    automations[idx]!.enabled = enabled;
-    await writeAutomations(automations);
-    if (enabled) {
-      this.scheduleTask(automations[idx]!);
-    } else {
-      this.unscheduleTask(id);
-    }
-    logger.info({ id, enabled }, 'Automation toggled');
-    return automations[idx]!;
+    mappings[idx]!.enabled = enabled;
+    await writeConfig(config);
+    const hook = mappings[idx]!;
+    logger.info({ id, enabled }, '[RoutinesService] Hook toggled');
+    return {
+      id,
+      name: hook.name ?? hookPath,
+      description: hook.messageTemplate?.slice(0, 120) ?? `Webhook trigger: /${hookPath}`,
+      type: 'hook',
+      schedule: `Webhook /${hookPath}`,
+      trigger: 'webhook',
+      model: hook.model,
+      channel: hook.channel,
+      enabled,
+      source: 'openclaw',
+      config: hook as Record<string, unknown>,
+    };
   }
 
   async runNow(id: string): Promise<{ result: string; status: 'success' | 'error'; error?: string }> {
-    const automations = await readAutomations();
-    const automation = automations.find((a) => a.id === id);
-    if (!automation) throw new Error('Automation not found');
-    try {
-      const result = await this.execute(automation);
-      return { result, status: 'success' };
-    } catch (err: any) {
-      return { result: '', status: 'error', error: err.message };
-    }
-  }
-
-  private async execute(automation: Automation): Promise<string> {
-    const now = new Date().toISOString();
-    try {
-      const escaped = automation.message.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-      const { stdout } = await execAsync(
-        `/bin/bash -c "openclaw agent --agent ${automation.agentName} -m \\"${escaped}\\""`,
-        { timeout: 120000, env: process.env },
-      );
-      const result = stdout.trim();
-
-      const automations = await readAutomations();
-      const idx = automations.findIndex((a) => a.id === automation.id);
-      if (idx !== -1) {
-        automations[idx]!.lastRunAt = now;
-        automations[idx]!.lastResult = result.slice(0, 300);
-        automations[idx]!.lastRunStatus = 'success';
-        await writeAutomations(automations);
-      }
-      logger.info({ id: automation.id }, 'Automation executed successfully');
-      return result;
-    } catch (err: any) {
-      const automations = await readAutomations();
-      const idx = automations.findIndex((a) => a.id === automation.id);
-      if (idx !== -1) {
-        automations[idx]!.lastRunAt = now;
-        automations[idx]!.lastResult = err.message?.slice(0, 300) ?? '';
-        automations[idx]!.lastRunStatus = 'error';
-        await writeAutomations(automations);
-      }
-      logger.error({ id: automation.id, err: err.message }, 'Automation execution failed');
-      throw new Error(`Automation failed: ${err.message}`);
-    }
-  }
-
-  private scheduleTask(automation: Automation): void {
-    if (!automation.enabled) return;
-    if (!cron.validate(automation.cronExpression)) {
-      logger.warn({ id: automation.id, cron: automation.cronExpression }, 'Invalid cron expression');
-      return;
-    }
-    this.unscheduleTask(automation.id);
-    const task = cron.schedule(automation.cronExpression, async () => {
-      logger.info({ id: automation.id, name: automation.name }, 'Running scheduled automation');
-      await this.execute(automation).catch((err) =>
-        logger.error({ id: automation.id, err: err.message }, 'Scheduled automation failed'),
-      );
-    });
-    activeTasks.set(automation.id, task);
-  }
-
-  private unscheduleTask(id: string): void {
-    const task = activeTasks.get(id);
-    if (task) {
-      task.stop();
-      activeTasks.delete(id);
-    }
+    return {
+      result: '',
+      status: 'error',
+      error: 'Run now is not supported for OpenClaw native routines — use the OpenClaw dashboard',
+    };
   }
 
   async init(): Promise<void> {
-    const automations = await readAutomations();
-    const enabled = automations.filter((a) => a.enabled);
-    for (const auto of enabled) this.scheduleTask(auto);
-    logger.info({ count: enabled.length }, 'Automations initialized');
+    const routines = await this.list();
+    logger.info({ count: routines.length }, '[RoutinesService] Loaded from OpenClaw config');
   }
 }
 
