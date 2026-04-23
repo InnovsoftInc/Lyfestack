@@ -1,106 +1,103 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Alert } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { router, useNavigation } from 'expo-router';
+import { DrawerActions } from '@react-navigation/native';
 import { useTheme } from '../../../../hooks/useTheme';
-import { useThemeStore } from '../../../../stores/theme.store';
 import type { Theme } from '../../../../theme/colors';
-import { TextStyles, Spacing, BorderRadius } from '../../../../theme';
+import { TextStyles, Spacing, BorderRadius, Elevation } from '../../../../theme';
 import { Colors, TrustTier } from '@lyfestack/shared';
 import { useAuthStore } from '../../../../stores/auth.store';
+import { GlassHeader, headerSpacerHeight } from '../../../../components/ui';
 
 function makeStyles(theme: Theme) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: theme.background },
-    scroll: { flex: 1 },
-    header: { padding: Spacing.xl, paddingBottom: Spacing.md },
-    heading: { ...TextStyles.h1, color: theme.text.primary },
-    userCard: {
-      flexDirection: 'row',
+    scroll: { paddingBottom: Spacing['2xl'] },
+    hero: {
       alignItems: 'center',
-      gap: Spacing.md,
-      marginHorizontal: Spacing.xl,
-      marginBottom: Spacing.xl,
-      backgroundColor: theme.surface,
-      borderRadius: BorderRadius.lg,
-      borderWidth: 1,
-      borderColor: theme.border,
-      padding: Spacing.md,
+      paddingHorizontal: Spacing.lg,
+      paddingTop: Spacing.lg,
+      gap: Spacing.sm,
     },
     avatar: {
-      width: 56,
-      height: 56,
-      borderRadius: 28,
+      width: 88,
+      height: 88,
+      borderRadius: 44,
       backgroundColor: Colors.accent,
       justifyContent: 'center',
       alignItems: 'center',
+      ...Elevation.floating,
+      shadowColor: Colors.accent,
     },
-    avatarText: { ...TextStyles.h3, color: Colors.white },
-    userInfo: { gap: 3 },
-    userName: { ...TextStyles.h4, color: theme.text.primary },
-    userEmail: { ...TextStyles.small, color: theme.text.secondary },
-    userTimezone: { ...TextStyles.caption, color: theme.text.secondary },
-    section: { marginBottom: Spacing.xl, paddingHorizontal: Spacing.xl },
+    avatarText: { ...TextStyles.h1, color: Colors.white },
+    userName: { ...TextStyles.h2, color: theme.text.primary, marginTop: Spacing.sm },
+    userEmail: { ...TextStyles.body, color: theme.text.secondary },
+    userTimezone: { ...TextStyles.small, color: theme.text.secondary, opacity: 0.7 },
+    section: { marginTop: Spacing.xl, paddingHorizontal: Spacing.lg },
     sectionLabel: {
       ...TextStyles.caption,
       color: theme.text.secondary,
       letterSpacing: 1,
       textTransform: 'uppercase',
-      marginBottom: Spacing.md,
+      marginBottom: Spacing.sm,
+      paddingHorizontal: Spacing.md,
     },
-    trustCard: {
+    card: {
       backgroundColor: theme.surface,
-      borderRadius: BorderRadius.lg,
-      borderWidth: 1,
+      borderRadius: BorderRadius.xl,
+      borderWidth: StyleSheet.hairlineWidth,
       borderColor: theme.border,
       padding: Spacing.md,
       gap: Spacing.md,
+      ...Elevation.card,
     },
     trustHint: { ...TextStyles.small, color: theme.text.secondary, lineHeight: 20 },
     trustBar: { flexDirection: 'row', gap: Spacing.sm },
-    trustBarSegment: {
+    trustSeg: {
       flex: 1,
       paddingVertical: 10,
       alignItems: 'center',
       borderRadius: BorderRadius.md,
-      backgroundColor: theme.border,
-      borderWidth: 1,
-      borderColor: 'transparent',
+      backgroundColor: theme.background,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.border,
     },
-    trustBarSegmentActive: {
+    trustSegActive: {
       backgroundColor: Colors.accent + '20',
       borderColor: Colors.accent,
     },
-    trustBarLabel: { ...TextStyles.caption, color: theme.text.secondary, fontWeight: '600' },
-    trustBarLabelActive: { color: Colors.accent },
-    settingsGroup: {
+    trustLabel: { ...TextStyles.caption, color: theme.text.secondary, fontWeight: '600' },
+    trustLabelActive: { color: Colors.accent },
+    group: {
       backgroundColor: theme.surface,
-      borderRadius: BorderRadius.lg,
-      borderWidth: 1,
+      borderRadius: BorderRadius.xl,
+      borderWidth: StyleSheet.hairlineWidth,
       borderColor: theme.border,
       overflow: 'hidden',
+      ...Elevation.card,
     },
-    settingRow: {
+    row: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      padding: Spacing.md,
+      paddingHorizontal: Spacing.md,
+      paddingVertical: 14,
       minHeight: 52,
     },
-    settingLabel: { ...TextStyles.bodyMedium, color: theme.text.primary },
-    settingLabelDanger: { color: Colors.error },
-    settingValue: { ...TextStyles.small, color: theme.text.secondary },
-    settingArrow: { ...TextStyles.h4, color: theme.text.secondary },
-    divider: { height: 1, backgroundColor: theme.border, marginLeft: Spacing.md },
+    rowLabel: { ...TextStyles.bodyMedium, color: theme.text.primary },
+    rowLabelDanger: { color: Colors.error },
+    rowValue: { ...TextStyles.small, color: theme.text.secondary },
+    rowArrow: { color: theme.text.secondary, fontSize: 22, fontWeight: '300' },
+    divider: { height: StyleSheet.hairlineWidth, backgroundColor: theme.border, marginLeft: Spacing.md },
     logoutBtn: {
-      borderRadius: BorderRadius.md,
+      borderRadius: BorderRadius.lg,
       borderWidth: 1,
       borderColor: theme.border,
       paddingVertical: 14,
       alignItems: 'center',
+      backgroundColor: theme.surface,
     },
     logoutText: { ...TextStyles.bodyMedium, color: theme.text.secondary },
-    footer: { alignItems: 'center', paddingBottom: Spacing.xl },
-    footerText: { ...TextStyles.caption, color: theme.text.secondary, opacity: 0.5 },
   });
 }
 
@@ -116,55 +113,14 @@ const TRUST_HINTS: Record<TrustTier, string> = {
   [TrustTier.AUTONOMOUS]: 'Agents act freely — maximum productivity, minimum friction.',
 };
 
-interface SettingRowProps {
-  label: string;
-  value?: string;
-  toggle?: boolean;
-  toggleValue?: boolean;
-  onToggle?: (v: boolean) => void;
-  onPress?: () => void;
-  danger?: boolean;
-}
-
-function SettingRow({ label, value, toggle, toggleValue, onToggle, onPress, danger }: SettingRowProps) {
-  const theme = useTheme();
-  const styles = makeStyles(theme);
-
-  return (
-    <TouchableOpacity
-      style={styles.settingRow}
-      onPress={onPress}
-      disabled={!onPress && !toggle}
-      activeOpacity={onPress ? 0.7 : 1}
-    >
-      <Text style={[styles.settingLabel, danger && styles.settingLabelDanger]}>{label}</Text>
-      {toggle ? (
-        <Switch
-          value={toggleValue}
-          onValueChange={onToggle}
-          trackColor={{ false: theme.border, true: Colors.accent }}
-          thumbColor={Colors.white}
-        />
-      ) : value ? (
-        <Text style={styles.settingValue}>{value}</Text>
-      ) : onPress ? (
-        <Text style={styles.settingArrow}>›</Text>
-      ) : null}
-    </TouchableOpacity>
-  );
-}
-
 export default function ProfileScreen() {
   const { user, logout } = useAuthStore();
-  const { isDark, toggle: toggleDark } = useThemeStore();
   const theme = useTheme();
-  const styles = makeStyles(theme);
+  const s = makeStyles(theme);
+  const insets = useSafeAreaInsets();
+  const navigation = useNavigation();
 
   const currentTier = user?.trustTier ?? TrustTier.ASSISTED;
-
-  const handleTrustChange = (_tier: TrustTier) => {
-    // Trust tier updates propagate through the auth store on next login sync
-  };
 
   const handleLogout = () => {
     logout();
@@ -183,47 +139,46 @@ export default function ProfileScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
-        <View style={styles.header}>
-          <Text style={styles.heading}>Profile</Text>
+    <View style={s.container}>
+      <GlassHeader
+        title="Profile"
+        leftKind="menu"
+        onLeftPress={() => navigation.dispatch(DrawerActions.openDrawer())}
+        right={
+          <TouchableOpacity
+            onPress={() => router.push('/(auth)/(drawer)/settings' as any)}
+            hitSlop={10}
+            activeOpacity={0.6}
+          >
+            <Text style={{ fontSize: 22, color: theme.text.primary }}>⚙︎</Text>
+          </TouchableOpacity>
+        }
+      />
+      <ScrollView
+        contentContainerStyle={[s.scroll, { paddingTop: headerSpacerHeight(insets.top) + Spacing.sm }]}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={s.hero}>
+          <View style={s.avatar}>
+            <Text style={s.avatarText}>{(user?.displayName ?? 'U').charAt(0).toUpperCase()}</Text>
+          </View>
+          <Text style={s.userName}>{user?.displayName ?? 'User'}</Text>
+          <Text style={s.userEmail}>{user?.email ?? ''}</Text>
+          {user?.timezone ? <Text style={s.userTimezone}>{user.timezone}</Text> : null}
         </View>
 
-        <View style={styles.userCard}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {(user?.displayName ?? 'U').charAt(0).toUpperCase()}
-            </Text>
-          </View>
-          <View style={styles.userInfo}>
-            <Text style={styles.userName}>{user?.displayName ?? 'User'}</Text>
-            <Text style={styles.userEmail}>{user?.email}</Text>
-            <Text style={styles.userTimezone}>{user?.timezone ?? 'UTC'}</Text>
-          </View>
-        </View>
-
-        {/* Agent Trust Level */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>AGENT TRUST LEVEL</Text>
-          <View style={styles.trustCard}>
-            <Text style={styles.trustHint}>
-              {TRUST_HINTS[currentTier]}
-            </Text>
-            <View style={styles.trustBar}>
+        <View style={s.section}>
+          <Text style={s.sectionLabel}>Agent trust level</Text>
+          <View style={s.card}>
+            <Text style={s.trustHint}>{TRUST_HINTS[currentTier]}</Text>
+            <View style={s.trustBar}>
               {(Object.values(TrustTier) as TrustTier[]).map((tier) => (
                 <TouchableOpacity
                   key={tier}
-                  style={[
-                    styles.trustBarSegment,
-                    currentTier === tier && styles.trustBarSegmentActive,
-                  ]}
-                  onPress={() => handleTrustChange(tier)}
+                  style={[s.trustSeg, currentTier === tier && s.trustSegActive]}
                   activeOpacity={0.7}
                 >
-                  <Text style={[
-                    styles.trustBarLabel,
-                    currentTier === tier && styles.trustBarLabelActive,
-                  ]}>
+                  <Text style={[s.trustLabel, currentTier === tier && s.trustLabelActive]}>
                     {TRUST_LABELS[tier]}
                   </Text>
                 </TouchableOpacity>
@@ -232,89 +187,32 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* Appearance */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>APPEARANCE</Text>
-          <View style={styles.settingsGroup}>
-            <SettingRow
-              label="Dark mode"
-              toggle
-              toggleValue={isDark}
-              onToggle={toggleDark}
-            />
+        <View style={s.section}>
+          <Text style={s.sectionLabel}>Account</Text>
+          <View style={s.group}>
+            <TouchableOpacity style={s.row} activeOpacity={0.6}>
+              <Text style={s.rowLabel}>Timezone</Text>
+              <Text style={s.rowValue}>{user?.timezone ?? 'UTC'}</Text>
+            </TouchableOpacity>
+            <View style={s.divider} />
+            <TouchableOpacity style={s.row} activeOpacity={0.6}>
+              <Text style={s.rowLabel}>Export my data</Text>
+              <Text style={s.rowArrow}>›</Text>
+            </TouchableOpacity>
+            <View style={s.divider} />
+            <TouchableOpacity style={s.row} activeOpacity={0.6} onPress={handleDeleteAccount}>
+              <Text style={[s.rowLabel, s.rowLabelDanger]}>Delete account</Text>
+              <Text style={[s.rowArrow, { color: Colors.error }]}>›</Text>
+            </TouchableOpacity>
           </View>
         </View>
 
-        {/* Integrations */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>CONNECTED INTEGRATIONS</Text>
-          <View style={styles.settingsGroup}>
-            <SettingRow
-              label="Manage Integrations"
-              onPress={() => router.push('/(auth)/(drawer)/profile/integrations')}
-            />
-          </View>
-        </View>
-
-        {/* OpenClaw */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>OPENCLAW</Text>
-          <View style={styles.settingsGroup}>
-            <SettingRow
-              label="Connect to Mac"
-              onPress={() => router.push('/(auth)/connect-openclaw')}
-            />
-            <View style={styles.divider} />
-            <SettingRow
-              label="Manage Agents"
-              onPress={() => router.push('/(auth)/(drawer)/agents')}
-            />
-            <View style={styles.divider} />
-            <SettingRow
-              label="OpenClaw Settings"
-              onPress={() => router.push('/(auth)/(drawer)/profile/openclaw-settings' as any)}
-            />
-            <View style={styles.divider} />
-            <SettingRow
-              label="Usage & Tokens"
-              onPress={() => router.push('/(auth)/(drawer)/profile/openclaw-usage' as any)}
-            />
-            <View style={styles.divider} />
-            <SettingRow
-              label="Manage Skills"
-              onPress={() => router.push('/(auth)/(drawer)/profile/skills' as any)}
-            />
-            <View style={styles.divider} />
-            <SettingRow
-              label="OpenAI Features"
-              onPress={() => router.push('/(auth)/(drawer)/profile/openai-settings' as any)}
-            />
-          </View>
-        </View>
-
-        {/* Account */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>ACCOUNT</Text>
-          <View style={styles.settingsGroup}>
-            <SettingRow label="Timezone" value={user?.timezone ?? 'UTC'} onPress={() => {}} />
-            <View style={styles.divider} />
-            <SettingRow label="Export my data" onPress={() => {}} />
-            <View style={styles.divider} />
-            <SettingRow label="Delete account" onPress={handleDeleteAccount} danger />
-          </View>
-        </View>
-
-        {/* Logout */}
-        <View style={styles.section}>
-          <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout} activeOpacity={0.8}>
-            <Text style={styles.logoutText}>Sign Out</Text>
+        <View style={s.section}>
+          <TouchableOpacity style={s.logoutBtn} onPress={handleLogout} activeOpacity={0.8}>
+            <Text style={s.logoutText}>Sign out</Text>
           </TouchableOpacity>
         </View>
-
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>Lyfestack v0.1.0 · Made with ☀️ by InnovSoft</Text>
-        </View>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }

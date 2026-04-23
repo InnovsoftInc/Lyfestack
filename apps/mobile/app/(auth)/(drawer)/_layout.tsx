@@ -1,7 +1,7 @@
 import { Drawer } from 'expo-router/drawer';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, AppState, type AppStateStatus } from 'react-native';
 import { DrawerContentScrollView, DrawerItemList, type DrawerContentComponentProps } from '@react-navigation/drawer';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useAuthStore } from '../../../stores/auth.store';
 import { useOpenClawStore } from '../../../stores/openclaw.store';
 import { useApprovalsStore } from '../../../stores/approvals.store';
@@ -136,6 +136,20 @@ function CustomDrawerContent(props: DrawerContentComponentProps) {
 
 export default function DrawerLayout() {
   const theme = useTheme();
+  const previousAppState = useRef<AppStateStatus>(AppState.currentState);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next) => {
+      const wasBackgrounded = previousAppState.current.match(/inactive|background/);
+      previousAppState.current = next;
+      if (next !== 'active' || !wasBackgrounded) return;
+      const store = useOpenClawStore.getState();
+      if (store.activeStream && !store.streamAbort && !store.resumeAbort) {
+        void store.resumeActiveStream();
+      }
+    });
+    return () => sub.remove();
+  }, []);
 
   return (
     <Drawer
@@ -154,34 +168,36 @@ export default function DrawerLayout() {
     >
       <Drawer.Screen
         name="dashboard/index"
-        options={{ title: 'Today', drawerIcon: ({ focused }) => <Text style={{ fontSize: 18, opacity: focused ? 1 : 0.5 }}>☀️</Text> }}
-      />
-      <Drawer.Screen
-        name="goals/index"
-        options={{ title: 'Goals', drawerIcon: ({ focused }) => <Text style={{ fontSize: 18, opacity: focused ? 1 : 0.5 }}>🎯</Text> }}
-      />
-      <Drawer.Screen
-        name="automations/index"
-        options={{ title: 'Automate', drawerIcon: ({ focused }) => <Text style={{ fontSize: 18, opacity: focused ? 1 : 0.5 }}>⚡</Text> }}
-      />
-      <Drawer.Screen
-        name="approvals/index"
-        options={{ title: 'Approvals', drawerIcon: ({ focused }) => <Text style={{ fontSize: 18, opacity: focused ? 1 : 0.5 }}>✅</Text> }}
+        options={{ title: 'Today', headerShown: false, drawerIcon: ({ focused }) => <Text style={{ fontSize: 18, opacity: focused ? 1 : 0.5 }}>☀️</Text> }}
       />
       <Drawer.Screen
         name="agents"
         options={{ title: 'Agents', headerShown: false, drawerIcon: ({ focused }) => <Text style={{ fontSize: 18, opacity: focused ? 1 : 0.5 }}>🤖</Text> }}
       />
       <Drawer.Screen
+        name="goals/index"
+        options={{ title: 'Goals', drawerIcon: ({ focused }) => <Text style={{ fontSize: 18, opacity: focused ? 1 : 0.5 }}>🎯</Text> }}
+      />
+      <Drawer.Screen
+        name="approvals/index"
+        options={{ title: 'Approvals', drawerIcon: ({ focused }) => <Text style={{ fontSize: 18, opacity: focused ? 1 : 0.5 }}>✅</Text> }}
+      />
+      <Drawer.Screen
         name="profile/index"
-        options={{ title: 'Profile', drawerIcon: ({ focused }) => <Text style={{ fontSize: 18, opacity: focused ? 1 : 0.5 }}>👤</Text> }}
+        options={{ title: 'Profile', headerShown: false, drawerIcon: ({ focused }) => <Text style={{ fontSize: 18, opacity: focused ? 1 : 0.5 }}>👤</Text> }}
+      />
+      <Drawer.Screen
+        name="settings/index"
+        options={{ title: 'Settings', headerShown: false, drawerIcon: ({ focused }) => <Text style={{ fontSize: 18, opacity: focused ? 1 : 0.5 }}>⚙︎</Text> }}
       />
       <Drawer.Screen name="goals/[id]" options={{ drawerItemStyle: { display: 'none' } }} />
+      <Drawer.Screen name="automations/index" options={{ drawerItemStyle: { display: 'none' } }} />
       <Drawer.Screen name="automations/create" options={{ drawerItemStyle: { display: 'none' } }} />
       <Drawer.Screen name="profile/integrations" options={{ drawerItemStyle: { display: 'none' } }} />
       <Drawer.Screen name="profile/openclaw-settings" options={{ drawerItemStyle: { display: 'none' } }} />
       <Drawer.Screen name="profile/openclaw-usage" options={{ drawerItemStyle: { display: 'none' } }} />
       <Drawer.Screen name="profile/openai-settings" options={{ drawerItemStyle: { display: 'none' } }} />
+      <Drawer.Screen name="profile/skills" options={{ drawerItemStyle: { display: 'none' } }} />
     </Drawer>
   );
 }

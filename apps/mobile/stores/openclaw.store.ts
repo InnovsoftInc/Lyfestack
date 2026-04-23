@@ -1,5 +1,13 @@
 import { create } from 'zustand';
-import { openclawApi, tryConnect, autoDiscover, streamAgentMessage } from '../services/openclaw.api';
+import {
+  openclawApi,
+  tryConnect,
+  autoDiscover,
+  streamAgentMessage,
+  resumeAgentStream,
+  getStreamStatus,
+  StreamEvictedError,
+} from '../services/openclaw.api';
 
 interface Agent {
   name: string;
@@ -77,6 +85,15 @@ export interface CurrentSession {
   compactionCount: number;
 }
 
+export interface ActiveStream {
+  agentName: string;
+  sessionKey: string | null;
+  messageId: string;
+  agentMsgId: string;
+  cursor: number;
+  startedAt: number;
+}
+
 interface OpenClawStore {
   connectionStatus: 'disconnected' | 'connecting' | 'connected';
   connectionUrl: string | null;
@@ -86,6 +103,8 @@ interface OpenClawStore {
   currentSession: CurrentSession | null;
   agentSessions: SessionSummary[];
   streamAbort: AbortController | null;
+  activeStream: ActiveStream | null;
+  resumeAbort: AbortController | null;
   connect: () => Promise<void>;
   reconnect: () => Promise<void>;
   fetchAgents: () => Promise<void>;
@@ -94,6 +113,8 @@ interface OpenClawStore {
   sendMessage: (agentName: string, message: string) => Promise<void>;
   sendMessageStream: (agentName: string, message: string, attachments?: ChatAttachment[]) => Promise<void>;
   abortStream: () => void;
+  resumeActiveStream: () => Promise<void>;
+  hasResumableStream: (agentName: string) => boolean;
   openChat: (agentName: string) => void;
   closeChat: () => void;
   loadChatHistory: (agentName: string, sessionKey: string, messages: ChatMessage[]) => void;
@@ -120,6 +141,20 @@ function log(msg: string, data?: unknown) {
   }
 }
 
+const TIMESTAMP_PREFIX_RE = /^\[(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s+\w+\]\s*/;
+const RETRY_PREFIX_RE = /^\[Retry after the previous model attempt failed or timed out\]\s*/i;
+
+function normalizeMessageContent(content: string): string {
+  return content
+    .replace(RETRY_PREFIX_RE, '')
+    .replace(TIMESTAMP_PREFIX_RE, '')
+    .trim();
+}
+
+function messageContentKey(message: ChatMessage): string {
+  return `${message.role}::${normalizeMessageContent(message.content).slice(0, 160)}`;
+}
+
 export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
   connectionStatus: 'disconnected',
   connectionUrl: null,
@@ -129,6 +164,8 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
   currentSession: null,
   agentSessions: [],
   streamAbort: null,
+  activeStream: null,
+  resumeAbort: null,
 
   connect: async () => {
     if (get().connectionStatus === 'connecting') {
@@ -269,6 +306,7 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
     }));
 
     const agentMsgId = (Date.now() + 1).toString();
+    const clientMessageId = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const placeholder: ChatMessage = {
       id: agentMsgId,
       role: 'agent',
@@ -280,16 +318,32 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
       activeChat: s.activeChat
         ? { ...s.activeChat, messages: [...s.activeChat.messages, placeholder] }
         : null,
+      activeStream: {
+        agentName,
+        sessionKey: s.activeChat?.sessionKey ?? null,
+        messageId: clientMessageId,
+        agentMsgId,
+        cursor: 0,
+        startedAt: Date.now(),
+      },
     }));
 
     const abort = new AbortController();
     set({ streamAbort: abort });
 
-    log('sendMessageStream()', { agentName });
-    await streamAgentMessage(
-      agentName,
-      fullMessage,
-      (chunk) => {
+    log('sendMessageStream()', { agentName, messageId: clientMessageId });
+    await streamAgentMessage(agentName, fullMessage, {
+      messageId: clientMessageId,
+      signal: abort.signal,
+      onInit: (info) => {
+        if (info.messageId && info.messageId !== clientMessageId) {
+          set((s) => (s.activeStream ? { activeStream: { ...s.activeStream, messageId: info.messageId } } : s));
+        }
+      },
+      onCursor: (cursor) => {
+        set((s) => (s.activeStream ? { activeStream: { ...s.activeStream, cursor } } : s));
+      },
+      onChunk: (chunk) => {
         set((s) => {
           if (!s.activeChat) return s;
           return {
@@ -302,27 +356,37 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
           };
         });
       },
-      (response) => {
+      onDone: (response) => {
         set((s) => {
-          if (!s.activeChat) return s;
+          if (!s.activeChat) return { streamAbort: null, activeStream: null };
           return {
             streamAbort: null,
+            activeStream: null,
             activeChat: {
               ...s.activeChat,
               messages: s.activeChat.messages.map((m) =>
-                m.id === agentMsgId ? { ...m, content: response, streaming: false, toolActivity: null, toolHistory: m.toolHistory ?? [] } : m,
+                m.id === agentMsgId
+                  ? {
+                      ...m,
+                      content: response || m.content,
+                      streaming: false,
+                      toolActivity: null,
+                      toolHistory: m.toolHistory ?? [],
+                    }
+                  : m,
               ),
             },
           };
         });
       },
-      (err) => {
+      onError: (err) => {
         log('sendMessageStream() error', err.message);
         const rawMsg = err.message ?? 'Stream failed';
         set((s) => {
-          if (!s.activeChat) return s;
+          if (!s.activeChat) return { streamAbort: null, activeStream: null };
           return {
             streamAbort: null,
+            activeStream: null,
             activeChat: {
               ...s.activeChat,
               messages: s.activeChat.messages.map((m) =>
@@ -334,8 +398,7 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
           };
         });
       },
-      abort.signal,
-      (toolName) => {
+      onToolActivity: (toolName) => {
         set((s) => {
           if (!s.activeChat) return s;
           // '__done_current__' = text started streaming, mark current tool as done
@@ -357,7 +420,9 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
                   ? {
                       ...m,
                       toolActivity: toolName,
-                      toolHistory: [...(m.toolHistory ?? []), toolName],
+                      toolHistory: toolName && !(m.toolHistory ?? []).includes(toolName)
+                        ? [...(m.toolHistory ?? []), toolName]
+                        : (m.toolHistory ?? []),
                     }
                   : m,
               ),
@@ -365,16 +430,17 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
           };
         });
       },
-    );
+    });
 
     // Safety net: if stream completed without onDone/onError, finalize the message
     const state = get();
     if (state.streamAbort) {
       log('sendMessageStream() — stream ended without onDone, finalizing');
       set((s) => {
-        if (!s.activeChat) return { streamAbort: null };
+        if (!s.activeChat) return { streamAbort: null, activeStream: null };
         return {
           streamAbort: null,
+          activeStream: null,
           activeChat: {
             ...s.activeChat,
             messages: s.activeChat.messages.map((m) =>
@@ -384,6 +450,152 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
         };
       });
     }
+  },
+
+  hasResumableStream: (agentName) => {
+    const { activeStream, activeChat } = get();
+    if (!activeStream || activeStream.agentName !== agentName) return false;
+    if (!activeChat) return false;
+    const msg = activeChat.messages.find((m) => m.id === activeStream.agentMsgId);
+    return Boolean(msg?.streaming);
+  },
+
+  resumeActiveStream: async () => {
+    const { activeStream, resumeAbort } = get();
+    if (!activeStream) return;
+    if (resumeAbort) {
+      log('resumeActiveStream() — already resuming, skipping');
+      return;
+    }
+
+    // Cheap server check first — if the stream is already complete or evicted we can skip the SSE.
+    try {
+      const status = await getStreamStatus(activeStream.messageId);
+      if (status === null) {
+        log('resumeActiveStream() — stream evicted on server', { messageId: activeStream.messageId });
+        const msgId = activeStream.agentMsgId;
+        set((s) => {
+          if (!s.activeChat) return { activeStream: null };
+          return {
+            activeStream: null,
+            activeChat: {
+              ...s.activeChat,
+              messages: s.activeChat.messages.map((m) =>
+                m.id === msgId
+                  ? { ...m, streaming: false, isError: true, errorType: 'generic' as ChatErrorType, toolActivity: null, content: m.content || 'Stream lost — please retry.' }
+                  : m,
+              ),
+            },
+          };
+        });
+        return;
+      }
+    } catch (err: any) {
+      log('resumeActiveStream() — status check failed', err?.message);
+      // Fall through and try to resume anyway.
+    }
+
+    const abort = new AbortController();
+    set({ resumeAbort: abort });
+    const agentMsgId = activeStream.agentMsgId;
+
+    log('resumeActiveStream() — opening resume SSE', { messageId: activeStream.messageId, cursor: activeStream.cursor });
+    await resumeAgentStream(activeStream.agentName, activeStream.messageId, activeStream.cursor, {
+      signal: abort.signal,
+      onCursor: (cursor) => {
+        set((s) => (s.activeStream ? { activeStream: { ...s.activeStream, cursor } } : s));
+      },
+      onChunk: (chunk) => {
+        set((s) => {
+          if (!s.activeChat) return s;
+          return {
+            activeChat: {
+              ...s.activeChat,
+              messages: s.activeChat.messages.map((m) =>
+                m.id === agentMsgId ? { ...m, content: m.content + chunk } : m,
+              ),
+            },
+          };
+        });
+      },
+      onDone: (response) => {
+        set((s) => {
+          if (!s.activeChat) return { resumeAbort: null, activeStream: null };
+          return {
+            resumeAbort: null,
+            activeStream: null,
+            activeChat: {
+              ...s.activeChat,
+              messages: s.activeChat.messages.map((m) =>
+                m.id === agentMsgId
+                  ? { ...m, content: response || m.content, streaming: false, toolActivity: null, toolHistory: m.toolHistory ?? [] }
+                  : m,
+              ),
+            },
+          };
+        });
+      },
+      onError: (err) => {
+        const rawMsg = err.message ?? 'Stream resume failed';
+        const evicted = err instanceof StreamEvictedError;
+        log('resumeActiveStream() error', { rawMsg, evicted });
+        set((s) => {
+          if (!s.activeChat) return { resumeAbort: null, activeStream: null };
+          return {
+            resumeAbort: null,
+            activeStream: null,
+            activeChat: {
+              ...s.activeChat,
+              messages: s.activeChat.messages.map((m) =>
+                m.id === agentMsgId
+                  ? {
+                      ...m,
+                      streaming: false,
+                      isError: true,
+                      errorType: classifyError(rawMsg),
+                      toolActivity: null,
+                      content: m.content || rawMsg,
+                    }
+                  : m,
+              ),
+            },
+          };
+        });
+      },
+      onToolActivity: (toolName) => {
+        set((s) => {
+          if (!s.activeChat) return s;
+          if (toolName === '__done_current__') {
+            return {
+              activeChat: {
+                ...s.activeChat,
+                messages: s.activeChat.messages.map((m) =>
+                  m.id === agentMsgId ? { ...m, toolActivity: null } : m,
+                ),
+              },
+            };
+          }
+          return {
+            activeChat: {
+              ...s.activeChat,
+              messages: s.activeChat.messages.map((m) =>
+                m.id === agentMsgId
+                  ? {
+                      ...m,
+                      toolActivity: toolName,
+                      toolHistory: toolName && !(m.toolHistory ?? []).includes(toolName)
+                        ? [...(m.toolHistory ?? []), toolName]
+                        : (m.toolHistory ?? []),
+                    }
+                  : m,
+              ),
+            },
+          };
+        });
+      },
+    });
+
+    set({ resumeAbort: null });
   },
 
   abortStream: () => {
@@ -430,15 +642,14 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
     if (!activeChat || activeChat.agentName !== agentName) return;
     if (activeChat.sessionKey && activeChat.sessionKey !== sessionKey) return;
     if (!messages.length) return;
-    // Dedupe by ID and also by content+role (local vs server IDs differ for same message)
+    // Dedupe by ID and normalized content+role (local vs server IDs differ and server may prepend retry/timestamp metadata).
     const existingIds = new Set(activeChat.messages.map((m) => m.id));
-    const existingContent = new Set(
-      activeChat.messages.map((m) => `${m.role}::${m.content.slice(0, 100)}`)
-    );
+    const existingContent = new Set(activeChat.messages.map(messageContentKey));
     const fresh = messages.filter((m) => {
       if (existingIds.has(m.id)) return false;
-      const contentKey = `${m.role}::${m.content.slice(0, 100)}`;
+      const contentKey = messageContentKey(m);
       if (existingContent.has(contentKey)) return false;
+      existingContent.add(contentKey);
       return true;
     });
     if (!fresh.length) return;

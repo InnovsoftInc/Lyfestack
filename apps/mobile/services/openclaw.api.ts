@@ -137,15 +137,26 @@ function formatToolLabel(name: string): string {
     .replace(/^\w/, (c) => c.toUpperCase());
 }
 
+export interface StreamCallbacks {
+  onChunk: (chunk: string) => void;
+  onDone: (response: string) => void;
+  onError: (err: Error) => void;
+  onToolActivity?: (tool: string | null) => void;
+  onInit?: (info: { messageId: string; resumed: boolean }) => void;
+  onCursor?: (cursor: number) => void;
+}
+
+export interface StreamOptions extends StreamCallbacks {
+  messageId?: string;
+  signal?: AbortSignal;
+}
+
 export async function streamAgentMessage(
   agentId: string,
   message: string,
-  onChunk: (chunk: string) => void,
-  onDone: (response: string) => void,
-  onError: (err: Error) => void,
-  signal?: AbortSignal,
-  onToolActivity?: (tool: string | null) => void,
+  opts: StreamOptions,
 ): Promise<void> {
+  const { signal, messageId, onChunk, onDone, onError, onToolActivity, onInit, onCursor } = opts;
   if (signal?.aborted) return;
 
   try {
@@ -163,6 +174,7 @@ export async function streamAgentMessage(
       let processedLength = 0;
       let lineBuffer = '';
       let firstChunkReceived = false;
+      let accumulatedResponse = '';
 
       // Show "using tools..." if no text arrives within 3 s
       let toolTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
@@ -172,6 +184,10 @@ export async function streamAgentMessage(
 
       function clearToolTimer() {
         if (toolTimer) { clearTimeout(toolTimer); toolTimer = null; }
+      }
+
+      function clearCurrentTool() {
+        onToolActivity?.('__done_current__');
       }
 
       function processLines() {
@@ -186,22 +202,31 @@ export async function streamAgentMessage(
               safeReject(new Error(payload.error));
               return;
             }
-            if (payload.type === 'tool_use' || payload.type === 'tool_result') {
+            if (payload.type === 'init') {
+              onInit?.({ messageId: payload.messageId, resumed: Boolean(payload.resumed) });
+              continue;
+            }
+            if (payload.type === 'tool_use') {
               // Build a descriptive label from the tool name
               const rawName: string = payload.name ?? payload.tool ?? '';
               const label = formatToolLabel(rawName);
               if (label) onToolActivity?.(label);
+            } else if (payload.type === 'tool_result') {
+              clearCurrentTool();
             } else if (payload.chunk !== undefined) {
               if (!firstChunkReceived) {
                 firstChunkReceived = true;
                 clearToolTimer();
                 // Mark current tool as done but DON'T clear history
-                onToolActivity?.('__done_current__');
+                clearCurrentTool();
               }
+              accumulatedResponse += payload.chunk;
               onChunk(payload.chunk);
+              if (typeof payload.cursor === 'number') onCursor?.(payload.cursor);
             } else if (payload.done) {
               clearToolTimer();
-              onDone(payload.response ?? '');
+              clearCurrentTool();
+              onDone(payload.response ?? accumulatedResponse);
               safeResolve();
             }
           } catch { /* malformed JSON line — skip */ }
@@ -231,29 +256,166 @@ export async function streamAgentMessage(
         }
         // If onDone was never called (no "done" SSE event), finalize with accumulated chunks
         if (!resolved) {
-          const accumulated = xhr.responseText;
-          // Try to extract any text content from the response
-          onDone(accumulated || '');
+          clearCurrentTool();
+          onDone(accumulatedResponse);
           safeResolve();
         }
       };
 
-      xhr.onerror = () => { clearToolTimer(); safeReject(new Error('Network request failed')); };
-      xhr.ontimeout = () => { clearToolTimer(); safeReject(new Error('Request timed out')); };
+      xhr.onerror = () => { clearToolTimer(); clearCurrentTool(); safeReject(new Error('Network request failed')); };
+      xhr.ontimeout = () => { clearToolTimer(); clearCurrentTool(); safeReject(new Error('Request timed out')); };
 
       if (signal) {
         signal.addEventListener('abort', () => {
           clearToolTimer();
+          clearCurrentTool();
           xhr.abort();
           safeResolve();
         });
       }
 
-      xhr.send(JSON.stringify({ message }));
+      xhr.send(JSON.stringify({ message, ...(messageId ? { messageId } : {}) }));
     });
   } catch (err: any) {
     if (err?.name === 'AbortError' || signal?.aborted) return;
     onError(err instanceof Error ? err : new Error(err?.message ?? 'stream failed'));
+  }
+}
+
+export interface ResumeOptions extends StreamCallbacks {
+  signal?: AbortSignal;
+}
+
+export class StreamEvictedError extends Error {
+  constructor(public messageId: string) {
+    super(`Stream ${messageId} has been evicted`);
+    this.name = 'StreamEvictedError';
+  }
+}
+
+export async function resumeAgentStream(
+  agentId: string,
+  messageId: string,
+  cursor: number,
+  opts: ResumeOptions,
+): Promise<void> {
+  const { signal, onChunk, onDone, onError, onToolActivity, onInit, onCursor } = opts;
+  if (signal?.aborted) return;
+
+  try {
+    const base = await getBase();
+    const token = await getAuthToken();
+    const url = `${base}/api/openclaw/agents/${encodeURIComponent(agentId)}/message/stream/resume?messageId=${encodeURIComponent(messageId)}&cursor=${cursor}`;
+
+    await new Promise<void>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', url);
+      xhr.setRequestHeader('Accept', 'text/event-stream');
+      if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+
+      let processedLength = 0;
+      let lineBuffer = '';
+      let accumulatedResponse = '';
+      let resolved = false;
+      const safeResolve = () => { if (!resolved) { resolved = true; resolve(); } };
+      const safeReject = (e: Error) => { if (!resolved) { resolved = true; reject(e); } };
+
+      function clearCurrentTool() {
+        onToolActivity?.('__done_current__');
+      }
+
+      function processLines() {
+        const lines = lineBuffer.split('\n');
+        lineBuffer = lines.pop() ?? '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const payload = JSON.parse(line.slice(6));
+            if (payload.error) {
+              safeReject(new Error(payload.error));
+              return;
+            }
+            if (payload.type === 'init') {
+              onInit?.({ messageId: payload.messageId, resumed: true });
+              continue;
+            }
+            if (payload.type === 'tool_use') {
+              const rawName: string = payload.name ?? payload.tool ?? '';
+              const label = formatToolLabel(rawName);
+              if (label) onToolActivity?.(label);
+            } else if (payload.type === 'tool_result') {
+              clearCurrentTool();
+            } else if (payload.chunk !== undefined) {
+              accumulatedResponse += payload.chunk;
+              onChunk(payload.chunk);
+              if (typeof payload.cursor === 'number') onCursor?.(payload.cursor);
+            } else if (payload.done) {
+              clearCurrentTool();
+              onDone(payload.response ?? accumulatedResponse);
+              safeResolve();
+            }
+          } catch { /* malformed JSON line — skip */ }
+        }
+      }
+
+      xhr.onprogress = () => {
+        const newText = xhr.responseText.slice(processedLength);
+        processedLength = xhr.responseText.length;
+        lineBuffer += newText;
+        processLines();
+      };
+      xhr.onload = () => {
+        if (xhr.status === 410) {
+          safeReject(new StreamEvictedError(messageId));
+          return;
+        }
+        if (xhr.status >= 400) {
+          safeReject(new Error(`Resume failed: ${xhr.status}`));
+          return;
+        }
+        if (lineBuffer.trim()) { lineBuffer += '\n'; processLines(); }
+        clearCurrentTool();
+        safeResolve();
+      };
+      xhr.onerror = () => { clearCurrentTool(); safeReject(new Error('Network request failed')); };
+      xhr.ontimeout = () => { clearCurrentTool(); safeReject(new Error('Request timed out')); };
+
+      if (signal) {
+        signal.addEventListener('abort', () => {
+          clearCurrentTool();
+          xhr.abort();
+          safeResolve();
+        });
+      }
+
+      xhr.send();
+    });
+  } catch (err: any) {
+    if (err?.name === 'AbortError' || signal?.aborted) return;
+    onError(err instanceof Error ? err : new Error(err?.message ?? 'resume failed'));
+  }
+}
+
+export interface StreamStatus {
+  messageId: string;
+  agentId: string;
+  sessionId?: string;
+  cursor: number;
+  done: boolean;
+  error?: string;
+}
+
+export async function getStreamStatus(messageId: string): Promise<StreamStatus | null> {
+  try {
+    const res = await authedRequest<{ data: StreamStatus }>(
+      `/api/openclaw/streams/${encodeURIComponent(messageId)}/status`,
+    );
+    return res.data;
+  } catch (err: any) {
+    if (err?.message?.includes('410') || err?.message?.toLowerCase?.().includes('evicted')) {
+      return null;
+    }
+    throw err;
   }
 }
 
@@ -272,6 +434,11 @@ export const openclawApi = {
   getAgent: (name: string) => request(`/agents/${encodeURIComponent(name)}`),
   updateAgent: (name: string, updates: { role?: string; model?: string; systemPrompt?: string; persona?: Record<string, unknown> }) =>
     request(`/agents/${encodeURIComponent(name)}`, { method: 'PUT', body: JSON.stringify(updates) }),
+  renameAgent: (name: string, newName: string) =>
+    request(`/agents/${encodeURIComponent(name)}/rename`, {
+      method: 'POST',
+      body: JSON.stringify({ newName }),
+    }),
   listAgentFiles: (name: string) => request(`/agents/${encodeURIComponent(name)}/files`),
   getAgentFile: (name: string, filename: string) =>
     request(`/agents/${encodeURIComponent(name)}/files/${encodeURIComponent(filename)}`),

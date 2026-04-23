@@ -311,6 +311,74 @@ export class OpenClawService {
     logger.info({ agent: name }, 'Agent updated');
   }
 
+  async renameAgent(oldName: string, newName: string): Promise<void> {
+    const slug = newName.trim();
+    if (!/^[a-z0-9][a-z0-9_-]{0,47}$/.test(slug)) {
+      throw new Error('Invalid agent name — use lowercase letters, digits, dash or underscore (max 48 chars)');
+    }
+    if (slug === oldName) return;
+
+    const oldAgentRoot = path.join(OPENCLAW_CONFIG, 'agents', oldName);
+    const newAgentRoot = path.join(OPENCLAW_CONFIG, 'agents', slug);
+
+    try {
+      await fs.access(oldAgentRoot);
+    } catch {
+      throw new Error('Agent not found');
+    }
+    try {
+      await fs.access(newAgentRoot);
+      throw new Error('An agent with that name already exists');
+    } catch (err: any) {
+      if (err?.message === 'An agent with that name already exists') throw err;
+    }
+
+    await fs.rename(oldAgentRoot, newAgentRoot);
+
+    try {
+      const config = await readOpenclawJson();
+      const list: Array<{ id: string; name?: string; agentDir?: string }> = config?.agents?.list ?? [];
+      const entry = list.find((e) => e.id === oldName);
+      if (entry) {
+        entry.id = slug;
+        if (entry.name === oldName) entry.name = slug;
+        if (entry.agentDir) {
+          entry.agentDir = entry.agentDir.replace(
+            path.join(OPENCLAW_CONFIG, 'agents', oldName),
+            path.join(OPENCLAW_CONFIG, 'agents', slug),
+          );
+        }
+        await writeOpenclawJson(config);
+      }
+    } catch (err) {
+      logger.error({ err, oldName, newName: slug }, 'Failed to update openclaw.json after rename');
+    }
+
+    try {
+      const entries = await fs.readdir(WORKSPACE, { withFileTypes: true });
+      const oldPrefixes = [
+        oldName.toLowerCase() + '_',
+        oldName.toLowerCase() + '-',
+        oldName.toLowerCase().replace(/-/g, '_') + '_',
+      ];
+      for (const ent of entries) {
+        if (!ent.isFile() || !ent.name.endsWith('.md')) continue;
+        const lower = ent.name.toLowerCase();
+        const matched = oldPrefixes.find((p) => lower.startsWith(p));
+        if (!matched) continue;
+        const rest = ent.name.slice(matched.length);
+        const newFilename = `${slug}_${rest}`;
+        await fs.rename(path.join(WORKSPACE, ent.name), path.join(WORKSPACE, newFilename)).catch((err) => {
+          logger.warn({ err, file: ent.name }, 'Could not rename workspace file');
+        });
+      }
+    } catch (err) {
+      logger.warn({ err }, 'Skipped workspace file rename — directory not readable');
+    }
+
+    logger.info({ oldName, newName: slug }, 'Agent renamed');
+  }
+
   async listAgentFiles(name: string): Promise<AgentFile[]> {
     const results: AgentFile[] = [];
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect } from 'react';
+import { useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,17 +8,18 @@ import {
   ActivityIndicator,
   RefreshControl,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, router } from 'expo-router';
 import { DrawerActions } from '@react-navigation/native';
 import { useTheme } from '../../../../hooks/useTheme';
 import type { Theme } from '../../../../theme/colors';
-import { TextStyles, Spacing, BorderRadius } from '../../../../theme';
+import { TextStyles, Spacing, BorderRadius, Elevation } from '../../../../theme';
 import { Colors } from '@lyfestack/shared';
 import { useBriefStore } from '../../../../stores/brief.store';
 import { useOpenClawStore } from '../../../../stores/openclaw.store';
 import { useAuthStore } from '../../../../stores/auth.store';
 import type { BriefTask } from '../../../../services/briefs.api';
+import { GlassHeader, headerSpacerHeight } from '../../../../components/ui';
 
 const TASK_TYPE_ICON: Record<string, string> = {
   HABIT: '🔁',
@@ -226,7 +227,47 @@ function makeStyles(theme: Theme) {
       gap: Spacing.sm,
     },
     connectionText: { ...TextStyles.small, color: Colors.accent, flex: 1 },
+    agentShortcut: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.md,
+      marginHorizontal: Spacing.lg,
+      marginBottom: Spacing.md,
+      backgroundColor: theme.surface,
+      borderRadius: BorderRadius.xl,
+      padding: Spacing.md,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.border,
+      ...Elevation.card,
+    },
+    agentAvatar: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: Colors.accent,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    agentAvatarText: { ...TextStyles.bodyMedium, color: Colors.white, fontWeight: '700' },
+    agentShortcutBody: { flex: 1 },
+    agentShortcutTitle: { ...TextStyles.bodyMedium, color: theme.text.primary, fontWeight: '600' },
+    agentShortcutHint: { ...TextStyles.caption, color: theme.text.secondary, marginTop: 2 },
+    agentShortcutIcon: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: Colors.accent,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    agentShortcutIconText: { color: Colors.white, fontSize: 18, fontWeight: '700' },
   });
+}
+
+function agentInitials(name: string): string {
+  const parts = name.replace(/[-_]/g, ' ').split(' ').filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return (parts[0]?.[0] ?? '?').toUpperCase();
 }
 
 function TaskCard({ task, onComplete }: { task: BriefTask; onComplete: (id: string) => void }) {
@@ -280,26 +321,10 @@ export default function DashboardScreen() {
   const theme = useTheme();
   const styles = makeStyles(theme);
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
 
-  const firstAgent = agents[0];
+  const primaryAgent = agents[0];
   const initial = (user?.displayName ?? 'U').charAt(0).toUpperCase();
-
-  useLayoutEffect(() => {
-    navigation.setOptions({
-      headerRight: () => (
-        <TouchableOpacity
-          onPress={() => navigation.dispatch(DrawerActions.openDrawer())}
-          hitSlop={10}
-          activeOpacity={0.8}
-          style={{ marginRight: Spacing.md }}
-        >
-          <View style={styles.profileBtn}>
-            <Text style={styles.profileInitial}>{initial}</Text>
-          </View>
-        </TouchableOpacity>
-      ),
-    });
-  }, [navigation, styles, initial]);
 
   useEffect(() => {
     void fetchTodayBrief();
@@ -317,27 +342,48 @@ export default function DashboardScreen() {
     [brief, completeTask],
   );
 
+  const headerNode = (
+    <GlassHeader
+      title="Today"
+      leftKind="menu"
+      onLeftPress={() => navigation.dispatch(DrawerActions.openDrawer())}
+      right={
+        <TouchableOpacity
+          onPress={() => router.push('/(auth)/(drawer)/profile' as any)}
+          hitSlop={10}
+          activeOpacity={0.8}
+        >
+          <View style={styles.profileBtn}>
+            <Text style={styles.profileInitial}>{initial}</Text>
+          </View>
+        </TouchableOpacity>
+      }
+    />
+  );
+
   if (isLoading && !brief) {
     return (
-      <SafeAreaView style={styles.container}>
+      <View style={styles.container}>
+        {headerNode}
         <View style={styles.center}>
           <ActivityIndicator color={Colors.accent} size="large" />
           <Text style={styles.loadingText}>Loading your brief...</Text>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   if (error && !brief) {
     return (
-      <SafeAreaView style={styles.container}>
+      <View style={styles.container}>
+        {headerNode}
         <View style={styles.center}>
           <Text style={styles.errorText}>{error}</Text>
           <TouchableOpacity style={styles.retryButton} onPress={handleRefresh}>
             <Text style={styles.retryText}>Retry</Text>
           </TouchableOpacity>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
@@ -348,16 +394,18 @@ export default function DashboardScreen() {
   const allDone = totalCount > 0 && completedCount === totalCount;
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
+      {headerNode}
       <FlatList
         data={brief?.tasks ?? []}
         keyExtractor={(t) => t.id}
-        contentContainerStyle={styles.list}
+        contentContainerStyle={[styles.list, { paddingTop: headerSpacerHeight(insets.top) + Spacing.sm }]}
         refreshControl={
           <RefreshControl
             refreshing={isLoading}
             onRefresh={handleRefresh}
             tintColor={Colors.accent}
+            progressViewOffset={headerSpacerHeight(insets.top)}
           />
         }
         ListHeaderComponent={
@@ -382,7 +430,30 @@ export default function DashboardScreen() {
                 </Text>
               </View>
               <Text style={styles.summary}>{brief?.summary ?? 'Pull down to load your brief.'}</Text>
+            </View>
 
+            {primaryAgent ? (
+              <TouchableOpacity
+                style={styles.agentShortcut}
+                activeOpacity={0.7}
+                onPress={() => router.push(`/(auth)/(drawer)/agents/${primaryAgent.name}/chat` as any)}
+              >
+                <View style={styles.agentAvatar}>
+                  <Text style={styles.agentAvatarText}>{agentInitials(primaryAgent.name)}</Text>
+                </View>
+                <View style={styles.agentShortcutBody}>
+                  <Text style={styles.agentShortcutTitle}>Chat with {primaryAgent.name}</Text>
+                  <Text style={styles.agentShortcutHint} numberOfLines={1}>
+                    {primaryAgent.role || 'Your primary agent'}
+                  </Text>
+                </View>
+                <View style={styles.agentShortcutIcon}>
+                  <Text style={styles.agentShortcutIconText}>›</Text>
+                </View>
+              </TouchableOpacity>
+            ) : null}
+
+            <View style={styles.header}>
               {totalCount > 0 && (
                 <View style={styles.progressRow}>
                   <View style={styles.progressBar}>
@@ -439,6 +510,6 @@ export default function DashboardScreen() {
           ) : null
         }
       />
-    </SafeAreaView>
+    </View>
   );
 }

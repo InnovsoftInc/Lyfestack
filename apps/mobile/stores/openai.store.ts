@@ -23,7 +23,7 @@ interface OpenAIStore {
   test: (feature: OpenAIFeature) => Promise<void>;
 }
 
-export const useOpenAIStore = create<OpenAIStore>((set, get) => ({
+export const useOpenAIStore = create<OpenAIStore>((set) => ({
   config: null,
   models: [],
   modelsLoadedAt: null,
@@ -92,6 +92,5 @@ export const useOpenAIStore = create<OpenAIStore>((set, get) => ({
         },
       }));
     }
-    void get();
   },
 }));

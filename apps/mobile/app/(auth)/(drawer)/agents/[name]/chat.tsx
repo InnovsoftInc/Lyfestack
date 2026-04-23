@@ -6,7 +6,7 @@ import {
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import MarkedBase from 'react-native-marked';
+import MarkedBase, { Renderer as MarkedRenderer } from 'react-native-marked';
 import * as Clipboard from 'expo-clipboard';
 const Marked = MarkedBase as any;
 
@@ -157,7 +157,20 @@ function CodeBlockWithCopy({ code, language, theme }: { code: string; language?:
   );
 }
 
+class CustomMarkdownRenderer extends MarkedRenderer {
+  private theme: Theme;
+  constructor(theme: Theme) {
+    super();
+    this.theme = theme;
+  }
+  code(text: string, language?: string) {
+    return <CodeBlockWithCopy key={text.slice(0, 20)} code={text} {...(language ? { language } : {})} theme={this.theme} />;
+  }
+}
+
 function AgentBubble({ content, streaming, toolActivity, toolHistory, theme, colorScheme }: { content: string; streaming?: boolean; toolActivity?: string | null; toolHistory?: string[]; theme: Theme; colorScheme: 'light' | 'dark' }) {
+  const rendererRef = useRef<CustomMarkdownRenderer | null>(null);
+  if (!rendererRef.current) rendererRef.current = new CustomMarkdownRenderer(theme);
   const markdownTheme = {
     code: { backgroundColor: theme.surface, color: theme.text.primary, borderRadius: 10, padding: 12, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border, overflow: 'scroll' as any },
     codespan: { backgroundColor: theme.surface, color: theme.accent, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: 12, paddingHorizontal: 4, paddingVertical: 1, borderRadius: 4 },
@@ -198,11 +211,7 @@ function AgentBubble({ content, streaming, toolActivity, toolHistory, theme, col
           } as any}
           theme={markdownTheme as any}
           colorScheme={colorScheme}
-          renderer={{
-            code: (code: string, language?: string) => (
-              <CodeBlockWithCopy key={code.slice(0, 20)} code={code} language={language} theme={theme} />
-            ),
-          }}
+          renderer={rendererRef.current}
         />
       ) : null}
       {streaming && content.length > 0 && (
@@ -355,6 +364,12 @@ export default function AgentChatScreen() {
     initial();
 
     const interval = setInterval(syncTail, 3000);
+
+    // Resume any in-flight stream for this agent that was started before the screen mounted.
+    const store = useOpenClawStore.getState();
+    if (store.hasResumableStream(name) && !store.streamAbort && !store.resumeAbort) {
+      void store.resumeActiveStream();
+    }
 
     return () => { cancelled = true; clearInterval(interval); };
   }, [name, loadSession, openChat]);

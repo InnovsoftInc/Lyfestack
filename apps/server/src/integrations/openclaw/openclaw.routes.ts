@@ -6,11 +6,14 @@ import {
   deleteAgent,
   getAgent,
   updateAgent,
+  renameAgent,
   listAgentFiles,
   getAgentFile,
   updateAgentFile,
   sendMessage,
   streamMessage,
+  resumeStream,
+  getStreamStatus,
   getConfig,
   updateConfig,
   getAuthProfiles,
@@ -33,12 +36,15 @@ router.get('/agents', listAgents);
 router.post('/agents', createAgent);
 router.get('/agents/:name', getAgent);
 router.put('/agents/:name', updateAgent);
+router.post('/agents/:name/rename', renameAgent);
 router.delete('/agents/:name', deleteAgent);
 router.get('/agents/:name/files', listAgentFiles);
 router.get('/agents/:name/files/:filename', getAgentFile);
 router.put('/agents/:name/files/:filename', updateAgentFile);
 router.post('/agents/:name/message', sendMessage);
 router.post('/agents/:name/message/stream', streamMessage);
+router.get('/agents/:name/message/stream/resume', resumeStream);
+router.get('/streams/:messageId/status', getStreamStatus);
 
 router.get('/skills', listSkills);
 router.post('/skills', createSkill);

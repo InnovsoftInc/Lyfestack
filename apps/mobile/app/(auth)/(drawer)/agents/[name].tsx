@@ -1,6 +1,6 @@
 import {
   View, Text, StyleSheet, ScrollView, TextInput,
-  TouchableOpacity, ActivityIndicator, Switch, FlatList,
+  TouchableOpacity, ActivityIndicator, Switch, FlatList, Modal, Alert,
 } from 'react-native';
 import { useState, useCallback } from 'react';
 import { useLocalSearchParams, router } from 'expo-router';
@@ -11,7 +11,7 @@ import { useTheme } from '../../../../hooks/useTheme';
 import { Spacing } from '../../../../theme';
 import type { Theme } from '../../../../theme';
 import { AgentAvatar } from './index';
-import { NavBar } from '../../../../components/ui';
+import { GlassHeader } from '../../../../components/ui';
 
 const TRAITS = ['Analytical', 'Creative', 'Direct', 'Friendly', 'Precise', 'Witty', 'Empathetic', 'Strategic', 'Thorough', 'Bold'];
 const TONES = ['Professional', 'Casual', 'Technical', 'Simple', 'Formal', 'Conversational'];
@@ -63,6 +63,10 @@ export default function AgentProfileScreen() {
   const [deleting, setDeleting] = useState(false);
   const [files, setFiles] = useState<AgentFile[]>([]);
   const [filesLoading, setFilesLoading] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameValue, setRenameValue] = useState('');
+  const [renameSaving, setRenameSaving] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
 
   const [role, setRole] = useState('');
   const [description, setDescription] = useState('');
@@ -110,10 +114,65 @@ export default function AgentProfileScreen() {
     } finally { setSaving(false); }
   };
 
-  const handleDelete = async () => {
-    setDeleting(true);
-    try { await deleteAgent(name); router.back(); }
-    finally { setDeleting(false); }
+  const handleDelete = () => {
+    Alert.alert(
+      'Delete agent',
+      `Permanently delete "${name}"? This removes the agent directory, config and workspace files prefixed with this name.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            setDeleting(true);
+            try { await deleteAgent(name); router.back(); }
+            finally { setDeleting(false); }
+          },
+        },
+      ],
+    );
+  };
+
+  const openRename = () => {
+    setRenameValue(name);
+    setRenameError(null);
+    setRenameOpen(true);
+  };
+
+  const validateName = (v: string) => /^[a-z0-9][a-z0-9_-]{0,47}$/.test(v);
+
+  const confirmRename = async () => {
+    const next = renameValue.trim();
+    if (!validateName(next)) {
+      setRenameError('Use lowercase letters, digits, dash or underscore (max 48 chars).');
+      return;
+    }
+    if (next === name) { setRenameOpen(false); return; }
+
+    Alert.alert(
+      'Rename agent',
+      `Rename "${name}" → "${next}"? This moves the agent's folder and renames workspace files. Active sessions will follow the new name.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Rename',
+          style: 'destructive',
+          onPress: async () => {
+            setRenameSaving(true);
+            setRenameError(null);
+            try {
+              await openclawApi.renameAgent(name, next);
+              setRenameOpen(false);
+              router.replace(`/(auth)/(drawer)/agents/${next}` as any);
+            } catch (err: any) {
+              setRenameError(err?.message ?? 'Rename failed');
+            } finally {
+              setRenameSaving(false);
+            }
+          },
+        },
+      ],
+    );
   };
 
   if (loading) {
@@ -126,7 +185,7 @@ export default function AgentProfileScreen() {
 
   return (
     <View style={s.container}>
-      <NavBar title={name} />
+      <GlassHeader title={name} />
 
       {/* Tab bar */}
       <View style={s.tabBar}>
@@ -172,7 +231,15 @@ export default function AgentProfileScreen() {
           {/* Hero */}
           <View style={s.hero}>
             <AgentAvatar name={name} size={88} />
-            <Text style={s.heroName}>{name}</Text>
+            <TouchableOpacity
+              onPress={openRename}
+              activeOpacity={0.7}
+              style={s.heroNameRow}
+              hitSlop={8}
+            >
+              <Text style={s.heroName}>{name}</Text>
+              <Text style={s.heroNameEdit}>✎</Text>
+            </TouchableOpacity>
             <Text style={s.heroRole}>{role || 'No role set'}</Text>
 
             <TouchableOpacity
@@ -284,6 +351,47 @@ export default function AgentProfileScreen() {
           <View style={{ height: 48 }} />
         </ScrollView>
       )}
+
+      <Modal visible={renameOpen} transparent animationType="fade" onRequestClose={() => setRenameOpen(false)}>
+        <View style={s.modalBackdrop}>
+          <View style={s.modalCard}>
+            <Text style={s.modalTitle}>Rename agent</Text>
+            <Text style={s.modalHint}>
+              Lowercase letters, digits, dash or underscore. The agent folder, config entry and workspace files prefixed with this name will be moved.
+            </Text>
+            <TextInput
+              style={s.modalInput}
+              value={renameValue}
+              onChangeText={(v) => { setRenameValue(v); if (renameError) setRenameError(null); }}
+              autoCapitalize="none"
+              autoCorrect={false}
+              placeholder="new-agent-name"
+              placeholderTextColor={theme.text.secondary}
+            />
+            {renameError ? <Text style={s.modalError}>{renameError}</Text> : null}
+            <View style={s.modalActions}>
+              <TouchableOpacity
+                style={[s.modalBtn, s.modalBtnCancel]}
+                onPress={() => setRenameOpen(false)}
+                disabled={renameSaving}
+                activeOpacity={0.7}
+              >
+                <Text style={s.modalBtnCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.modalBtn, s.modalBtnPrimary, renameSaving && { opacity: 0.6 }]}
+                onPress={confirmRename}
+                disabled={renameSaving}
+                activeOpacity={0.85}
+              >
+                {renameSaving
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Text style={s.modalBtnPrimaryText}>Rename</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -311,7 +419,46 @@ const styles = (t: Theme) => StyleSheet.create({
   scroll: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.sm, gap: Spacing.md },
 
   hero: { alignItems: 'center', paddingVertical: Spacing.xl, gap: Spacing.sm },
-  heroName: { color: t.text.primary, fontSize: 24, fontWeight: '700', marginTop: Spacing.xs },
+  heroNameRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    marginTop: Spacing.xs,
+    paddingHorizontal: 14, paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: t.surface,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: t.border,
+  },
+  heroName: { color: t.text.primary, fontSize: 24, fontWeight: '700' },
+  heroNameEdit: { color: t.text.secondary, fontSize: 14 },
+  modalBackdrop: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center', paddingHorizontal: Spacing.lg,
+  },
+  modalCard: {
+    backgroundColor: t.background,
+    borderRadius: 20,
+    padding: Spacing.lg,
+    gap: Spacing.md,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: t.border,
+  },
+  modalTitle: { color: t.text.primary, fontSize: 18, fontWeight: '700' },
+  modalHint: { color: t.text.secondary, fontSize: 13, lineHeight: 18 },
+  modalInput: {
+    backgroundColor: t.surface,
+    borderRadius: 12,
+    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm + 4,
+    color: t.text.primary, fontSize: 15,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: t.border,
+  },
+  modalError: { color: t.error, fontSize: 13 },
+  modalActions: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.sm },
+  modalBtn: {
+    flex: 1, paddingVertical: 12, borderRadius: 12,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  modalBtnCancel: { backgroundColor: t.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: t.border },
+  modalBtnPrimary: { backgroundColor: t.accent },
+  modalBtnCancelText: { color: t.text.primary, fontWeight: '600' },
+  modalBtnPrimaryText: { color: '#fff', fontWeight: '700' },
   heroRole: { color: t.text.secondary, fontSize: 15 },
 
   chatBtn: {

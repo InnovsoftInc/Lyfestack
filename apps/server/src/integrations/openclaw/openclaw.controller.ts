@@ -58,6 +58,22 @@ export const updateAgent = async (req: Request, res: Response, next: NextFunctio
   } catch (err) { next(err); }
 };
 
+export const renameAgent = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { name } = req.params;
+    const newName = typeof req.body?.newName === 'string' ? req.body.newName : '';
+    if (!name || !newName) { res.status(400).json({ error: 'name and newName are required' }); return; }
+    await service.renameAgent(name, newName);
+    res.json({ success: true, data: { name: newName.trim() } });
+  } catch (err: any) {
+    const msg = err?.message ?? '';
+    if (msg.includes('Invalid agent name')) { res.status(400).json({ error: msg }); return; }
+    if (msg.includes('already exists')) { res.status(409).json({ error: msg }); return; }
+    if (msg.includes('Agent not found')) { res.status(404).json({ error: msg }); return; }
+    next(err);
+  }
+};
+
 export const listAgentFiles = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const files = await service.listAgentFiles(req.params.name);
