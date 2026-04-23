@@ -3,6 +3,7 @@ import { promisify } from 'util';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { logger } from '../../utils/logger';
+import { usageTracker } from './usage-tracker';
 
 const execAsync = promisify(exec);
 const OPENCLAW_CONFIG = path.join(process.env.HOME ?? '', '.openclaw');
@@ -119,6 +120,7 @@ export class OpenClawService {
   }
 
   async sendMessage(agentName: string, message: string): Promise<string> {
+    const startTime = Date.now();
     try {
       const bin = await this.resolveOpenclawBin();
       const escaped = message.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
@@ -126,7 +128,19 @@ export class OpenClawService {
         `"${bin}" agent --agent ${agentName} -m "${escaped}"`,
         { timeout: 120000 }
       );
-      return stdout.trim();
+      const response = stdout.trim();
+      this.getAgent(agentName)
+        .then((agent) =>
+          usageTracker.track({
+            agentName,
+            model: agent?.model ?? 'unknown',
+            message,
+            response,
+            duration: Date.now() - startTime,
+          })
+        )
+        .catch(() => {});
+      return response;
     } catch (err: any) {
       logger.error({ agent: agentName, err: err.message }, 'OpenClaw message failed');
       throw new Error(`Agent ${agentName} failed: ${err.message}`);
