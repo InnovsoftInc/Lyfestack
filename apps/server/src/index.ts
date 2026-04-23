@@ -16,6 +16,11 @@ import {
   markTaskComplete,
 } from './engine/daily-loop/daily-brief.controller';
 import { executeAgent, getAvailableAgents } from './agents/agent.controller';
+import {
+  startSession,
+  answerQuestion,
+  generatePlanSSE,
+} from './controllers/guided-setup.controller';
 import { createUsersRouter } from './routes/users.routes';
 import { createIntegrationsRouter } from './routes/integrations.routes';
 import { openclawRoutes } from './integrations/openclaw/openclaw.routes';
@@ -59,6 +64,11 @@ app.patch('/briefs/:id/tasks/:taskId', authMiddleware, requireAuth, markTaskComp
 // T6.1 — Agents
 app.post('/agents/execute', authMiddleware, requireAuth, executeAgent);
 app.get('/agents/actions', authMiddleware, requireAuth, getAvailableAgents);
+
+// AI-guided goal setup
+app.post('/goals/guided-setup/start', authMiddleware, requireAuth, startSession);
+app.post('/goals/guided-setup/answer', authMiddleware, requireAuth, answerQuestion);
+app.get('/goals/guided-setup/generate/:sessionId', authMiddleware, requireAuth, generatePlanSSE);
 
 // Phase 5 — Users / Push tokens
 app.use('/users', createUsersRouter());

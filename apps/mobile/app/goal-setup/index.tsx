@@ -138,7 +138,7 @@ export default function TemplatePicker() {
 
   function handleSelect(template: TemplateDefinition) {
     router.push({
-      pathname: '/goal-setup/diagnostic',
+      pathname: '/goal-setup/guided',
       params: { templateId: template.id, templateName: template.name },
     });
   }
