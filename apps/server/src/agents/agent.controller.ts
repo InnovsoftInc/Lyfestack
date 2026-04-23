@@ -1,13 +1,13 @@
 import type { Request, Response, NextFunction } from 'express';
-import { agentOrchestrator } from './agent.orchestrator';
+import { OpenClawService } from '../integrations/openclaw/openclaw.service';
+
+const openClawService = new OpenClawService();
 
 export async function executeAgent(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { agentKey, prompt, context, requestedActions } = req.body as {
+    const { agentKey, prompt } = req.body as {
       agentKey: string;
       prompt: string;
-      context?: Record<string, unknown>;
-      requestedActions?: string[];
     };
 
     if (!agentKey || !prompt) {
@@ -17,19 +17,18 @@ export async function executeAgent(req: Request, res: Response, next: NextFuncti
       return;
     }
 
-    const output = await agentOrchestrator.dispatch({
-      agentKey,
-      input: { userId: req.user!.id, prompt, ...(context !== undefined && { context }) },
-      ...(requestedActions !== undefined && { requestedActions }),
-    });
-
-    res.json({ output });
+    const response = await openClawService.sendMessage(agentKey, prompt);
+    res.json({ output: { result: response, agentKey } });
   } catch (err) {
     next(err);
   }
 }
 
-export function getAvailableAgents(_req: Request, res: Response): void {
-  const agents = agentOrchestrator.getAvailableAgents();
-  res.json({ agents });
+export async function getAvailableAgents(_req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const agents = await openClawService.listAgents();
+    res.json({ agents });
+  } catch (err) {
+    next(err);
+  }
 }

@@ -13,9 +13,6 @@ const configSchema = z.object({
   SUPABASE_ANON_KEY: z.string().optional(),
   DATABASE_URL: z.string().optional(),
 
-  OPENROUTER_API_KEY: z.string().optional(),
-  OPENROUTER_MODEL: z.string().default('anthropic/claude-sonnet-4'),
-
   BUFFER_CLIENT_ID: z.string().optional(),
   BUFFER_CLIENT_SECRET: z.string().optional(),
 
