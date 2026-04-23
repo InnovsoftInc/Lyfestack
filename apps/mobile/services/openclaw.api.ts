@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { request as authedRequest } from './api';
+import { request as authedRequest, getAuthToken } from './api';
 
 let cachedBase: string | null = null;
 
@@ -89,23 +89,99 @@ export async function streamAgentMessage(
   onDone: (response: string) => void,
   onError: (err: Error) => void,
   signal?: AbortSignal,
+  onToolActivity?: (tool: string | null) => void,
 ): Promise<void> {
-  // React Native's fetch does not expose res.body as a ReadableStream, so SSE
-  // can't be consumed chunk-by-chunk. Delegate to the authenticated request
-  // helper (which handles token refresh on 401) and emit the full reply.
+  if (signal?.aborted) return;
+
   try {
-    if (signal?.aborted) return;
-    const payload = await authedRequest<{ data?: { response?: string } }>(
-      `/api/openclaw/agents/${encodeURIComponent(agentId)}/message`,
-      { method: 'POST', body: { message } },
-    );
-    if (signal?.aborted) return;
-    const response = payload?.data?.response ?? '';
-    if (response) onChunk(response);
-    onDone(response);
+    const base = await getBase();
+    const token = await getAuthToken();
+    const url = `${base}/api/openclaw/agents/${encodeURIComponent(agentId)}/message/stream`;
+
+    await new Promise<void>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', url);
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      xhr.setRequestHeader('Accept', 'text/event-stream');
+      if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+
+      let processedLength = 0;
+      let lineBuffer = '';
+      let firstChunkReceived = false;
+
+      // Show "using tools..." if no text arrives within 3 s
+      let toolTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+        toolTimer = null;
+        if (!firstChunkReceived) onToolActivity?.('using tools...');
+      }, 3000);
+
+      function clearToolTimer() {
+        if (toolTimer) { clearTimeout(toolTimer); toolTimer = null; }
+      }
+
+      function processLines() {
+        const lines = lineBuffer.split('\n');
+        lineBuffer = lines.pop() ?? '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const payload = JSON.parse(line.slice(6));
+            if (payload.error) {
+              clearToolTimer();
+              reject(new Error(payload.error));
+              return;
+            }
+            if (payload.type === 'tool_use') {
+              onToolActivity?.(payload.name ?? 'using tools...');
+            } else if (payload.chunk !== undefined) {
+              if (!firstChunkReceived) {
+                firstChunkReceived = true;
+                clearToolTimer();
+                onToolActivity?.(null);
+              }
+              onChunk(payload.chunk);
+            } else if (payload.done) {
+              clearToolTimer();
+              onToolActivity?.(null);
+              onDone(payload.response ?? '');
+              resolve();
+            }
+          } catch { /* malformed JSON line — skip */ }
+        }
+      }
+
+      xhr.onprogress = () => {
+        const newText = xhr.responseText.slice(processedLength);
+        processedLength = xhr.responseText.length;
+        lineBuffer += newText;
+        processLines();
+      };
+
+      xhr.onload = () => {
+        clearToolTimer();
+        if (lineBuffer.trim()) {
+          lineBuffer += '\n';
+          processLines();
+        }
+        resolve();
+      };
+
+      xhr.onerror = () => { clearToolTimer(); reject(new Error('Network request failed')); };
+      xhr.ontimeout = () => { clearToolTimer(); reject(new Error('Request timed out')); };
+
+      if (signal) {
+        signal.addEventListener('abort', () => {
+          clearToolTimer();
+          xhr.abort();
+          resolve();
+        });
+      }
+
+      xhr.send(JSON.stringify({ message }));
+    });
   } catch (err: any) {
     if (err?.name === 'AbortError' || signal?.aborted) return;
-    onError(err instanceof Error ? err : new Error(err?.message ?? 'request failed'));
+    onError(err instanceof Error ? err : new Error(err?.message ?? 'stream failed'));
   }
 }
 

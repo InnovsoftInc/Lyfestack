@@ -37,15 +37,6 @@ import { Spacing, BorderRadius } from '../../../../../theme';
 import type { Theme } from '../../../../../theme';
 import { AgentAvatar } from '../index';
 
-const AVAILABLE_MODELS = [
-  'openrouter/auto',
-  'anthropic/claude-sonnet-4',
-  'anthropic/claude-haiku-4',
-  'openai/gpt-4o',
-  'openai/gpt-4o-mini',
-  'ollama/llama3.2:latest',
-  'ollama/mistral:latest',
-];
 
 const ERROR_META: Record<ChatErrorType, { icon: string; title: string; body: string }> = {
   billing: {
@@ -104,7 +95,16 @@ function AttachmentChip({ attachment, onRemove, theme }: { attachment: ChatAttac
   );
 }
 
-function AgentBubble({ content, streaming, theme, colorScheme }: { content: string; streaming?: boolean; theme: Theme; colorScheme: 'light' | 'dark' }) {
+function ToolPill({ label, theme }: { label: string; theme: Theme }) {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', backgroundColor: theme.accent + '18', borderRadius: 12, borderWidth: 1, borderColor: theme.accent + '40', paddingHorizontal: 8, paddingVertical: 3, marginBottom: 6, gap: 4 }}>
+      <ActivityIndicator size="small" color={theme.accent} style={{ width: 12, height: 12 }} />
+      <Text style={{ color: theme.accent, fontSize: 11, fontWeight: '600' }}>{label}</Text>
+    </View>
+  );
+}
+
+function AgentBubble({ content, streaming, toolActivity, theme, colorScheme }: { content: string; streaming?: boolean; toolActivity?: string | null; theme: Theme; colorScheme: 'light' | 'dark' }) {
   const markdownTheme = {
     code: { backgroundColor: theme.surface, color: theme.text.primary, borderRadius: 12, padding: 12, fontFamily: 'Courier', fontSize: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border },
     codespan: { backgroundColor: theme.surface, color: theme.accent, fontFamily: 'Courier', fontSize: 13 },
@@ -127,12 +127,13 @@ function AgentBubble({ content, streaming, theme, colorScheme }: { content: stri
 
   return (
     <View style={{ alignSelf: 'flex-start', maxWidth: '88%', marginBottom: Spacing.xs }}>
-      {streaming && content.length === 0 ? (
+      {streaming && toolActivity && <ToolPill label={toolActivity} theme={theme} />}
+      {streaming && content.length === 0 && !toolActivity ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8 }}>
           <ActivityIndicator size="small" color={theme.text.secondary} />
           <Text style={{ color: theme.text.secondary, fontSize: 13 }}>thinking...</Text>
         </View>
-      ) : (
+      ) : content.length > 0 ? (
         <Marked
           value={content || ' '}
           flatListProps={{
@@ -143,7 +144,7 @@ function AgentBubble({ content, streaming, theme, colorScheme }: { content: stri
           theme={markdownTheme as any}
           colorScheme={colorScheme}
         />
-      )}
+      ) : null}
       {streaming && content.length > 0 && (
         <View style={{ width: 6, height: 14, backgroundColor: theme.accent, marginLeft: 2, marginBottom: 6, borderRadius: 1 }} />
       )}
@@ -161,6 +162,7 @@ export default function AgentChatScreen() {
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [currentModel, setCurrentModel] = useState('');
   const [fallbackModels, setFallbackModels] = useState<string[]>([]);
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [changingModel, setChangingModel] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [showFilePicker, setShowFilePicker] = useState(false);
@@ -190,6 +192,10 @@ export default function AgentChatScreen() {
     openclawApi.getAgent(name).then((res: any) => {
       setCurrentModel(res.data?.model ?? 'openrouter/auto');
       setFallbackModels(res.data?.fallbackModels ?? []);
+    }).catch(() => {});
+    openclawApi.getConfig().then((res: any) => {
+      const models: string[] = res.data?.availableModels ?? [];
+      if (models.length) setAvailableModels(models);
     }).catch(() => {});
 
     let cancelled = false;
@@ -365,7 +371,12 @@ export default function AgentChatScreen() {
           <View style={s.modalContent}>
             <Text style={s.modalTitle}>Select Model</Text>
             <ScrollView style={s.modelList}>
-              {AVAILABLE_MODELS.map((model) => (
+              {availableModels.length === 0 && (
+                <Text style={{ color: theme.text.secondary, fontSize: 14, textAlign: 'center', paddingVertical: Spacing.md }}>
+                  Loading models...
+                </Text>
+              )}
+              {availableModels.map((model) => (
                 <TouchableOpacity key={model} style={[s.modelOption, currentModel === model && s.modelOptionActive]} onPress={() => handleModelChange(model)} disabled={changingModel} activeOpacity={0.7}>
                   <Text style={[s.modelOptionText, currentModel === model && s.modelOptionTextActive]}>{model}</Text>
                   {currentModel === model && <Text style={s.modelCheck}>✓</Text>}
@@ -424,7 +435,7 @@ export default function AgentChatScreen() {
           if (item.role === 'agent') {
             return (
               <View style={{ marginBottom: Spacing.sm }}>
-                <AgentBubble content={item.content} streaming={item.streaming} theme={theme} colorScheme={colorScheme} />
+                <AgentBubble content={item.content} streaming={item.streaming} toolActivity={item.toolActivity} theme={theme} colorScheme={colorScheme} />
                 {!item.streaming && <AgentAvatar name={name} size={24} />}
               </View>
             );

@@ -30,6 +30,7 @@ export interface OpenClawConfig {
     fallbackModels: string[];
   };
   codingTool: string;
+  availableModels: string[];
 }
 
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] };
@@ -396,6 +397,20 @@ export class OpenClawService {
 
   async getConfig(): Promise<OpenClawConfig> {
     const cfg = await readOpenclawJson();
+
+    const modelSet = new Set<string>();
+    const providers: Record<string, any> = cfg?.models?.providers ?? {};
+    for (const [providerName, providerCfg] of Object.entries(providers)) {
+      const models: Array<{ id?: string }> = (providerCfg as any)?.models ?? [];
+      for (const model of models) {
+        if (model?.id) modelSet.add(`${providerName}/${model.id}`);
+      }
+    }
+    const agentModels: Record<string, unknown> = cfg?.agents?.defaults?.models ?? {};
+    for (const key of Object.keys(agentModels)) {
+      modelSet.add(key);
+    }
+
     return {
       gateway: {
         port: cfg?.gateway?.port ?? 18789,
@@ -407,6 +422,7 @@ export class OpenClawService {
         fallbackModels: cfg?.agents?.defaults?.model?.fallbacks ?? [],
       },
       codingTool: cfg?.commands?.native ?? 'auto',
+      availableModels: Array.from(modelSet),
     };
   }
 

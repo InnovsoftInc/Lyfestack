@@ -30,6 +30,7 @@ export interface ChatMessage {
   errorType?: ChatErrorType;
   streaming?: boolean;
   attachments?: ChatAttachment[];
+  toolActivity?: string | null;
 }
 
 function classifyError(msg: string): ChatErrorType {
@@ -267,7 +268,7 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
             activeChat: {
               ...s.activeChat,
               messages: s.activeChat.messages.map((m) =>
-                m.id === agentMsgId ? { ...m, content: response, streaming: false } : m,
+                m.id === agentMsgId ? { ...m, content: response, streaming: false, toolActivity: null } : m,
               ),
             },
           };
@@ -284,7 +285,7 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
               ...s.activeChat,
               messages: s.activeChat.messages.map((m) =>
                 m.id === agentMsgId
-                  ? { ...m, content: rawMsg, streaming: false, isError: true, errorType: classifyError(rawMsg) }
+                  ? { ...m, content: rawMsg, streaming: false, isError: true, errorType: classifyError(rawMsg), toolActivity: null }
                   : m,
               ),
             },
@@ -292,6 +293,19 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
         });
       },
       abort.signal,
+      (toolName) => {
+        set((s) => {
+          if (!s.activeChat) return s;
+          return {
+            activeChat: {
+              ...s.activeChat,
+              messages: s.activeChat.messages.map((m) =>
+                m.id === agentMsgId ? { ...m, toolActivity: toolName } : m,
+              ),
+            },
+          };
+        });
+      },
     );
   },
 
