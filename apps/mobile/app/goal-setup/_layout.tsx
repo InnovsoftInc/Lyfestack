@@ -14,7 +14,7 @@ export default function GoalSetupLayout() {
       }}
     >
       <Stack.Screen name="index" options={{ title: 'New Goal' }} />
-      <Stack.Screen name="diagnostic" options={{ title: 'Setup' }} />
+      <Stack.Screen name="guided" options={{ title: 'Goal Setup' }} />
       <Stack.Screen name="plan-preview" options={{ title: 'Your Plan' }} />
     </Stack>
   );
