@@ -1,6 +1,7 @@
 import { ExternalServiceError } from '../../errors/AppError';
 import { logger } from '../../utils/logger';
 import { resolveModel, type ResolvedFeature } from './model-registry';
+import { checkBudget } from '../openclaw/usage-tracker';
 import type { OpenAIFeature } from './types';
 
 const BASE_URL = 'https://api.openai.com/v1';
@@ -147,6 +148,7 @@ export async function withFeature<T>(
   feature: OpenAIFeature,
   fn: (resolved: ResolvedFeature) => Promise<T>,
 ): Promise<T> {
+  await checkBudget();
   const resolved = await resolveModel(feature);
   return fn(resolved);
 }

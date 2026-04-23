@@ -514,7 +514,7 @@ export default function AgentChatScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={20}
     >
-      <View style={s.handleWrap}><View style={s.handle} /></View>
+      <View style={[s.handleWrap, { paddingTop: insets.top + 10 }]}><View style={s.handle} /></View>
 
       {/* Header */}
       <View style={s.header}>

@@ -179,8 +179,24 @@ export default function DrawerLayout() {
         options={{ title: 'Goals', drawerIcon: ({ focused }) => <Text style={{ fontSize: 18, opacity: focused ? 1 : 0.5 }}>🎯</Text> }}
       />
       <Drawer.Screen
+        name="ask/index"
+        options={{ title: 'Ask OpenClaw', drawerIcon: ({ focused }) => <Text style={{ fontSize: 18, opacity: focused ? 1 : 0.5 }}>🎙</Text> }}
+      />
+      <Drawer.Screen
         name="approvals/index"
         options={{ title: 'Approvals', drawerIcon: ({ focused }) => <Text style={{ fontSize: 18, opacity: focused ? 1 : 0.5 }}>✅</Text> }}
+      />
+      <Drawer.Screen
+        name="inbox/index"
+        options={{ title: 'Inbox', drawerIcon: ({ focused }) => <Text style={{ fontSize: 18, opacity: focused ? 1 : 0.5 }}>📬</Text> }}
+      />
+      <Drawer.Screen
+        name="logs/index"
+        options={{ title: 'Logs', drawerIcon: ({ focused }) => <Text style={{ fontSize: 18, opacity: focused ? 1 : 0.5 }}>📜</Text> }}
+      />
+      <Drawer.Screen
+        name="media/index"
+        options={{ title: 'Media', drawerIcon: ({ focused }) => <Text style={{ fontSize: 18, opacity: focused ? 1 : 0.5 }}>🖼️</Text> }}
       />
       <Drawer.Screen
         name="profile/index"
@@ -198,6 +214,8 @@ export default function DrawerLayout() {
       <Drawer.Screen name="profile/openclaw-usage" options={{ drawerItemStyle: { display: 'none' } }} />
       <Drawer.Screen name="profile/openai-settings" options={{ drawerItemStyle: { display: 'none' } }} />
       <Drawer.Screen name="profile/skills" options={{ drawerItemStyle: { display: 'none' } }} />
+      <Drawer.Screen name="media/[id]" options={{ drawerItemStyle: { display: 'none' } }} />
+      <Drawer.Screen name="automations/voice" options={{ drawerItemStyle: { display: 'none' } }} />
     </Drawer>
   );
 }

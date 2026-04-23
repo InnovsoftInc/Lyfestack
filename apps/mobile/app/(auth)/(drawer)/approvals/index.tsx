@@ -1,5 +1,6 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useEffect, useState, useCallback } from 'react';
 import { useTheme } from '../../../../hooks/useTheme';
 import type { Theme } from '../../../../theme/colors';
 import { TextStyles, Spacing, BorderRadius } from '../../../../theme';
@@ -7,6 +8,7 @@ import { Colors, ApprovalState, AgentRole } from '@lyfestack/shared';
 import { useApprovalsStore } from '../../../../stores/approvals.store';
 import { Badge } from '../../../../components/ui';
 import type { AgentAction } from '@lyfestack/shared';
+import { approvalsApi, type AllowlistEntry, type PendingApproval } from '../../../../services/openclaw-extras.api';
 
 function agentRoleLabel(role: AgentRole) {
   switch (role) {
@@ -196,10 +198,90 @@ function ApprovalCard({ action, onApprove, onReject }: ApprovalCardProps) {
   );
 }
 
+function ExecApprovalCard({ item, onDecide, theme }: { item: PendingApproval; onDecide: (decision: 'approve' | 'reject' | 'allow-always') => void; theme: Theme }) {
+  return (
+    <View style={{ backgroundColor: theme.surface, borderRadius: BorderRadius.lg, borderWidth: 1, borderColor: theme.border, padding: Spacing.md, marginBottom: Spacing.md, gap: Spacing.sm }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ ...TextStyles.caption, color: Colors.accent, fontWeight: '700', textTransform: 'uppercase' }}>{item.agent}</Text>
+        <Text style={{ ...TextStyles.caption, color: theme.text.secondary }}>{new Date(item.requestedAt).toLocaleTimeString()}</Text>
+      </View>
+      <Text style={{ ...TextStyles.bodyMedium, color: theme.text.primary, fontFamily: 'Menlo' }} numberOfLines={4}>{item.command}</Text>
+      {item.resolvedPath ? <Text style={{ ...TextStyles.caption, color: theme.text.secondary }}>resolved: {item.resolvedPath}</Text> : null}
+      <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
+        <TouchableOpacity onPress={() => onDecide('approve')} style={{ flex: 2, backgroundColor: Colors.accent, borderRadius: BorderRadius.md, paddingVertical: 10, alignItems: 'center' }} activeOpacity={0.8}>
+          <Text style={{ ...TextStyles.small, color: Colors.white, fontWeight: '600' }}>Approve once</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => onDecide('allow-always')} style={{ flex: 1, backgroundColor: theme.border, borderRadius: BorderRadius.md, paddingVertical: 10, alignItems: 'center' }} activeOpacity={0.8}>
+          <Text style={{ ...TextStyles.small, color: theme.text.primary }}>Always</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => onDecide('reject')} style={{ flex: 1, backgroundColor: 'rgba(239,68,68,0.15)', borderRadius: BorderRadius.md, paddingVertical: 10, alignItems: 'center', borderWidth: 1, borderColor: Colors.error }} activeOpacity={0.8}>
+          <Text style={{ ...TextStyles.small, color: Colors.error, fontWeight: '600' }}>Reject</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+function AllowlistCard({ agent, entries, theme, onRemove }: { agent: string; entries: AllowlistEntry[]; theme: Theme; onRemove: (id: string) => void }) {
+  if (!entries.length) return null;
+  return (
+    <View style={{ backgroundColor: theme.surface, borderRadius: BorderRadius.lg, borderWidth: 1, borderColor: theme.border, padding: Spacing.md, marginBottom: Spacing.md, gap: 8 }}>
+      <Text style={{ ...TextStyles.caption, color: Colors.accent, fontWeight: '700', textTransform: 'uppercase' }}>{agent}</Text>
+      {entries.map((e) => (
+        <View key={e.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border }}>
+          <View style={{ flex: 1, paddingRight: Spacing.sm }}>
+            <Text style={{ ...TextStyles.small, color: theme.text.primary, fontFamily: 'Menlo' }} numberOfLines={1}>{e.pattern}</Text>
+            {e.lastUsedCommand ? <Text style={{ ...TextStyles.caption, color: theme.text.secondary }} numberOfLines={1}>last: {e.lastUsedCommand}</Text> : null}
+          </View>
+          <TouchableOpacity onPress={() => onRemove(e.id)} hitSlop={8}>
+            <Text style={{ color: Colors.error, fontSize: 16 }}>✕</Text>
+          </TouchableOpacity>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 export default function ApprovalsScreen() {
   const { actions, approve, reject } = useApprovalsStore();
   const theme = useTheme();
   const styles = makeStyles(theme);
+  const [execPending, setExecPending] = useState<PendingApproval[]>([]);
+  const [allowlist, setAllowlist] = useState<Record<string, AllowlistEntry[]>>({});
+  const [execLoading, setExecLoading] = useState(true);
+
+  const loadExec = useCallback(async () => {
+    try {
+      const [pending, lists] = await Promise.all([
+        approvalsApi.listPending(),
+        approvalsApi.listAllowlist(),
+      ]);
+      setExecPending(pending);
+      setAllowlist(lists);
+    } catch { /* best-effort */ }
+    finally { setExecLoading(false); }
+  }, []);
+
+  useEffect(() => { void loadExec(); }, [loadExec]);
+
+  const handleExecDecide = async (item: PendingApproval, decision: 'approve' | 'reject' | 'allow-always') => {
+    if (!item.pattern && !item.command) return;
+    try {
+      await approvalsApi.decide({
+        agent: item.agent,
+        pattern: item.pattern ?? item.command,
+        decision,
+      });
+      await loadExec();
+    } catch (err: any) {
+      Alert.alert('Decision failed', err?.message ?? 'Could not record decision.');
+    }
+  };
+
+  const handleRemoveAllowlist = async (agent: string, id: string) => {
+    try { await approvalsApi.removeEntry(agent, id); await loadExec(); }
+    catch (err: any) { Alert.alert('Remove failed', err?.message ?? 'Could not remove entry.'); }
+  };
 
   const pending = actions.filter((a) => a.approvalState === ApprovalState.PENDING) as AgentAction[];
   const resolved = actions.filter((a) => a.approvalState !== ApprovalState.PENDING) as AgentAction[];
@@ -216,9 +298,29 @@ export default function ApprovalsScreen() {
       </View>
 
       <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>OPENCLAW EXEC REQUESTS</Text>
+          {execLoading ? (
+            <ActivityIndicator color={Colors.accent} />
+          ) : execPending.length === 0 ? (
+            <Text style={{ ...TextStyles.small, color: theme.text.secondary }}>No pending shell commands.</Text>
+          ) : (
+            execPending.map((item) => (
+              <ExecApprovalCard key={item.id} item={item} theme={theme} onDecide={(d) => handleExecDecide(item, d)} />
+            ))
+          )}
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>ALLOWLIST</Text>
+          {Object.entries(allowlist).map(([agent, entries]) => (
+            <AllowlistCard key={agent} agent={agent} entries={entries} theme={theme} onRemove={(id) => handleRemoveAllowlist(agent, id)} />
+          ))}
+        </View>
+
         {pending.length > 0 && (
           <View style={styles.section}>
-            <Text style={styles.sectionLabel}>NEEDS YOUR REVIEW</Text>
+            <Text style={styles.sectionLabel}>AGENT ACTIONS NEEDING REVIEW</Text>
             {pending.map((action) => (
               <ApprovalCard
                 key={action.id}

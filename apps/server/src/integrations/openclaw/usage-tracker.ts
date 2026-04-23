@@ -1,8 +1,15 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { logger } from '../../utils/logger';
+import { AppError } from '../../errors/AppError';
 
 const USAGE_FILE = path.join(process.env.HOME ?? '', '.openclaw', 'lyfestack-usage.json');
+
+export class BudgetExceededError extends AppError {
+  constructor(scope: 'daily' | 'monthly', spend: number, limit: number) {
+    super(`OpenAI ${scope} budget exceeded: $${spend.toFixed(4)} of $${limit}`, 429, 'BUDGET_EXCEEDED');
+  }
+}
 
 export interface UsageEntry {
   timestamp: string;
@@ -128,4 +135,63 @@ export async function getUsageByModel() {
     grouped[e.model].cost += e.estimatedCost;
   }
   return Object.entries(grouped).map(([model, stats]) => ({ model, ...stats, cost: Math.round(stats.cost * 10000) / 10000 })).sort((a, b) => b.requests - a.requests);
+}
+
+export interface BudgetStatus {
+  daily: { spend: number; limit: number; pct: number; exceeded: boolean };
+  monthly: { spend: number; limit: number; pct: number; exceeded: boolean };
+  hardStop: boolean;
+}
+
+export async function trackEntry(entry: UsageEntry): Promise<void> {
+  try {
+    const data = await readUsage();
+    data.entries.push(entry);
+    await writeUsage(data);
+  } catch (err) {
+    logger.error({ err: (err as Error).message }, 'trackEntry failed');
+  }
+}
+
+/**
+ * Compute current spend vs. configured budget. Reads the openai.budget block
+ * from openclaw.json on each call so config edits take effect immediately.
+ */
+export async function getBudgetStatus(): Promise<BudgetStatus> {
+  const { readConfig } = await import('../openai/model-registry');
+  const cfg = await readConfig();
+  const { entries } = await readUsage();
+  const todaySpend = filterByPeriod(entries, 'today').reduce((s, e) => s + e.estimatedCost, 0);
+  const monthSpend = filterByPeriod(entries, 'month').reduce((s, e) => s + e.estimatedCost, 0);
+  const dailyLimit = cfg.budget.dailyUsd ?? 0;
+  const monthlyLimit = cfg.budget.monthlyUsd ?? 0;
+  const dailyExceeded = dailyLimit > 0 && todaySpend >= dailyLimit;
+  const monthlyExceeded = monthlyLimit > 0 && monthSpend >= monthlyLimit;
+  return {
+    daily: {
+      spend: Math.round(todaySpend * 10000) / 10000,
+      limit: dailyLimit,
+      pct: dailyLimit > 0 ? Math.min(1, todaySpend / dailyLimit) : 0,
+      exceeded: dailyExceeded,
+    },
+    monthly: {
+      spend: Math.round(monthSpend * 10000) / 10000,
+      limit: monthlyLimit,
+      pct: monthlyLimit > 0 ? Math.min(1, monthSpend / monthlyLimit) : 0,
+      exceeded: monthlyExceeded,
+    },
+    hardStop: cfg.budget.hardStop,
+  };
+}
+
+/**
+ * Throws BudgetExceededError when caller has hard-stop on and is over either
+ * the daily or monthly cap. No-op when hard stop is disabled.
+ */
+export async function checkBudget(): Promise<BudgetStatus> {
+  const status = await getBudgetStatus();
+  if (!status.hardStop) return status;
+  if (status.daily.exceeded) throw new BudgetExceededError('daily', status.daily.spend, status.daily.limit);
+  if (status.monthly.exceeded) throw new BudgetExceededError('monthly', status.monthly.spend, status.monthly.limit);
+  return status;
 }

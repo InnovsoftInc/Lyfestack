@@ -1,4 +1,4 @@
-import { Router, type Request, type Response, type NextFunction } from 'express';
+import { Router, type Request, type Response, type NextFunction, raw as rawBody } from 'express';
 import { z } from 'zod';
 import {
   getRedactedConfig,
@@ -9,6 +9,11 @@ import {
 import { listModels } from './models.service';
 import { openaiJson } from './openai-client';
 import { OPENAI_FEATURES, type OpenAIFeature } from './types';
+import { transcribe } from './whisper.service';
+import { automationFromTranscript } from './summary.service';
+import { orchestrate } from './orchestrator.service';
+import { analyze as analyzeImage } from './vision.service';
+import { check as checkModeration } from './moderation.service';
 
 const featureEnum = z.enum(OPENAI_FEATURES);
 
@@ -145,6 +150,132 @@ router.post('/features/:name/test', async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+// ── Whisper ─────────────────────────────────────────────────────────────────
+
+router.post(
+  '/whisper',
+  rawBody({ type: ['audio/*', 'application/octet-stream'], limit: '25mb' }),
+  async (req, res, next) => {
+    try {
+      const buf = req.body as Buffer;
+      if (!buf || !Buffer.isBuffer(buf) || buf.length === 0) {
+        res.status(400).json({ error: 'audio body required (raw bytes)' });
+        return;
+      }
+      const filename = typeof req.query.filename === 'string' ? req.query.filename : 'audio.m4a';
+      const language = typeof req.query.language === 'string' ? req.query.language : undefined;
+      const opts: { filename: string; language?: string } = { filename };
+      if (language) opts.language = language;
+      const result = await transcribe(buf, opts);
+      res.json({ data: result });
+    } catch (err) { next(err); }
+  },
+);
+
+// ── Draft automation from transcript ────────────────────────────────────────
+
+const draftSchema = z.object({
+  transcript: z.string().min(1),
+  availableAgents: z.array(z.string()).optional(),
+  userTimezone: z.string().optional(),
+});
+
+router.post('/draft-automation', async (req, res, next) => {
+  try {
+    const parsed = draftSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Invalid body', issues: parsed.error.format() });
+      return;
+    }
+    const ctx: { availableAgents: string[]; userTimezone?: string } = {
+      availableAgents: parsed.data.availableAgents ?? [],
+    };
+    if (parsed.data.userTimezone) ctx.userTimezone = parsed.data.userTimezone;
+    const draft = await automationFromTranscript(parsed.data.transcript, ctx);
+    res.json({ data: draft });
+  } catch (err) { next(err); }
+});
+
+// ── Natural-language orchestrator ───────────────────────────────────────────
+
+const orchestrateSchema = z.object({
+  prompt: z.string().min(1),
+  history: z
+    .array(z.object({
+      role: z.enum(['user', 'assistant']),
+      content: z.string(),
+    }))
+    .optional(),
+});
+
+router.post('/orchestrate', async (req, res, next) => {
+  const parsed = orchestrateSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid body', issues: parsed.error.format() });
+    return;
+  }
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  const write = (payload: Record<string, unknown>) => res.write(`data: ${JSON.stringify(payload)}\n\n`);
+
+  let clientGone = false;
+  req.on('close', () => { clientGone = true; });
+
+  try {
+    for await (const event of orchestrate(parsed.data.prompt, parsed.data.history ?? [])) {
+      if (clientGone) return;
+      write({ type: event.type, ...event.data });
+      if (event.type === 'done' || event.type === 'error') {
+        res.end();
+        return;
+      }
+    }
+    if (!clientGone) res.end();
+  } catch (err: any) {
+    if (!res.headersSent) { next(err); return; }
+    write({ type: 'error', message: err?.message ?? 'orchestrator failed' });
+    res.end();
+  }
+});
+
+// ── Vision ─────────────────────────────────────────────────────────────────
+
+const visionSchema = z.object({
+  prompt: z.string().min(1),
+  imageUrl: z.string().url().optional(),
+  mediaId: z.string().min(1).optional(),
+}).refine((d) => d.imageUrl || d.mediaId, { message: 'imageUrl or mediaId required' });
+
+router.post('/vision', async (req, res, next) => {
+  try {
+    const parsed = visionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Invalid body', issues: parsed.error.format() });
+      return;
+    }
+    const input: { prompt: string; imageUrl?: string; mediaId?: string } = { prompt: parsed.data.prompt };
+    if (parsed.data.imageUrl) input.imageUrl = parsed.data.imageUrl;
+    if (parsed.data.mediaId) input.mediaId = parsed.data.mediaId;
+    const result = await analyzeImage(input);
+    res.json({ data: result });
+  } catch (err) { next(err); }
+});
+
+// ── Moderation ─────────────────────────────────────────────────────────────
+
+router.post('/moderate', async (req, res, next) => {
+  try {
+    const input = typeof req.body?.input === 'string' ? req.body.input : '';
+    if (!input) { res.status(400).json({ error: 'input required' }); return; }
+    res.json({ data: await checkModeration(input) });
+  } catch (err) { next(err); }
 });
 
 export { router as openaiRoutes };

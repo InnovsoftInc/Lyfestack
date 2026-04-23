@@ -446,13 +446,22 @@ export default function AutomationsScreen() {
         }
       />
 
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={() => router.push('/(auth)/(drawer)/automations/create' as any)}
-        activeOpacity={0.85}
-      >
-        <Text style={styles.fabText}>＋  New Job</Text>
-      </TouchableOpacity>
+      <View style={{ position: 'absolute', bottom: 24, right: 20, gap: 10, alignItems: 'flex-end' }}>
+        <TouchableOpacity
+          onPress={() => router.push('/(auth)/(drawer)/automations/voice' as any)}
+          activeOpacity={0.85}
+          style={{ backgroundColor: Colors.accent + '22', borderColor: Colors.accent, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 24 }}
+        >
+          <Text style={{ ...TextStyles.bodyMedium, color: Colors.accent, fontWeight: '600' }}>🎙 Voice draft</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.fab}
+          onPress={() => router.push('/(auth)/(drawer)/automations/create' as any)}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.fabText}>＋  New Job</Text>
+        </TouchableOpacity>
+      </View>
     </SafeAreaView>
   );
 }

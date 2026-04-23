@@ -5,8 +5,9 @@ import { useFocusEffect, useNavigation, DrawerActions } from '@react-navigation/
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOpenClawStore } from '../../../../stores/openclaw.store';
 import { useTheme } from '../../../../hooks/useTheme';
-import { Spacing } from '../../../../theme';
+import { Spacing, BorderRadius } from '../../../../theme';
 import type { Theme } from '../../../../theme';
+import { GlassHeader, headerSpacerHeight } from '../../../../components/ui';
 
 const AVATAR_COLORS = [
   '#E05C5C', '#E0895C', '#D4A843', '#6DBF6D',
@@ -54,17 +55,16 @@ export default function AgentsScreen() {
 
   return (
     <View style={s.container}>
-      {/* Header */}
-      <View style={[s.header, { paddingTop: insets.top + Spacing.md }]}>
-        <TouchableOpacity onPress={() => navigation.dispatch(DrawerActions.openDrawer())} hitSlop={12} activeOpacity={0.6} style={s.menuBtn}>
-          <Text style={[s.menuIcon, { color: theme.text.primary }]}>☰</Text>
-        </TouchableOpacity>
-        <Text style={s.title}>Agents</Text>
-      </View>
+      <GlassHeader
+        title="Agents"
+        leftKind="menu"
+        onLeftPress={() => navigation.dispatch(DrawerActions.openDrawer())}
+        large
+      />
 
       {/* Connection banner */}
       {connectionStatus !== 'connected' && (
-        <View style={s.bannerWrap}>
+        <View style={[s.bannerWrap, { marginTop: headerSpacerHeight(insets.top, true) + Spacing.sm }]}>
           <View style={[s.banner, connectionStatus === 'connecting' && s.bannerConnecting]}>
             {connectionStatus === 'connecting' ? (
               <>
@@ -86,7 +86,10 @@ export default function AgentsScreen() {
       <FlatList
         data={agents}
         keyExtractor={(item) => item.name}
-        contentContainerStyle={s.list}
+        contentContainerStyle={[
+          s.list,
+          connectionStatus === 'connected' && { paddingTop: headerSpacerHeight(insets.top, true) + Spacing.sm },
+        ]}
         renderItem={({ item }) => (
           <TouchableOpacity
             style={s.card}
@@ -143,17 +146,6 @@ export default function AgentsScreen() {
 
 const styles = (t: Theme) => StyleSheet.create({
   container: { flex: 1, backgroundColor: t.background },
-
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    paddingHorizontal: Spacing.lg,
-    paddingBottom: Spacing.md,
-  },
-  menuBtn: { padding: 4 },
-  menuIcon: { fontSize: 22 },
-  title: { color: t.text.primary, fontSize: 34, fontWeight: '700', letterSpacing: 0.3, flex: 1 },
 
   bannerWrap: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.sm },
   banner: {

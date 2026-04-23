@@ -438,7 +438,10 @@ export default function DashboardScreen() {
               <TouchableOpacity
                 style={styles.agentShortcut}
                 activeOpacity={0.7}
-                onPress={() => router.push(`/(auth)/(drawer)/agents/${primaryAgent.name}/chat` as any)}
+                onPress={() => {
+                  router.push('/(auth)/(drawer)/agents' as any);
+                  router.push(`/(auth)/(drawer)/agents/${primaryAgent.name}/chat` as any);
+                }}
               >
                 <View style={styles.agentAvatar}>
                   <Text style={styles.agentAvatarText}>{agentInitials(primaryAgent.name)}</Text>

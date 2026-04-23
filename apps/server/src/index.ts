@@ -95,6 +95,10 @@ app.use('/api/openclaw', authMiddleware, requireAuth, openclawRoutes);
 // OpenAI feature surface (mobile-UX helpers: voice, vision, TTS, embeddings, etc.)
 app.use('/api/openai', authMiddleware, requireAuth, openaiRoutes);
 
+// Push notifications — register tokens + list
+import { pushRoutes } from './integrations/push/push.routes';
+app.use('/api/push', authMiddleware, requireAuth, pushRoutes);
+
 // Plan preview SSE — no auth (pre-signup flow)
 app.post('/api/plan-preview/stream', (req: Request, res: Response) => {
   const { templateId, answers = [] } = req.body as { templateId?: string; answers?: DiagnosticAnswer[] };

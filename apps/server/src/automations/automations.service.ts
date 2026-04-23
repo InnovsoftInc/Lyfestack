@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { logger } from '../utils/logger';
 import { cronRunner, type CronJob } from '../services/cron-runner.service';
+import { notifyAutomationComplete } from './notify-on-complete';
 
 const OPENCLAW_DIR = path.join(os.homedir(), '.openclaw');
 const OPENCLAW_CONFIG = path.join(OPENCLAW_DIR, 'openclaw.json');
@@ -388,9 +389,14 @@ export class AutomationsService {
           result: record.status === 'success' ? 'Job completed successfully' : '',
           status: (record.status === 'running' ? 'success' : record.status) as 'success' | 'error',
         };
-        return record.error !== undefined ? { ...base, error: record.error } : base;
+        const out = record.error !== undefined ? { ...base, error: record.error } : base;
+        // Fire-and-forget AI summary push. Failures must never break run reporting.
+        void notifyAutomationComplete(id, out).catch(() => undefined);
+        return out;
       } catch (err: unknown) {
-        return { result: '', status: 'error', error: err instanceof Error ? err.message : String(err) };
+        const out = { result: '', status: 'error' as const, error: err instanceof Error ? err.message : String(err) };
+        void notifyAutomationComplete(id, out).catch(() => undefined);
+        return out;
       }
     }
 

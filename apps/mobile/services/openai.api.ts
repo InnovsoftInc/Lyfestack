@@ -55,6 +55,23 @@ export interface ConfigPatch {
   features?: Partial<Record<OpenAIFeature, Partial<FeatureConfig>>>;
 }
 
+export interface TranscriptResult {
+  text: string;
+  language?: string;
+  durationSec?: number;
+  model: string;
+}
+
+export interface AutomationDraft {
+  name: string;
+  schedule: string;
+  agent: string;
+  prompt: string;
+  enabled: boolean;
+  notifyChannel: string | null;
+  rationale: string;
+}
+
 export const openaiApi = {
   getConfig: () =>
     request<{ data: RedactedOpenAIConfig }>('/api/openai/config').then((r) => r.data),
@@ -77,4 +94,134 @@ export const openaiApi = {
     request<{ data: FeatureTestResult }>(`/api/openai/features/${feature}/test`, {
       method: 'POST',
     }).then((r) => r.data),
+
+  draftAutomation: (input: { transcript: string; availableAgents?: string[]; userTimezone?: string }) =>
+    request<{ data: AutomationDraft }>('/api/openai/draft-automation', {
+      method: 'POST',
+      body: input,
+    }).then((r) => r.data),
+
+  vision: (input: { prompt: string; mediaId?: string; imageUrl?: string }) =>
+    request<{ data: { answer: string; model: string } }>('/api/openai/vision', {
+      method: 'POST',
+      body: input,
+    }).then((r) => r.data),
+
+  moderate: (input: string) =>
+    request<{ data: { flagged: boolean; topCategory?: string; topScore?: number; model: string } }>(
+      '/api/openai/moderate',
+      { method: 'POST', body: { input } },
+    ).then((r) => r.data),
 };
+
+export const pushApi = {
+  register: (token: string, device?: string) =>
+    request<{ success: boolean }>('/api/push/register', {
+      method: 'POST',
+      body: { token, ...(device ? { device } : {}) },
+    }),
+};
+
+import { getApiBase, getAuthToken } from './api';
+
+// ── Orchestrator (SSE) ─────────────────────────────────────────────────────
+
+export type OrchestratorEvent =
+  | { type: 'init'; model?: string }
+  | { type: 'tool_call'; id: string; name: string; arguments: Record<string, unknown> }
+  | { type: 'tool_result'; id: string; name: string; result?: unknown; error?: string }
+  | { type: 'delta'; text: string }
+  | { type: 'done'; response: string }
+  | { type: 'error'; message: string };
+
+export interface OrchestrateOptions {
+  prompt: string;
+  history?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  signal?: AbortSignal;
+  onEvent: (ev: OrchestratorEvent) => void;
+}
+
+export async function streamOrchestrator(opts: OrchestrateOptions): Promise<void> {
+  const base = await getApiBase();
+  const token = await getAuthToken();
+  const url = `${base}/api/openai/orchestrate`;
+  await new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.setRequestHeader('Accept', 'text/event-stream');
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+
+    let processedLength = 0;
+    let lineBuffer = '';
+    let resolved = false;
+    const safeResolve = () => { if (!resolved) { resolved = true; resolve(); } };
+    const safeReject = (e: Error) => { if (!resolved) { resolved = true; reject(e); } };
+
+    function processLines() {
+      const lines = lineBuffer.split('\n');
+      lineBuffer = lines.pop() ?? '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const payload = JSON.parse(line.slice(6)) as OrchestratorEvent;
+          opts.onEvent(payload);
+          if (payload.type === 'done' || payload.type === 'error') safeResolve();
+        } catch { /* skip malformed */ }
+      }
+    }
+
+    xhr.onprogress = () => {
+      const newText = xhr.responseText.slice(processedLength);
+      processedLength = xhr.responseText.length;
+      lineBuffer += newText;
+      processLines();
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 400) {
+        safeReject(new Error(`orchestrator error: ${xhr.status}`));
+        return;
+      }
+      if (lineBuffer.trim()) { lineBuffer += '\n'; processLines(); }
+      safeResolve();
+    };
+    xhr.onerror = () => safeReject(new Error('Network request failed'));
+    xhr.ontimeout = () => safeReject(new Error('Request timed out'));
+
+    if (opts.signal) {
+      opts.signal.addEventListener('abort', () => { xhr.abort(); safeResolve(); });
+    }
+
+    xhr.send(JSON.stringify({ prompt: opts.prompt, history: opts.history ?? [] }));
+  });
+}
+
+/**
+ * Send raw audio bytes to /api/openai/whisper. Uses fetch directly because
+ * the standard `request` helper sends JSON only.
+ */
+export async function transcribeAudio(
+  body: Uint8Array | ArrayBuffer | Blob,
+  opts: { filename?: string; language?: string } = {},
+): Promise<TranscriptResult> {
+  const base = await getApiBase();
+  const token = await getAuthToken();
+  const qs: string[] = [];
+  if (opts.filename) qs.push(`filename=${encodeURIComponent(opts.filename)}`);
+  if (opts.language) qs.push(`language=${encodeURIComponent(opts.language)}`);
+  const url = `${base}/api/openai/whisper${qs.length ? `?${qs.join('&')}` : ''}`;
+  const headers: Record<string, string> = {
+    'Content-Type': opts.filename?.endsWith('.wav') ? 'audio/wav'
+      : opts.filename?.endsWith('.mp3') ? 'audio/mpeg'
+      : opts.filename?.endsWith('.webm') ? 'audio/webm'
+      : 'audio/mp4',
+  };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(url, { method: 'POST', headers, body: body as any });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(text || `transcription failed: ${res.status}`);
+  }
+  const json = (await res.json()) as { data: TranscriptResult };
+  return json.data;
+}
