@@ -179,24 +179,58 @@ export class OpenClawService {
     onChunk: (chunk: string) => void,
     onDone: (full: string) => void,
     onError: (err: Error) => void,
+    onToolUse?: (toolName: string) => void,
   ): Promise<void> {
     const startTime = Date.now();
     const bin = await this.resolveOpenclawBin();
 
-    const child = spawn(bin, ['agent', '--agent', agentName, '-m', message], {
+    const child = spawn(bin, ['agent', '--agent', agentName, '-m', message, '--output-format', 'stream-json'], {
       env: { ...process.env },
     });
 
     let full = '';
+    let stderrBuffer = '';
 
     child.stdout.on('data', (data: Buffer) => {
-      const chunk = data.toString();
-      full += chunk;
-      onChunk(chunk);
+      const text = data.toString();
+      // Try to parse stream-json events (one JSON per line)
+      const lines = text.split('\n');
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          const event = JSON.parse(trimmed);
+          if (event.type === 'content_block_start' && event.content_block?.type === 'tool_use') {
+            onToolUse?.(event.content_block.name ?? 'tool');
+          } else if (event.type === 'tool_use') {
+            onToolUse?.(event.name ?? 'tool');
+          } else if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+            const chunk = event.delta.text ?? '';
+            full += chunk;
+            onChunk(chunk);
+          } else if (event.type === 'text') {
+            full += (event.text ?? '');
+            onChunk(event.text ?? '');
+          }
+        } catch {
+          // Not JSON — treat as raw text chunk
+          full += text;
+          onChunk(text);
+          break; // Only process the raw text once, not per-line
+        }
+      }
     });
 
     child.stderr.on('data', (data: Buffer) => {
-      logger.debug({ agent: agentName }, `stderr: ${data.toString().trim()}`);
+      const text = data.toString();
+      stderrBuffer += text;
+      logger.debug({ agent: agentName }, `stderr: ${text.trim()}`);
+      // Parse stderr for tool usage patterns
+      // Common patterns: "⚡ Tool call read", "Tool: Read", "Using tool: bash"
+      const toolMatch = text.match(/(?:tool[:\s]+|⚡\s*(?:Tool call|Tool output)\s+)(\w+)/i);
+      if (toolMatch?.[1] && onToolUse) {
+        onToolUse(toolMatch[1]);
+      }
     });
 
     child.on('close', (code) => {

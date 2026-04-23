@@ -159,6 +159,9 @@ export const streamMessage = async (req: Request, res: Response, next: NextFunct
           res.end();
         }
       },
+      (toolName) => {
+        if (!clientGone) writeSse(res, { type: 'tool_use', name: toolName });
+      },
     );
   } catch (err) {
     if (!res.headersSent) {

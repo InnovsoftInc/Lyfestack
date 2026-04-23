@@ -266,8 +266,10 @@ function makeStyles(theme: Theme) {
 
 function agentInitials(name: string): string {
   const parts = name.replace(/[-_]/g, ' ').split(' ').filter(Boolean);
-  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-  return (parts[0]?.[0] ?? '?').toUpperCase();
+  const a = parts[0]?.[0];
+  const b = parts[1]?.[0];
+  if (a && b) return (a + b).toUpperCase();
+  return (a ?? '?').toUpperCase();
 }
 
 function TaskCard({ task, onComplete }: { task: BriefTask; onComplete: (id: string) => void }) {
