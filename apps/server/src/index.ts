@@ -27,7 +27,7 @@ import { openclawRoutes } from './integrations/openclaw/openclaw.routes';
 import { getStatus as openclawStatus } from './integrations/openclaw/openclaw.controller';
 import { createGoalRouter } from './routes/goal.routes';
 import { createGoalBuilderRouter } from './routes/goal-builder.routes';
-import { startCronJobs } from './jobs/cron';
+import { cronRunner } from './services/cron-runner.service';
 import { automationsService } from './automations/automations.service';
 import { createAuthMiddleware, requireAuth } from './middleware/auth.middleware';
 import { getSupabaseClient } from './config/database';
@@ -146,7 +146,9 @@ app.use(errorMiddleware);
 
 app.listen(config.PORT, () => {
   logger.info({ port: config.PORT, env: config.NODE_ENV }, 'Server started');
-  startCronJobs();
+  cronRunner.init();
+  const allJobs = cronRunner.getAllJobs();
+  logger.info({ count: allJobs.length }, `Cron runner loaded ${allJobs.length} jobs from openclaw.json`);
   void automationsService.init();
 });
 

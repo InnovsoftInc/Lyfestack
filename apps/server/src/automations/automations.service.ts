@@ -1,8 +1,10 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import * as os from 'os';
 import { logger } from '../utils/logger';
+import { cronRunner, type CronJob } from '../services/cron-runner.service';
 
-const OPENCLAW_DIR = path.join(process.env.HOME ?? '', '.openclaw');
+const OPENCLAW_DIR = path.join(os.homedir(), '.openclaw');
 const OPENCLAW_CONFIG = path.join(OPENCLAW_DIR, 'openclaw.json');
 const WORKSPACE_DIR = path.join(OPENCLAW_DIR, 'workspace');
 
@@ -13,12 +15,15 @@ export interface Routine {
   type: 'heartbeat' | 'hook' | 'cron' | 'custom';
   schedule: string;
   trigger?: string;
+  agent?: string;
   agentName?: string;
+  prompt?: string;
   model?: string;
   channel?: string;
   enabled: boolean;
   source: 'openclaw' | 'lyfestack';
   lastRun?: string;
+  lastRunStatus?: 'success' | 'error' | 'running';
   config?: Record<string, unknown>;
 }
 
@@ -53,6 +58,10 @@ interface OpenClawConfig {
   };
   hooks?: {
     mappings?: HookMapping[];
+    [key: string]: unknown;
+  };
+  cron?: {
+    jobs?: CronJob[];
     [key: string]: unknown;
   };
   [key: string]: unknown;
@@ -118,7 +127,7 @@ async function scanCronFiles(): Promise<Routine[]> {
             .replace(/_/g, ' ')
             .replace(/\b\w/g, (c) => c.toUpperCase());
           routines.push({
-            id: `cron:${relPath}:${i}`,
+            id: `cron:file:${relPath}:${i}`,
             name: baseName,
             description: command,
             type: 'cron',
@@ -135,6 +144,26 @@ async function scanCronFiles(): Promise<Routine[]> {
 
   await walk(WORKSPACE_DIR);
   return routines;
+}
+
+function cronJobToRoutine(job: CronJob): Routine {
+  const lastRunRecord = cronRunner.getLastRun(job.id);
+  return {
+    id: `cron:${job.id}`,
+    name: job.name,
+    description: job.prompt ?? job.command ?? '',
+    type: 'cron',
+    schedule: job.schedule,
+    trigger: 'cron',
+    ...(job.agent !== undefined && { agent: job.agent, agentName: job.agent }),
+    ...(job.prompt !== undefined && { prompt: job.prompt }),
+    ...(job.notify?.channel !== undefined && { channel: job.notify.channel }),
+    enabled: job.enabled,
+    source: 'openclaw',
+    ...(lastRunRecord?.finishedAt !== undefined && { lastRun: lastRunRecord.finishedAt }),
+    ...(lastRunRecord?.status !== undefined && { lastRunStatus: lastRunRecord.status }),
+    config: job as unknown as Record<string, unknown>,
+  };
 }
 
 export class AutomationsService {
@@ -155,7 +184,7 @@ export class AutomationsService {
         type: 'heartbeat',
         schedule: formatInterval(hb.every),
         trigger: 'interval',
-        model: hb.model as string | undefined,
+        ...(hb.model !== undefined && { model: hb.model as string }),
         enabled: true,
         source: 'openclaw',
         config: hb as Record<string, unknown>,
@@ -172,15 +201,20 @@ export class AutomationsService {
         type: 'hook',
         schedule: `Webhook /${hookPath}`,
         trigger: 'webhook',
-        model: hook.model,
-        channel: hook.channel,
+        ...(hook.model !== undefined && { model: hook.model }),
+        ...(hook.channel !== undefined && { channel: hook.channel }),
         enabled: hook.enabled !== false,
         source: 'openclaw',
         config: hook as Record<string, unknown>,
       });
     }
 
-    // 3. Cron files
+    // 3. Cron jobs from openclaw.json
+    for (const job of config.cron?.jobs ?? []) {
+      routines.push(cronJobToRoutine(job));
+    }
+
+    // 4. .cron files in workspace
     routines.push(...(await scanCronFiles()));
 
     return routines;
@@ -188,107 +222,127 @@ export class AutomationsService {
 
   async create(data: {
     name: string;
-    triggerPath: string;
-    messageTemplate: string;
-    agentName?: string;
-    model?: string;
-    channel?: string;
-    deliver?: boolean;
+    schedule: string;
+    agent: string;
+    prompt: string;
+    enabled?: boolean;
+    notify?: { channel: string };
   }): Promise<Routine> {
     if (!data.name?.trim()) throw new Error('name is required');
-    if (!data.triggerPath?.trim()) throw new Error('triggerPath is required');
-    if (!data.messageTemplate?.trim()) throw new Error('messageTemplate is required');
+    if (!data.schedule?.trim()) throw new Error('schedule is required');
+    if (!data.agent?.trim()) throw new Error('agent is required');
+    if (!data.prompt?.trim()) throw new Error('prompt is required');
 
-    const config = await readConfig();
-    if (!config.hooks) config.hooks = { mappings: [] };
-    if (!config.hooks.mappings) config.hooks.mappings = [];
+    const { default: nodeCron } = await import('node-cron');
+    if (!nodeCron.validate(data.schedule)) throw new Error(`Invalid cron expression: ${data.schedule}`);
 
-    const hookPath = data.triggerPath.toLowerCase().trim().replace(/[^a-z0-9-]/g, '-');
-    const hook: HookMapping = {
-      match: { path: hookPath },
-      action: 'agent',
-      wakeMode: 'now',
+    const id = data.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    const job: CronJob = {
+      id,
       name: data.name.trim(),
-      sessionKey: `hook:${hookPath}:{{payload.id}}`,
-      messageTemplate: data.messageTemplate.trim(),
-      deliver: data.deliver ?? true,
-      channel: data.channel ?? 'telegram',
-      model: data.model,
-      enabled: true,
+      schedule: data.schedule.trim(),
+      agent: data.agent.trim(),
+      prompt: data.prompt.trim(),
+      enabled: data.enabled ?? true,
+      notify: data.notify ?? { channel: 'telegram' },
+      logPath: `~/Library/Logs/${id}.log`,
     };
 
-    config.hooks.mappings.push(hook);
-    await writeConfig(config);
-    logger.info({ name: data.name, path: hookPath }, '[RoutinesService] Hook created');
-
-    return {
-      id: `hook:${hookPath}`,
-      name: data.name.trim(),
-      description: `Webhook trigger: /${hookPath}`,
-      type: 'hook',
-      schedule: `Webhook /${hookPath}`,
-      trigger: 'webhook',
-      agentName: data.agentName,
-      model: data.model,
-      channel: data.channel ?? 'telegram',
-      enabled: true,
-      source: 'openclaw',
-      config: hook as Record<string, unknown>,
-    };
+    cronRunner.upsertJob(job);
+    logger.info({ id, name: job.name }, '[AutomationsService] Cron job created');
+    return cronJobToRoutine(job);
   }
 
   async delete(id: string): Promise<void> {
-    if (!id.startsWith('hook:')) {
-      throw new Error(`Cannot delete "${id}" — only hook routines can be removed from the app`);
+    if (id.startsWith('cron:') && !id.startsWith('cron:file:')) {
+      const jobId = id.slice('cron:'.length);
+      cronRunner.deleteJob(jobId);
+      logger.info({ id }, '[AutomationsService] Cron job deleted');
+      return;
     }
-    const hookPath = id.slice('hook:'.length);
-    const config = await readConfig();
-    if (config.hooks?.mappings) {
-      const before = config.hooks.mappings.length;
-      config.hooks.mappings = config.hooks.mappings.filter((m) => m.match?.path !== hookPath);
-      if (config.hooks.mappings.length === before) throw new Error(`Hook /${hookPath} not found`);
-      await writeConfig(config);
+
+    if (id.startsWith('hook:')) {
+      const hookPath = id.slice('hook:'.length);
+      const config = await readConfig();
+      if (config.hooks?.mappings) {
+        const before = config.hooks.mappings.length;
+        config.hooks.mappings = config.hooks.mappings.filter((m) => m.match?.path !== hookPath);
+        if (config.hooks.mappings.length === before) throw new Error(`Hook /${hookPath} not found`);
+        await writeConfig(config);
+      }
+      logger.info({ id }, '[AutomationsService] Hook deleted');
+      return;
     }
-    logger.info({ id }, '[RoutinesService] Hook deleted');
+
+    throw new Error(`Cannot delete "${id}" — only cron jobs and hook routines can be removed from the app`);
   }
 
   async toggle(id: string, enabled: boolean): Promise<Routine | null> {
-    if (!id.startsWith('hook:')) return null;
-    const hookPath = id.slice('hook:'.length);
-    const config = await readConfig();
-    const mappings = config.hooks?.mappings ?? [];
-    const idx = mappings.findIndex((m) => m.match?.path === hookPath);
-    if (idx === -1) return null;
-    mappings[idx]!.enabled = enabled;
-    await writeConfig(config);
-    const hook = mappings[idx]!;
-    logger.info({ id, enabled }, '[RoutinesService] Hook toggled');
-    return {
-      id,
-      name: hook.name ?? hookPath,
-      description: hook.messageTemplate?.slice(0, 120) ?? `Webhook trigger: /${hookPath}`,
-      type: 'hook',
-      schedule: `Webhook /${hookPath}`,
-      trigger: 'webhook',
-      model: hook.model,
-      channel: hook.channel,
-      enabled,
-      source: 'openclaw',
-      config: hook as Record<string, unknown>,
-    };
+    if (id.startsWith('cron:') && !id.startsWith('cron:file:')) {
+      const jobId = id.slice('cron:'.length);
+      const updated = cronRunner.setEnabled(jobId, enabled);
+      if (!updated) return null;
+      logger.info({ id, enabled }, '[AutomationsService] Cron job toggled');
+      return cronJobToRoutine(updated);
+    }
+
+    if (id.startsWith('hook:')) {
+      const hookPath = id.slice('hook:'.length);
+      const config = await readConfig();
+      const mappings = config.hooks?.mappings ?? [];
+      const idx = mappings.findIndex((m) => m.match?.path === hookPath);
+      if (idx === -1) return null;
+      mappings[idx]!.enabled = enabled;
+      await writeConfig(config);
+      const hook = mappings[idx]!;
+      logger.info({ id, enabled }, '[AutomationsService] Hook toggled');
+      return {
+        id,
+        name: hook.name ?? hookPath,
+        description: hook.messageTemplate?.slice(0, 120) ?? `Webhook trigger: /${hookPath}`,
+        type: 'hook',
+        schedule: `Webhook /${hookPath}`,
+        trigger: 'webhook',
+        ...(hook.model !== undefined && { model: hook.model }),
+        ...(hook.channel !== undefined && { channel: hook.channel }),
+        enabled,
+        source: 'openclaw',
+        config: hook as Record<string, unknown>,
+      };
+    }
+
+    return null;
   }
 
   async runNow(id: string): Promise<{ result: string; status: 'success' | 'error'; error?: string }> {
-    return {
-      result: '',
-      status: 'error',
-      error: 'Run now is not supported for OpenClaw native routines — use the OpenClaw dashboard',
-    };
+    if (id.startsWith('cron:') && !id.startsWith('cron:file:')) {
+      const jobId = id.slice('cron:'.length);
+      try {
+        const record = await cronRunner.runJob(jobId);
+        const base = {
+          result: record.status === 'success' ? 'Job completed successfully' : '',
+          status: (record.status === 'running' ? 'success' : record.status) as 'success' | 'error',
+        };
+        return record.error !== undefined ? { ...base, error: record.error } : base;
+      } catch (err: unknown) {
+        return { result: '', status: 'error', error: err instanceof Error ? err.message : String(err) };
+      }
+    }
+
+    return { result: '', status: 'error', error: 'Run now is only supported for cron jobs' };
+  }
+
+  async getRunHistory(id: string): Promise<ReturnType<typeof cronRunner.getHistory>> {
+    if (id.startsWith('cron:') && !id.startsWith('cron:file:')) {
+      const jobId = id.slice('cron:'.length);
+      return cronRunner.getHistory(jobId);
+    }
+    return [];
   }
 
   async init(): Promise<void> {
     const routines = await this.list();
-    logger.info({ count: routines.length }, '[RoutinesService] Loaded from OpenClaw config');
+    logger.info({ count: routines.length }, '[AutomationsService] Loaded from OpenClaw config');
   }
 }
 

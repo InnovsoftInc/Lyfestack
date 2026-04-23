@@ -11,25 +11,21 @@ import { Colors } from '@lyfestack/shared';
 import { useAutomationsStore } from '../../../../stores/automations.store';
 import { useOpenClawStore } from '../../../../stores/openclaw.store';
 
-const PRESET_PATHS = ['gmail', 'calendly', 'stripe', 'slack', 'github', 'typeform'];
-
-const MODEL_OPTIONS = [
-  { label: 'Gemini Flash Lite', value: 'openrouter/google/gemini-2.5-flash-lite' },
-  { label: 'Mistral (local)', value: 'ollama/mistral:latest' },
-  { label: 'Llama 3.3 70B', value: 'openrouter/meta-llama/llama-3.3-70b-instruct:free' },
-  { label: 'Claude Haiku', value: 'anthropic/claude-haiku-4-5-20251001' },
+const SCHEDULE_PRESETS = [
+  { label: 'Every 5 min', value: '*/5 * * * *' },
+  { label: 'Hourly', value: '0 * * * *' },
+  { label: 'Daily 8am', value: '0 8 * * *' },
+  { label: 'Daily 9am', value: '0 9 * * *' },
+  { label: 'Daily 10am', value: '0 10 * * *' },
+  { label: 'Daily 2pm', value: '0 14 * * *' },
+  { label: 'Daily 8pm', value: '0 20 * * *' },
+  { label: 'Nightly 11pm', value: '0 23 * * *' },
+  { label: 'Weekly Mon', value: '0 9 * * 1' },
 ];
 
 const CHANNEL_OPTIONS = [
   { label: '📱 Telegram', value: 'telegram' },
   { label: '💬 Slack', value: 'slack' },
-];
-
-const TEMPLATE_MESSAGES = [
-  'Check if this is a lead reply. If yes, alert here and add a follow-up task.',
-  'Generate a pre-call research brief for this booking.',
-  'Summarize this event and determine if any action is needed.',
-  'Log this event and create a task if follow-up is required.',
 ];
 
 function makeStyles(theme: Theme) {
@@ -89,15 +85,6 @@ function makeStyles(theme: Theme) {
     chipActive: { backgroundColor: Colors.accent + '20', borderColor: Colors.accent },
     chipText: { color: theme.text.secondary, fontSize: 13 },
     chipTextActive: { color: Colors.accent, fontWeight: '600' },
-    templateBtn: {
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-      borderRadius: 20,
-      backgroundColor: theme.background,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.border,
-    },
-    templateBtnText: { color: theme.text.secondary, fontSize: 12 },
     toggleRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -141,26 +128,41 @@ function makeStyles(theme: Theme) {
       gap: 4,
     },
     infoText: { color: theme.text.secondary, fontSize: 12, lineHeight: 18 },
+    cronPreview: {
+      backgroundColor: theme.background,
+      borderRadius: 10,
+      padding: Spacing.sm,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.border,
+    },
+    cronPreviewText: {
+      ...TextStyles.caption,
+      color: Colors.accent,
+      fontFamily: 'monospace',
+    },
   });
 }
 
-export default function CreateHookScreen() {
+export default function CreateCronJobScreen() {
   const theme = useTheme();
   const styles = makeStyles(theme);
   const { create } = useAutomationsStore();
   const { agents } = useOpenClawStore();
 
   const [name, setName] = useState('');
-  const [triggerPath, setTriggerPath] = useState('');
-  const [messageTemplate, setMessageTemplate] = useState('');
-  const [selectedAgent, setSelectedAgent] = useState(agents[0]?.name ?? '');
-  const [selectedModel, setSelectedModel] = useState(MODEL_OPTIONS[0]!.value);
+  const [schedule, setSchedule] = useState('0 9 * * *');
+  const [customSchedule, setCustomSchedule] = useState('');
+  const [useCustom, setUseCustom] = useState(false);
+  const [selectedAgent, setSelectedAgent] = useState(agents[0]?.name ?? 'main');
+  const [prompt, setPrompt] = useState('');
+  const [enabled, setEnabled] = useState(true);
   const [selectedChannel, setSelectedChannel] = useState<'telegram' | 'slack'>('telegram');
-  const [deliver, setDeliver] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  const canSave = name.trim().length > 0 && triggerPath.trim().length > 0 && messageTemplate.trim().length > 0;
+  const activeSchedule = useCustom ? customSchedule : schedule;
+  const canSave = name.trim().length > 0 && activeSchedule.trim().length > 0
+    && selectedAgent.length > 0 && prompt.trim().length > 0;
 
   const handleSave = async () => {
     if (!canSave) return;
@@ -169,16 +171,15 @@ export default function CreateHookScreen() {
     try {
       await create({
         name: name.trim(),
-        triggerPath: triggerPath.trim(),
-        messageTemplate: messageTemplate.trim(),
-        agentName: selectedAgent || undefined,
-        model: selectedModel,
-        channel: selectedChannel,
-        deliver,
+        schedule: activeSchedule.trim(),
+        agent: selectedAgent,
+        prompt: prompt.trim(),
+        enabled,
+        notify: { channel: selectedChannel },
       });
       router.back();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to create hook');
+      setError(err instanceof Error ? err.message : 'Failed to create routine');
       setSaving(false);
     }
   };
@@ -193,7 +194,7 @@ export default function CreateHookScreen() {
         <TouchableOpacity onPress={() => router.back()} activeOpacity={0.6}>
           <Text style={styles.cancelText}>Cancel</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>New Hook</Text>
+        <Text style={styles.headerTitle}>New Cron Job</Text>
         <View style={styles.headerRight} />
       </View>
 
@@ -201,126 +202,110 @@ export default function CreateHookScreen() {
 
         <View style={styles.infoBox}>
           <Text style={styles.infoText}>
-            Hooks trigger your agent when OpenClaw receives a webhook — e.g. a new Gmail email, Calendly booking, or Stripe payment.
+            Cron jobs run your OpenClaw agent on a schedule. The prompt is sent to the agent when the job fires.
           </Text>
         </View>
 
         {/* Name */}
         <View style={styles.card}>
-          <Text style={styles.fieldLabel}>Hook Name</Text>
+          <Text style={styles.fieldLabel}>Job Name</Text>
           <TextInput
             style={styles.input}
             value={name}
             onChangeText={setName}
-            placeholder="e.g. Gmail Lead Reply"
+            placeholder="e.g. Daily Lead Finder"
             placeholderTextColor={theme.text.secondary}
           />
         </View>
 
-        {/* Trigger Path */}
+        {/* Schedule */}
         <View style={styles.card}>
-          <Text style={styles.fieldLabel}>Trigger Path</Text>
-          <Text style={styles.fieldHint}>Webhook path that activates this hook (e.g. "gmail", "stripe")</Text>
-          <TextInput
-            style={styles.input}
-            value={triggerPath}
-            onChangeText={(t) => setTriggerPath(t.toLowerCase().replace(/[^a-z0-9-]/g, '-'))}
-            placeholder="e.g. gmail"
-            placeholderTextColor={theme.text.secondary}
-            autoCapitalize="none"
-          />
+          <Text style={styles.fieldLabel}>Schedule</Text>
           <View style={styles.chips}>
-            {PRESET_PATHS.map((p) => (
+            {SCHEDULE_PRESETS.map((p) => (
               <TouchableOpacity
-                key={p}
-                style={[styles.chip, triggerPath === p && styles.chipActive]}
-                onPress={() => setTriggerPath(p)}
+                key={p.value}
+                style={[styles.chip, !useCustom && schedule === p.value && styles.chipActive]}
+                onPress={() => { setSchedule(p.value); setUseCustom(false); }}
                 activeOpacity={0.7}
               >
-                <Text style={[styles.chipText, triggerPath === p && styles.chipTextActive]}>{p}</Text>
+                <Text style={[styles.chipText, !useCustom && schedule === p.value && styles.chipTextActive]}>
+                  {p.label}
+                </Text>
               </TouchableOpacity>
             ))}
+            <TouchableOpacity
+              style={[styles.chip, useCustom && styles.chipActive]}
+              onPress={() => setUseCustom(true)}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.chipText, useCustom && styles.chipTextActive]}>Custom…</Text>
+            </TouchableOpacity>
+          </View>
+          {useCustom && (
+            <TextInput
+              style={styles.input}
+              value={customSchedule}
+              onChangeText={setCustomSchedule}
+              placeholder="e.g. 0 9 * * 1-5"
+              placeholderTextColor={theme.text.secondary}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          )}
+          {activeSchedule.trim().length > 0 && (
+            <View style={styles.cronPreview}>
+              <Text style={styles.cronPreviewText}>{activeSchedule}</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Agent */}
+        <View style={styles.card}>
+          <Text style={styles.fieldLabel}>Agent</Text>
+          <View style={styles.chips}>
+            {agents.map((a) => (
+              <TouchableOpacity
+                key={a.name}
+                style={[styles.chip, selectedAgent === a.name && styles.chipActive]}
+                onPress={() => setSelectedAgent(a.name)}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.chipText, selectedAgent === a.name && styles.chipTextActive]}>
+                  {a.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+            {agents.length === 0 && (
+              <TextInput
+                style={styles.input}
+                value={selectedAgent}
+                onChangeText={setSelectedAgent}
+                placeholder="e.g. marketer"
+                placeholderTextColor={theme.text.secondary}
+              />
+            )}
           </View>
         </View>
 
-        {/* Message Template */}
+        {/* Prompt */}
         <View style={styles.card}>
-          <Text style={styles.fieldLabel}>Message Template</Text>
-          <Text style={styles.fieldHint}>What the agent receives when this hook fires. Use {'{{payload.field}}'} for dynamic values.</Text>
+          <Text style={styles.fieldLabel}>Prompt</Text>
+          <Text style={styles.fieldHint}>What the agent should do when this job fires.</Text>
           <TextInput
             style={[styles.input, styles.textarea]}
-            value={messageTemplate}
-            onChangeText={setMessageTemplate}
-            placeholder="e.g. Check if this is a lead reply. If yes, alert here and add a follow-up task."
+            value={prompt}
+            onChangeText={setPrompt}
+            placeholder="e.g. Send the morning batch of cold outreach emails to local businesses."
             placeholderTextColor={theme.text.secondary}
             multiline
             textAlignVertical="top"
           />
-          <Text style={styles.fieldLabel}>Quick templates</Text>
-          <View style={styles.chips}>
-            {TEMPLATE_MESSAGES.map((t) => (
-              <TouchableOpacity
-                key={t}
-                style={styles.templateBtn}
-                onPress={() => setMessageTemplate(t)}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.templateBtnText}>{t}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
         </View>
 
-        {/* Agent (optional) */}
-        {agents.length > 0 && (
-          <View style={styles.card}>
-            <Text style={styles.fieldLabel}>Agent (optional)</Text>
-            <View style={styles.chips}>
-              <TouchableOpacity
-                style={[styles.chip, !selectedAgent && styles.chipActive]}
-                onPress={() => setSelectedAgent('')}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.chipText, !selectedAgent && styles.chipTextActive]}>Default</Text>
-              </TouchableOpacity>
-              {agents.map((a) => (
-                <TouchableOpacity
-                  key={a.name}
-                  style={[styles.chip, selectedAgent === a.name && styles.chipActive]}
-                  onPress={() => setSelectedAgent(a.name)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[styles.chipText, selectedAgent === a.name && styles.chipTextActive]}>
-                    {a.name}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-        )}
-
-        {/* Model */}
+        {/* Notify channel */}
         <View style={styles.card}>
-          <Text style={styles.fieldLabel}>Model</Text>
-          <View style={styles.chips}>
-            {MODEL_OPTIONS.map((opt) => (
-              <TouchableOpacity
-                key={opt.value}
-                style={[styles.chip, selectedModel === opt.value && styles.chipActive]}
-                onPress={() => setSelectedModel(opt.value)}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.chipText, selectedModel === opt.value && styles.chipTextActive]}>
-                  {opt.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        {/* Channel */}
-        <View style={styles.card}>
-          <Text style={styles.fieldLabel}>Deliver to Channel</Text>
+          <Text style={styles.fieldLabel}>Notify Channel</Text>
           <View style={styles.chips}>
             {CHANNEL_OPTIONS.map((opt) => (
               <TouchableOpacity
@@ -335,11 +320,15 @@ export default function CreateHookScreen() {
               </TouchableOpacity>
             ))}
           </View>
+        </View>
+
+        {/* Enabled */}
+        <View style={styles.card}>
           <View style={styles.toggleRow}>
-            <Text style={styles.toggleLabel}>Send response to channel</Text>
+            <Text style={styles.toggleLabel}>Enable immediately</Text>
             <Switch
-              value={deliver}
-              onValueChange={setDeliver}
+              value={enabled}
+              onValueChange={setEnabled}
               trackColor={{ false: theme.border, true: Colors.accent }}
               thumbColor={Colors.white}
             />
@@ -362,7 +351,7 @@ export default function CreateHookScreen() {
             <ActivityIndicator size="small" color="#fff" />
           ) : (
             <Text style={[styles.primaryBtnText, (!canSave || saving) && styles.primaryBtnTextOff]}>
-              Create Hook
+              Create Job
             </Text>
           )}
         </TouchableOpacity>

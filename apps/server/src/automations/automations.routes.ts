@@ -10,19 +10,18 @@ router.get('/', async (_req: Request, res: Response) => {
 });
 
 router.post('/', async (req: Request, res: Response) => {
-  const { name, triggerPath, messageTemplate, agentName, model, channel, deliver } = req.body as Record<string, unknown>;
-  if (!name || !triggerPath || !messageTemplate) {
-    return res.status(400).json({ error: 'name, triggerPath and messageTemplate are required' });
+  const { name, schedule, agent, prompt, enabled, notify } = req.body as Record<string, unknown>;
+  if (!name || !schedule || !agent || !prompt) {
+    return res.status(400).json({ error: 'name, schedule, agent, and prompt are required' });
   }
   try {
     const routine = await automationsService.create({
       name: String(name),
-      triggerPath: String(triggerPath),
-      messageTemplate: String(messageTemplate),
-      agentName: agentName ? String(agentName) : undefined,
-      model: model ? String(model) : undefined,
-      channel: channel ? String(channel) : undefined,
-      deliver: deliver === true || deliver === 'true',
+      schedule: String(schedule),
+      agent: String(agent),
+      prompt: String(prompt),
+      enabled: enabled !== false && enabled !== 'false',
+      ...(notify ? { notify: notify as { channel: string } } : {}),
     });
     res.status(201).json({ data: routine });
   } catch (err: unknown) {
@@ -32,7 +31,7 @@ router.post('/', async (req: Request, res: Response) => {
 
 router.delete('/:id', async (req: Request, res: Response) => {
   try {
-    await automationsService.delete(req.params.id);
+    await automationsService.delete(req.params.id as string);
     res.json({ ok: true });
   } catch (err: unknown) {
     res.status(400).json({ error: err instanceof Error ? err.message : 'Failed to delete routine' });
@@ -41,14 +40,23 @@ router.delete('/:id', async (req: Request, res: Response) => {
 
 router.patch('/:id/toggle', async (req: Request, res: Response) => {
   const { enabled } = req.body as { enabled: boolean };
-  const updated = await automationsService.toggle(req.params.id, Boolean(enabled));
-  if (!updated) return res.status(400).json({ error: 'Only hook routines can be toggled from the app' });
-  res.json({ data: updated });
+  try {
+    const updated = await automationsService.toggle(req.params.id as string, Boolean(enabled));
+    if (!updated) return res.status(400).json({ error: 'Routine not found or cannot be toggled' });
+    res.json({ data: updated });
+  } catch (err: unknown) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Failed to toggle routine' });
+  }
 });
 
-router.post('/:id/run', async (_req: Request, res: Response) => {
-  const result = await automationsService.runNow(_req.params.id);
+router.post('/:id/run', async (req: Request, res: Response) => {
+  const result = await automationsService.runNow(req.params.id as string);
   res.json({ data: result });
+});
+
+router.get('/:id/history', async (req: Request, res: Response) => {
+  const history = await automationsService.getRunHistory(req.params.id as string);
+  res.json({ data: history });
 });
 
 export { router as automationsRouter };

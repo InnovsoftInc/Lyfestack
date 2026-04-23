@@ -25,6 +25,17 @@ const CHANNEL_LABEL: Record<string, string> = {
   slack: '💬 Slack',
 };
 
+function formatLastRun(iso?: string): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  const now = Date.now();
+  const diff = now - d.getTime();
+  if (diff < 60_000) return 'just now';
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
+  return d.toLocaleDateString();
+}
+
 function makeStyles(theme: Theme) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: theme.background },
@@ -118,7 +129,30 @@ function makeStyles(theme: Theme) {
       borderColor: theme.border,
     },
     metaChipText: { ...TextStyles.caption, color: theme.text.secondary },
+    lastRunChip: {
+      backgroundColor: theme.background,
+      borderRadius: 8,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderWidth: 1,
+      borderColor: theme.border,
+    },
+    lastRunSuccess: { borderColor: '#22c55e' + '66', backgroundColor: '#22c55e' + '10' },
+    lastRunError: { borderColor: theme.error + '66', backgroundColor: theme.error + '10' },
+    lastRunText: { ...TextStyles.caption, color: theme.text.secondary },
+    lastRunSuccessText: { color: '#16a34a' },
+    lastRunErrorText: { color: theme.error },
     actionRow: { flexDirection: 'row', gap: Spacing.sm },
+    runNowBtn: {
+      paddingHorizontal: 12,
+      paddingVertical: 5,
+      borderRadius: BorderRadius.sm,
+      borderWidth: 1,
+      borderColor: Colors.accent,
+      backgroundColor: Colors.accent + '10',
+    },
+    runNowBtnText: { ...TextStyles.caption, color: Colors.accent, fontWeight: '600' },
+    runNowBtnRunning: { borderColor: theme.border, backgroundColor: theme.background },
     deleteBtn: {
       paddingHorizontal: 12,
       paddingVertical: 5,
@@ -181,18 +215,27 @@ function makeStyles(theme: Theme) {
 
 function RoutineCard({
   routine,
+  isRunning,
   onToggle,
   onDelete,
+  onRunNow,
 }: {
   routine: Routine;
+  isRunning: boolean;
   onToggle: (enabled: boolean) => void;
   onDelete: () => void;
+  onRunNow: () => void;
 }) {
   const theme = useTheme();
   const styles = makeStyles(theme);
   const meta = TYPE_META[routine.type];
-  const canToggle = routine.type === 'hook';
-  const canDelete = routine.type === 'hook';
+  const isCron = routine.type === 'cron' && !routine.id.startsWith('cron:file:');
+  const canToggle = routine.type === 'hook' || isCron;
+  const canDelete = routine.type === 'hook' || isCron;
+  const canRunNow = isCron;
+
+  const lastRunLabel = formatLastRun(routine.lastRun);
+  const lastRunStatus = routine.lastRunStatus;
 
   return (
     <View style={[styles.card, !routine.enabled && styles.cardDisabled]}>
@@ -204,6 +247,13 @@ function RoutineCard({
                 {meta.emoji} {meta.label}
               </Text>
             </View>
+            {routine.agent && (
+              <View style={[styles.badge, { backgroundColor: theme.border }]}>
+                <Text style={[styles.badgeText, { color: theme.text.secondary }]}>
+                  {routine.agent}
+                </Text>
+              </View>
+            )}
           </View>
           <Text style={styles.cardName}>{routine.name}</Text>
           <Text style={styles.scheduleText}>{routine.schedule}</Text>
@@ -230,6 +280,21 @@ function RoutineCard({
 
       <View style={styles.cardFooterRow}>
         <View style={styles.metaChips}>
+          {lastRunLabel && (
+            <View style={[
+              styles.lastRunChip,
+              lastRunStatus === 'success' && styles.lastRunSuccess,
+              lastRunStatus === 'error' && styles.lastRunError,
+            ]}>
+              <Text style={[
+                styles.lastRunText,
+                lastRunStatus === 'success' && styles.lastRunSuccessText,
+                lastRunStatus === 'error' && styles.lastRunErrorText,
+              ]}>
+                {lastRunStatus === 'error' ? '✗' : lastRunStatus === 'success' ? '✓' : '○'} {lastRunLabel}
+              </Text>
+            </View>
+          )}
           {routine.channel && (
             <View style={styles.metaChip}>
               <Text style={styles.metaChipText}>
@@ -244,19 +309,27 @@ function RoutineCard({
               </Text>
             </View>
           )}
-          {routine.trigger && (
-            <View style={styles.metaChip}>
-              <Text style={styles.metaChipText}>{routine.trigger}</Text>
-            </View>
-          )}
         </View>
-        {canDelete && (
-          <View style={styles.actionRow}>
+        <View style={styles.actionRow}>
+          {canRunNow && (
+            <TouchableOpacity
+              style={[styles.runNowBtn, isRunning && styles.runNowBtnRunning]}
+              onPress={onRunNow}
+              disabled={isRunning}
+              activeOpacity={0.7}
+            >
+              {isRunning
+                ? <ActivityIndicator size="small" color={Colors.accent} />
+                : <Text style={styles.runNowBtnText}>▶ Run</Text>
+              }
+            </TouchableOpacity>
+          )}
+          {canDelete && (
             <TouchableOpacity style={styles.deleteBtn} onPress={onDelete} activeOpacity={0.7}>
               <Text style={styles.deleteBtnText}>Delete</Text>
             </TouchableOpacity>
-          </View>
-        )}
+          )}
+        </View>
       </View>
     </View>
   );
@@ -265,7 +338,7 @@ function RoutineCard({
 export default function AutomationsScreen() {
   const theme = useTheme();
   const styles = makeStyles(theme);
-  const { automations, isLoading, fetch, toggle, remove } = useAutomationsStore();
+  const { automations, isLoading, runningIds, fetch, toggle, remove, runNow } = useAutomationsStore();
   const { connectionStatus } = useOpenClawStore();
   const isConnected = connectionStatus === 'connected';
 
@@ -277,13 +350,21 @@ export default function AutomationsScreen() {
 
   const handleDelete = (routine: Routine) => {
     Alert.alert(
-      'Delete Hook',
+      'Delete Routine',
       `Remove "${routine.name}" from OpenClaw? This cannot be undone.`,
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Delete', style: 'destructive', onPress: () => void remove(routine.id) },
       ],
     );
+  };
+
+  const handleRunNow = (routine: Routine) => {
+    void runNow(routine.id).then((res) => {
+      if (res.status === 'error') {
+        Alert.alert('Run failed', res.error ?? 'Unknown error');
+      }
+    });
   };
 
   if (!isConnected) {
@@ -306,8 +387,9 @@ export default function AutomationsScreen() {
     );
   }
 
-  const hooks = automations.filter((a) => a.type === 'hook');
-  const hookCount = hooks.filter((a) => a.enabled).length;
+  const cronJobs = automations.filter((a) => a.type === 'cron' && !a.id.startsWith('cron:file:'));
+  const hookCount = automations.filter((a) => a.type === 'hook' && a.enabled).length;
+  const enabledCronCount = cronJobs.filter((a) => a.enabled).length;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -317,7 +399,7 @@ export default function AutomationsScreen() {
             ⚡ {automations.length} routine{automations.length !== 1 ? 's' : ''} from OpenClaw
           </Text>
           <Text style={styles.infoText}>
-            {hookCount} active hook{hookCount !== 1 ? 's' : ''} · heartbeat · cron jobs
+            {enabledCronCount} active cron job{enabledCronCount !== 1 ? 's' : ''} · {hookCount} hook{hookCount !== 1 ? 's' : ''} · heartbeat
           </Text>
         </View>
       )}
@@ -341,14 +423,16 @@ export default function AutomationsScreen() {
         renderItem={({ item }) => (
           <RoutineCard
             routine={item}
+            isRunning={runningIds.includes(item.id)}
             onToggle={(enabled) => void toggle(item.id, enabled)}
             onDelete={() => handleDelete(item)}
+            onRunNow={() => handleRunNow(item)}
           />
         )}
         ListEmptyComponent={
           !isLoading ? (
             <View style={styles.emptyState}>
-              <Text style={styles.emptyIcon}>🪝</Text>
+              <Text style={styles.emptyIcon}>⏰</Text>
               <Text style={styles.emptyTitle}>No routines found</Text>
               <Text style={styles.emptySubtitle}>
                 OpenClaw schedules appear here — heartbeat, webhook hooks, and cron jobs from your workspace.
@@ -367,7 +451,7 @@ export default function AutomationsScreen() {
         onPress={() => router.push('/(auth)/(drawer)/automations/create' as any)}
         activeOpacity={0.85}
       >
-        <Text style={styles.fabText}>＋  New Hook</Text>
+        <Text style={styles.fabText}>＋  New Job</Text>
       </TouchableOpacity>
     </SafeAreaView>
   );

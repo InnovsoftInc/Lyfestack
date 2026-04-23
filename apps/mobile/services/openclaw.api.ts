@@ -206,12 +206,11 @@ export const openclawApi = {
   listAutomations: () => request('/automations'),
   createAutomation: (data: {
     name: string;
-    triggerPath: string;
-    messageTemplate: string;
-    agentName?: string;
-    model?: string;
-    channel?: string;
-    deliver?: boolean;
+    schedule: string;
+    agent: string;
+    prompt: string;
+    enabled?: boolean;
+    notify?: { channel: string };
   }) => request('/automations', { method: 'POST', body: JSON.stringify(data) }),
   deleteAutomation: (id: string) => request(`/automations/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   toggleAutomation: (id: string, enabled: boolean) =>
@@ -221,4 +220,6 @@ export const openclawApi = {
     }),
   runAutomationNow: (id: string) =>
     request(`/automations/${encodeURIComponent(id)}/run`, { method: 'POST' }),
+  getAutomationHistory: (id: string) =>
+    request(`/automations/${encodeURIComponent(id)}/history`),
 };

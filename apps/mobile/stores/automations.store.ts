@@ -8,12 +8,15 @@ export interface Routine {
   type: 'heartbeat' | 'hook' | 'cron' | 'custom';
   schedule: string;
   trigger?: string;
+  agent?: string;
   agentName?: string;
+  prompt?: string;
   model?: string;
   channel?: string;
   enabled: boolean;
   source: 'openclaw' | 'lyfestack';
   lastRun?: string;
+  lastRunStatus?: 'success' | 'error' | 'running';
   config?: Record<string, unknown>;
 }
 
@@ -27,12 +30,11 @@ interface AutomationsStore {
   fetch: () => Promise<void>;
   create: (data: {
     name: string;
-    triggerPath: string;
-    messageTemplate: string;
-    agentName?: string;
-    model?: string;
-    channel?: string;
-    deliver?: boolean;
+    schedule: string;
+    agent: string;
+    prompt: string;
+    enabled?: boolean;
+    notify?: { channel: string };
   }) => Promise<void>;
   remove: (id: string) => Promise<void>;
   toggle: (id: string, enabled: boolean) => Promise<void>;
