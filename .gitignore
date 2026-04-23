@@ -43,3 +43,4 @@ web-build/
 # Supabase
 supabase/.branches/
 supabase/.temp/
+.claude/worktrees/
