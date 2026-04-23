@@ -144,7 +144,7 @@ export async function streamAgentMessage(
             const payload = JSON.parse(line.slice(6));
             if (payload.error) {
               clearToolTimer();
-              reject(new Error(payload.error));
+              safeReject(new Error(payload.error));
               return;
             }
             if (payload.type === 'tool_use') {
@@ -160,7 +160,7 @@ export async function streamAgentMessage(
               clearToolTimer();
               onToolActivity?.(null);
               onDone(payload.response ?? '');
-              resolve();
+              safeResolve();
             }
           } catch { /* malformed JSON line — skip */ }
         }
@@ -173,23 +173,37 @@ export async function streamAgentMessage(
         processLines();
       };
 
+      let resolved = false;
+      const safeResolve = () => { if (!resolved) { resolved = true; resolve(); } };
+      const safeReject = (e: Error) => { if (!resolved) { resolved = true; reject(e); } };
+
       xhr.onload = () => {
         clearToolTimer();
+        if (xhr.status >= 400) {
+          safeReject(new Error(`OpenClaw API error: ${xhr.status}`));
+          return;
+        }
         if (lineBuffer.trim()) {
           lineBuffer += '\n';
           processLines();
         }
-        resolve();
+        // If onDone was never called (no "done" SSE event), finalize with accumulated chunks
+        if (!resolved) {
+          const accumulated = xhr.responseText;
+          // Try to extract any text content from the response
+          onDone(accumulated || '');
+          safeResolve();
+        }
       };
 
-      xhr.onerror = () => { clearToolTimer(); reject(new Error('Network request failed')); };
-      xhr.ontimeout = () => { clearToolTimer(); reject(new Error('Request timed out')); };
+      xhr.onerror = () => { clearToolTimer(); safeReject(new Error('Network request failed')); };
+      xhr.ontimeout = () => { clearToolTimer(); safeReject(new Error('Request timed out')); };
 
       if (signal) {
         signal.addEventListener('abort', () => {
           clearToolTimer();
           xhr.abort();
-          resolve();
+          safeResolve();
         });
       }
 

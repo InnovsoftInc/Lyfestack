@@ -98,6 +98,12 @@ function AttachmentChip({ attachment, onRemove, theme }: { attachment: ChatAttac
   );
 }
 
+// Strip OpenClaw timestamp prefix like "[Thu 2026-04-23 13:42 MDT] "
+const TIMESTAMP_RE = /^\[(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s+\w+\]\s*/;
+function stripTimestamp(text: string): string {
+  return text.replace(TIMESTAMP_RE, '');
+}
+
 function ToolPill({ label, active, theme }: { label: string; active?: boolean; theme: Theme }) {
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 2 }}>
@@ -617,7 +623,7 @@ export default function AgentChatScreen() {
                 </View>
               )}
               <View style={[s.bubble, s.userBubble]}>
-                <Text style={[s.bubbleText, s.userText]}>{item.content}</Text>
+                <Text style={[s.bubbleText, s.userText]}>{stripTimestamp(item.content)}</Text>
               </View>
             </View>
           );

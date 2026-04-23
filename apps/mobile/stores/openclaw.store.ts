@@ -355,6 +355,24 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
         });
       },
     );
+
+    // Safety net: if stream completed without onDone/onError, finalize the message
+    const state = get();
+    if (state.streamAbort) {
+      log('sendMessageStream() — stream ended without onDone, finalizing');
+      set((s) => {
+        if (!s.activeChat) return { streamAbort: null };
+        return {
+          streamAbort: null,
+          activeChat: {
+            ...s.activeChat,
+            messages: s.activeChat.messages.map((m) =>
+              m.id === agentMsgId ? { ...m, streaming: false, toolActivity: null } : m,
+            ),
+          },
+        };
+      });
+    }
   },
 
   abortStream: () => {
