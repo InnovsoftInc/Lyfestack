@@ -68,9 +68,8 @@ export class GoalService {
         await this._generateTasks(saved.id, userId, templateId, diagnosticAnswers ?? []);
         return saved;
       } catch (err) {
-        logger.warn({ err }, '[GoalService] DB save failed, falling back to in-memory');
-        goalStore.set(id, goal);
-        return goal;
+        logger.error({ err }, '[GoalService] DB save failed');
+        throw err;
       }
     }
 

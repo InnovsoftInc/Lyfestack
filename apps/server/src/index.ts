@@ -22,6 +22,7 @@ import { openclawRoutes } from './integrations/openclaw/openclaw.routes';
 import { getStatus as openclawStatus } from './integrations/openclaw/openclaw.controller';
 import { createGoalRouter } from './routes/goal.routes';
 import { startCronJobs } from './jobs/cron';
+import { automationsService } from './automations/automations.service';
 import { createAuthMiddleware, requireAuth } from './middleware/auth.middleware';
 import { getSupabaseClient } from './config/database';
 import { planningEngine } from './engine/planning/planning.engine';
@@ -128,6 +129,7 @@ app.use(errorMiddleware);
 app.listen(config.PORT, () => {
   logger.info({ port: config.PORT, env: config.NODE_ENV }, 'Server started');
   startCronJobs();
+  void automationsService.init();
 });
 
 export default app;

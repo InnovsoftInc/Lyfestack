@@ -14,10 +14,11 @@ export function createAuthRouter(): Router {
 
   const router = Router();
 
-  router.post('/signup',  authController.signup);
-  router.post('/login',   authController.login);
-  router.post('/logout',  authMiddleware, requireAuth, authController.logout);
-  router.get('/me',       authMiddleware, requireAuth, authController.me);
+  router.post('/signup',   authController.signup);
+  router.post('/login',    authController.login);
+  router.post('/refresh',  authController.refresh);
+  router.post('/logout',   authMiddleware, requireAuth, authController.logout);
+  router.get('/me',        authMiddleware, requireAuth, authController.me);
 
   return router;
 }

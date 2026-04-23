@@ -89,6 +89,15 @@ export class AuthService {
     return this.toAuthResult(profile, authData.session);
   }
 
+  async refreshSession(refreshToken: string): Promise<AuthResult> {
+    const { data, error } = await this.supabase.auth.refreshSession({ refresh_token: refreshToken });
+    if (error) throw this.mapAuthError(error);
+    if (!data.session || !data.user) throw new AuthenticationError('Session refresh failed', 'REFRESH_FAILED');
+    const profile = await this.userRepository.findById(data.user.id);
+    if (!profile) throw new AuthenticationError('User profile not found', 'USER_NOT_FOUND');
+    return this.toAuthResult(profile, data.session);
+  }
+
   async signOut(accessToken: string): Promise<void> {
     const { error } = await this.supabase.auth.admin.signOut(accessToken);
     if (error) throw this.mapAuthError(error);

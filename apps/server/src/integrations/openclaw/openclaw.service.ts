@@ -99,10 +99,31 @@ export class OpenClawService {
     }
   }
 
+  private async resolveOpenclawBin(): Promise<string> {
+    const nvmDir = path.join(process.env.HOME ?? '', '.nvm', 'versions', 'node');
+    try {
+      const versions = await fs.readdir(nvmDir);
+      const v22Plus = versions
+        .filter((v) => /^v(2[2-9]|[3-9]\d|\d{3,})/.test(v))
+        .sort()
+        .reverse();
+      for (const version of v22Plus) {
+        const bin = path.join(nvmDir, version, 'bin', 'openclaw');
+        try {
+          await fs.access(bin);
+          return bin;
+        } catch { /* not installed under this version */ }
+      }
+    } catch { /* nvm not found */ }
+    return 'openclaw';
+  }
+
   async sendMessage(agentName: string, message: string): Promise<string> {
     try {
+      const bin = await this.resolveOpenclawBin();
+      const escaped = message.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
       const { stdout } = await execAsync(
-        `openclaw agent --agent ${agentName} -m "${message.replace(/"/g, '\\"')}"`,
+        `"${bin}" agent --agent ${agentName} -m "${escaped}"`,
         { timeout: 120000 }
       );
       return stdout.trim();

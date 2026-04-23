@@ -75,7 +75,9 @@ export const sendMessage = async (req: Request, res: Response, next: NextFunctio
   try {
     const { name } = req.params;
     if (!name) { res.status(400).json({ error: 'Agent name required' }); return; }
-    const response = await service.sendMessage(name, req.body.message as string);
+    const message = req.body?.message;
+    if (typeof message !== 'string' || !message.trim()) { res.status(400).json({ error: 'message is required' }); return; }
+    const response = await service.sendMessage(name, message);
     res.json({ data: { response } });
   } catch (err) { next(err); }
 };

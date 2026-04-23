@@ -35,6 +35,11 @@ router.post('/agents/:name/message', sendMessage);
 
 export { router as openclawRoutes };
 
+// Sessions (chat history — stub returning empty until persistence is implemented)
+router.get('/sessions', (_req, res) => { res.json({ data: [] }); });
+router.get('/sessions/detail', (_req, res) => { res.json({ data: { messages: [] } }); });
+router.post('/sessions', (req, res) => { res.status(201).json({ data: { key: `session-${Date.now()}`, ...req.body } }); });
+
 // Usage tracking
 import { getUsageSummary, getUsageHistory, getUsageByAgent, getUsageByModel } from './usage-tracker';
 
@@ -42,3 +47,7 @@ router.get('/usage', async (_req, res) => { res.json({ data: await getUsageSumma
 router.get('/usage/history', async (req, res) => { res.json({ data: await getUsageHistory(Number(req.query.limit) || 100) }); });
 router.get('/usage/by-agent', async (_req, res) => { res.json({ data: await getUsageByAgent() }); });
 router.get('/usage/by-model', async (_req, res) => { res.json({ data: await getUsageByModel() }); });
+
+// Automations
+import { automationsRouter } from '../../automations/automations.routes';
+router.use('/automations', automationsRouter);

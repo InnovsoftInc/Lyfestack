@@ -1,5 +1,7 @@
-import { useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { useEffect, useCallback } from 'react';
+import {
+  View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl, ActivityIndicator,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useTheme } from '../../../../hooks/useTheme';
@@ -25,19 +27,10 @@ function statusLabel(status: GoalStatus) {
 function makeStyles(theme: Theme) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: theme.background },
-    header: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'flex-end',
-      padding: Spacing.xl,
-      paddingBottom: Spacing.md,
-    },
-    heading: { ...TextStyles.h1, color: theme.text.primary },
-    subheading: { ...TextStyles.small, color: theme.text.secondary, marginTop: 2 },
-    scroll: { flex: 1 },
     statsRow: {
       flexDirection: 'row',
       paddingHorizontal: Spacing.xl,
+      paddingTop: Spacing.md,
       gap: Spacing.sm,
       marginBottom: Spacing.lg,
     },
@@ -53,13 +46,14 @@ function makeStyles(theme: Theme) {
     },
     statValue: { ...TextStyles.h3, color: Colors.accent },
     statLabel: { ...TextStyles.caption, color: theme.text.secondary, textAlign: 'center' },
-    goalsList: { paddingHorizontal: Spacing.xl, gap: Spacing.md },
+    listContent: { paddingHorizontal: Spacing.xl, paddingBottom: 100 },
     sectionLabel: {
       ...TextStyles.caption,
       color: theme.text.secondary,
       letterSpacing: 1,
       textTransform: 'uppercase',
       marginBottom: Spacing.sm,
+      marginTop: Spacing.sm,
     },
     goalCard: {
       backgroundColor: theme.surface,
@@ -68,6 +62,7 @@ function makeStyles(theme: Theme) {
       borderColor: theme.border,
       padding: Spacing.md,
       gap: Spacing.md,
+      marginBottom: Spacing.md,
     },
     goalCardHeader: { gap: 6 },
     goalTitleRow: {
@@ -77,7 +72,12 @@ function makeStyles(theme: Theme) {
       gap: Spacing.sm,
     },
     goalTitle: { ...TextStyles.h4, color: theme.text.primary, flex: 1 },
-    statusDot: { width: 8, height: 8, borderRadius: 4 },
+    statusPill: {
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: BorderRadius.full,
+    },
+    statusPillText: { ...TextStyles.caption, fontWeight: '700' },
     goalDesc: { ...TextStyles.small, color: theme.text.secondary, lineHeight: 20 },
     progressSection: { gap: Spacing.sm },
     progressLabelRow: { flexDirection: 'row', justifyContent: 'space-between' },
@@ -96,7 +96,6 @@ function makeStyles(theme: Theme) {
     },
     goalMeta: { flexDirection: 'row', justifyContent: 'space-between' },
     goalMetaText: { ...TextStyles.caption, color: theme.text.secondary },
-    spacer: { height: 100 },
     fab: {
       position: 'absolute',
       bottom: Spacing.xl,
@@ -113,19 +112,33 @@ function makeStyles(theme: Theme) {
       shadowRadius: 8,
       elevation: 8,
     },
-    fabIcon: { fontSize: 28, color: Colors.white, lineHeight: 32, fontWeight: '400' },
+    fabIcon: { fontSize: 28, color: Colors.white, lineHeight: 32 },
+    emptyState: {
+      alignItems: 'center',
+      paddingTop: 60,
+      gap: Spacing.md,
+      paddingHorizontal: Spacing.xl,
+    },
+    emptyIcon: { fontSize: 48 },
+    emptyTitle: { ...TextStyles.h3, color: theme.text.primary },
+    emptySubtitle: { ...TextStyles.body, color: theme.text.secondary, textAlign: 'center' },
+    emptyBtn: {
+      marginTop: Spacing.sm,
+      backgroundColor: Colors.accent,
+      paddingHorizontal: Spacing.xl,
+      paddingVertical: 12,
+      borderRadius: BorderRadius.full,
+    },
+    emptyBtnText: { ...TextStyles.bodyMedium, color: Colors.white },
   });
 }
 
-interface GoalCardProps {
-  goal: Goal;
-}
-
-function GoalCard({ goal }: GoalCardProps) {
+function GoalCard({ goal }: { goal: Goal }) {
   const theme = useTheme();
   const styles = makeStyles(theme);
   const completedMilestones = goal.milestones.filter((m) => m.completedAt).length;
   const totalMilestones = goal.milestones.length;
+  const color = statusColor(goal.status);
 
   return (
     <TouchableOpacity
@@ -136,7 +149,9 @@ function GoalCard({ goal }: GoalCardProps) {
       <View style={styles.goalCardHeader}>
         <View style={styles.goalTitleRow}>
           <Text style={styles.goalTitle} numberOfLines={1}>{goal.title}</Text>
-          <View style={[styles.statusDot, { backgroundColor: statusColor(goal.status) }]} />
+          <View style={[styles.statusPill, { backgroundColor: color + '20' }]}>
+            <Text style={[styles.statusPillText, { color }]}>{statusLabel(goal.status)}</Text>
+          </View>
         </View>
         <Text style={styles.goalDesc} numberOfLines={2}>{goal.description}</Text>
       </View>
@@ -165,61 +180,126 @@ function GoalCard({ goal }: GoalCardProps) {
   );
 }
 
+type ListItem =
+  | { type: 'stats' }
+  | { type: 'section'; label: string }
+  | { type: 'goal'; goal: Goal }
+  | { type: 'empty' };
+
 export default function GoalsScreen() {
-  const { goals, fetchGoals } = useGoalsStore();
+  const { goals, isLoading, fetchGoals } = useGoalsStore();
   const theme = useTheme();
   const styles = makeStyles(theme);
-  const activeGoals = goals.filter((g) => g.status === GoalStatus.ACTIVE);
 
-  useEffect(() => { fetchGoals(); }, []);
+  const activeGoals = goals.filter((g) => g.status === GoalStatus.ACTIVE);
+  const pausedGoals = goals.filter((g) => g.status === GoalStatus.PAUSED);
+  const completedGoals = goals.filter((g) => g.status === GoalStatus.COMPLETED);
+
+  useEffect(() => { void fetchGoals(); }, []);
+
+  const handleRefresh = useCallback(() => { void fetchGoals(); }, [fetchGoals]);
+
+  const items: ListItem[] = [
+    { type: 'stats' },
+  ];
+
+  if (activeGoals.length > 0) {
+    items.push({ type: 'section', label: 'ACTIVE' });
+    activeGoals.forEach((g) => items.push({ type: 'goal', goal: g }));
+  }
+  if (pausedGoals.length > 0) {
+    items.push({ type: 'section', label: 'PAUSED' });
+    pausedGoals.forEach((g) => items.push({ type: 'goal', goal: g }));
+  }
+  if (completedGoals.length > 0) {
+    items.push({ type: 'section', label: 'COMPLETED' });
+    completedGoals.forEach((g) => items.push({ type: 'goal', goal: g }));
+  }
+  if (goals.length === 0 && !isLoading) {
+    items.push({ type: 'empty' });
+  }
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.heading}>Goals</Text>
-          <Text style={styles.subheading}>{activeGoals.length} active</Text>
-        </View>
-      </View>
+      <FlatList
+        data={items}
+        keyExtractor={(item, i) =>
+          item.type === 'goal' ? item.goal.id : `${item.type}-${i}`
+        }
+        contentContainerStyle={styles.listContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={isLoading}
+            onRefresh={handleRefresh}
+            tintColor={Colors.accent}
+          />
+        }
+        renderItem={({ item }) => {
+          if (item.type === 'stats') {
+            return (
+              <View style={styles.statsRow}>
+                <View style={styles.statCard}>
+                  <Text style={styles.statValue}>{activeGoals.length}</Text>
+                  <Text style={styles.statLabel}>Active</Text>
+                </View>
+                <View style={styles.statCard}>
+                  <Text style={styles.statValue}>
+                    {Math.round(
+                      activeGoals.reduce((s, g) => s + g.progressScore, 0) /
+                        Math.max(activeGoals.length, 1),
+                    )}%
+                  </Text>
+                  <Text style={styles.statLabel}>Avg Progress</Text>
+                </View>
+                <View style={styles.statCard}>
+                  <Text style={styles.statValue}>
+                    {activeGoals.reduce(
+                      (s, g) => s + g.milestones.filter((m) => m.completedAt).length,
+                      0,
+                    )}
+                  </Text>
+                  <Text style={styles.statLabel}>Milestones Hit</Text>
+                </View>
+              </View>
+            );
+          }
+          if (item.type === 'section') {
+            return <Text style={styles.sectionLabel}>{item.label}</Text>;
+          }
+          if (item.type === 'goal') {
+            return <GoalCard goal={item.goal} />;
+          }
+          if (item.type === 'empty') {
+            return (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyIcon}>🎯</Text>
+                <Text style={styles.emptyTitle}>No goals yet</Text>
+                <Text style={styles.emptySubtitle}>
+                  Add your first goal and let AI build a personalised plan for you.
+                </Text>
+                <TouchableOpacity
+                  style={styles.emptyBtn}
+                  onPress={() => router.push('/goal-setup')}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.emptyBtnText}>Create first goal</Text>
+                </TouchableOpacity>
+              </View>
+            );
+          }
+          return null;
+        }}
+      />
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
-        <View style={styles.statsRow}>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>{activeGoals.length}</Text>
-            <Text style={styles.statLabel}>Active Goals</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>
-              {Math.round(activeGoals.reduce((sum, g) => sum + g.progressScore, 0) / Math.max(activeGoals.length, 1))}%
-            </Text>
-            <Text style={styles.statLabel}>Avg Progress</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>
-              {activeGoals.reduce((sum, g) => sum + g.milestones.filter((m) => m.completedAt).length, 0)}
-            </Text>
-            <Text style={styles.statLabel}>Milestones Hit</Text>
-          </View>
-        </View>
-
-        <View style={styles.goalsList}>
-          <Text style={styles.sectionLabel}>ACTIVE</Text>
-          {activeGoals.map((goal) => (
-            <GoalCard key={goal.id} goal={goal} />
-          ))}
-        </View>
-
-        <View style={styles.spacer} />
-      </ScrollView>
-
-      {/* FAB */}
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={() => router.push('/goal-setup')}
-        activeOpacity={0.85}
-      >
-        <Text style={styles.fabIcon}>+</Text>
-      </TouchableOpacity>
+      {goals.length > 0 && (
+        <TouchableOpacity
+          style={styles.fab}
+          onPress={() => router.push('/goal-setup')}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.fabIcon}>+</Text>
+        </TouchableOpacity>
+      )}
     </SafeAreaView>
   );
 }

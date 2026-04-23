@@ -106,7 +106,13 @@ export default function AgentChatScreen() {
 
       {/* Header */}
       <View style={s.header}>
-        <AgentAvatar name={name} size={40} />
+        <TouchableOpacity
+          onPress={() => router.push(`/(auth)/(drawer)/agents/${name}` as any)}
+          activeOpacity={0.8}
+          hitSlop={8}
+        >
+          <AgentAvatar name={name} size={40} />
+        </TouchableOpacity>
         <View style={s.headerInfo}>
           <Text style={s.agentTitle}>{name}</Text>
           <TouchableOpacity onPress={() => setShowModelPicker(true)} activeOpacity={0.7} style={s.modelRow}>

@@ -5,9 +5,12 @@ import type { User, Goal, DailyBrief, AgentAction } from '@lyfestack/shared';
 
 const API_BASE_KEY = '@lyfestack_api_base';
 const AUTH_TOKEN_KEY = 'lyfestack_auth_token';
+const REFRESH_TOKEN_KEY = 'lyfestack_refresh_token';
 
 let cachedBase: string | null = null;
 let cachedToken: string | null = null;
+let cachedRefreshToken: string | null = null;
+let refreshPromise: Promise<boolean> | null = null;
 
 type UnauthorizedHandler = () => void;
 let unauthorizedHandler: UnauthorizedHandler | null = null;
@@ -67,6 +70,53 @@ export async function setAuthToken(token: string | null): Promise<void> {
   } catch { /* best-effort */ }
 }
 
+export async function getRefreshToken(): Promise<string | null> {
+  if (cachedRefreshToken !== null) return cachedRefreshToken;
+  try {
+    cachedRefreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+  } catch {
+    cachedRefreshToken = null;
+  }
+  return cachedRefreshToken;
+}
+
+export async function setRefreshToken(token: string | null): Promise<void> {
+  cachedRefreshToken = token;
+  try {
+    if (token) {
+      await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, token);
+    } else {
+      await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
+    }
+  } catch { /* best-effort */ }
+}
+
+async function tryRefreshSession(): Promise<boolean> {
+  if (refreshPromise) return refreshPromise;
+  refreshPromise = (async () => {
+    try {
+      const rt = await getRefreshToken();
+      if (!rt) return false;
+      const base = await getApiBase();
+      const res = await fetch(`${base}/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: rt }),
+      });
+      if (!res.ok) return false;
+      const { data } = await res.json() as { data: { accessToken: string; refreshToken: string } };
+      await setAuthToken(data.accessToken);
+      await setRefreshToken(data.refreshToken);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+  return refreshPromise;
+}
+
 export interface RequestOptions {
   method?: string;
   body?: unknown;
@@ -95,14 +145,24 @@ export async function request<T>(path: string, options?: RequestOptions): Promis
       : JSON.stringify(options.body);
   }
 
-  const res = await fetch(`${base}${path}`, fetchOptions);
+  let res = await fetch(`${base}${path}`, fetchOptions);
 
-  if (res.status === 401 && !skipAuth && !handlingUnauthorized) {
-    handlingUnauthorized = true;
-    cachedToken = null;
-    await setAuthToken(null).catch(() => {});
-    unauthorizedHandler?.();
-    handlingUnauthorized = false;
+  if (res.status === 401 && !skipAuth) {
+    const refreshed = await tryRefreshSession();
+    if (refreshed) {
+      const newToken = await getAuthToken();
+      if (newToken) fetchOptions.headers = { ...(fetchOptions.headers as Record<string, string>), Authorization: `Bearer ${newToken}` };
+      res = await fetch(`${base}${path}`, fetchOptions);
+    }
+    if (res.status === 401 && !handlingUnauthorized) {
+      handlingUnauthorized = true;
+      cachedToken = null;
+      cachedRefreshToken = null;
+      await setAuthToken(null).catch(() => {});
+      await setRefreshToken(null).catch(() => {});
+      unauthorizedHandler?.();
+      handlingUnauthorized = false;
+    }
   }
 
   if (!res.ok) {

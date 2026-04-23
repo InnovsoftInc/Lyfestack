@@ -136,9 +136,22 @@ export const openclawApi = {
   getUsageByAgent: () => request('/usage/by-agent'),
   getUsageByModel: () => request('/usage/by-model'),
 
-  // Config
-  getConfig: () => request('/config'),
-  updateConfig: (updates: Record<string, unknown>) => request('/config', { method: 'PATCH', body: JSON.stringify(updates) }),
-  getAuthProfiles: () => request('/auth-profiles'),
-  updateAuthProfile: (name: string, key: string) => request(`/auth-profiles/${encodeURIComponent(name)}`, { method: 'PATCH', body: JSON.stringify({ key }) }),
+  // Automations
+  listAutomations: () => request('/automations'),
+  createAutomation: (data: {
+    name: string;
+    agentName: string;
+    cronExpression: string;
+    scheduleLabel: string;
+    message: string;
+    enabled: boolean;
+  }) => request('/automations', { method: 'POST', body: JSON.stringify(data) }),
+  deleteAutomation: (id: string) => request(`/automations/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  toggleAutomation: (id: string, enabled: boolean) =>
+    request(`/automations/${encodeURIComponent(id)}/toggle`, {
+      method: 'PATCH',
+      body: JSON.stringify({ enabled }),
+    }),
+  runAutomationNow: (id: string) =>
+    request(`/automations/${encodeURIComponent(id)}/run`, { method: 'POST' }),
 };

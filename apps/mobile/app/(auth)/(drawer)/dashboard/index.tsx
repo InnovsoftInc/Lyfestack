@@ -10,12 +10,14 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, router } from 'expo-router';
+import { DrawerActions } from '@react-navigation/native';
 import { useTheme } from '../../../../hooks/useTheme';
 import type { Theme } from '../../../../theme/colors';
 import { TextStyles, Spacing, BorderRadius } from '../../../../theme';
 import { Colors } from '@lyfestack/shared';
 import { useBriefStore } from '../../../../stores/brief.store';
 import { useOpenClawStore } from '../../../../stores/openclaw.store';
+import { useAuthStore } from '../../../../stores/auth.store';
 import type { BriefTask } from '../../../../services/briefs.api';
 
 const TASK_TYPE_ICON: Record<string, string> = {
@@ -40,29 +42,58 @@ function makeStyles(theme: Theme) {
     loadingText: {
       ...TextStyles.body,
       color: theme.text.secondary,
-      lineHeight: 26,
-      backgroundColor: theme.surface,
-      borderRadius: BorderRadius.md,
-      padding: Spacing.md,
-      borderWidth: 1,
-      borderColor: theme.border,
     },
-    list: {
-      paddingBottom: Spacing['2xl'],
-    },
+    list: { paddingBottom: Spacing['2xl'] },
     header: {
       padding: Spacing.lg,
       paddingBottom: Spacing.md,
     },
+    headerTop: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: Spacing.xs,
+    },
     greeting: {
       ...TextStyles.h2,
       color: theme.text.primary,
-      marginBottom: Spacing.xs,
+      flex: 1,
     },
+    profileBtn: {
+      width: 38,
+      height: 38,
+      borderRadius: 19,
+      backgroundColor: Colors.accent,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    profileInitial: { ...TextStyles.bodyMedium, color: Colors.white, fontWeight: '700' },
     summary: {
       ...TextStyles.body,
       color: theme.text.secondary,
       marginBottom: Spacing.md,
+    },
+    streakRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.sm,
+      marginBottom: Spacing.md,
+      backgroundColor: theme.surface,
+      borderRadius: BorderRadius.md,
+      padding: Spacing.sm,
+      borderWidth: 1,
+      borderColor: theme.border,
+      alignSelf: 'flex-start',
+    },
+    streakText: {
+      ...TextStyles.small,
+      color: theme.text.secondary,
+      fontWeight: '600',
+    },
+    streakCount: {
+      ...TextStyles.bodyMedium,
+      color: Colors.accent,
+      fontWeight: '700',
     },
     progressRow: {
       flexDirection: 'row',
@@ -94,6 +125,8 @@ function makeStyles(theme: Theme) {
       padding: Spacing.md,
       marginBottom: Spacing.md,
       gap: Spacing.xs,
+      borderWidth: 1,
+      borderColor: theme.border,
     },
     insightText: {
       ...TextStyles.small,
@@ -117,40 +150,14 @@ function makeStyles(theme: Theme) {
       borderWidth: 1,
       borderColor: theme.border,
     },
-    taskCardDone: {
-      opacity: 0.5,
-    },
-    taskRow: {
-      flexDirection: 'row',
-      alignItems: 'flex-start',
-      gap: Spacing.sm,
-    },
-    taskIcon: {
-      fontSize: 20,
-      marginTop: 2,
-      width: 28,
-    },
-    taskBody: {
-      flex: 1,
-    },
-    taskTitle: {
-      ...TextStyles.bodyMedium,
-      color: theme.text.primary,
-      marginBottom: 2,
-    },
-    taskTitleDone: {
-      textDecorationLine: 'line-through',
-      color: theme.text.secondary,
-    },
-    taskDesc: {
-      ...TextStyles.small,
-      color: theme.text.secondary,
-      marginBottom: Spacing.xs,
-    },
-    taskMeta: {
-      flexDirection: 'row',
-      gap: Spacing.xs,
-    },
+    taskCardDone: { opacity: 0.5 },
+    taskRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm },
+    taskIcon: { fontSize: 20, marginTop: 2, width: 28 },
+    taskBody: { flex: 1 },
+    taskTitle: { ...TextStyles.bodyMedium, color: theme.text.primary, marginBottom: 2 },
+    taskTitleDone: { textDecorationLine: 'line-through', color: theme.text.secondary },
+    taskDesc: { ...TextStyles.small, color: theme.text.secondary, marginBottom: Spacing.xs },
+    taskMeta: { flexDirection: 'row', gap: Spacing.xs },
     metaChip: {
       ...TextStyles.caption,
       color: theme.text.secondary,
@@ -180,27 +187,23 @@ function makeStyles(theme: Theme) {
       alignItems: 'center',
       alignSelf: 'flex-start',
     },
-    completedText: {
-      color: Colors.white,
-      fontWeight: '700',
-      fontSize: 14,
-    },
+    completedText: { color: Colors.white, fontWeight: '700', fontSize: 14 },
     emptyTasks: {
       alignItems: 'center',
       padding: Spacing.xl,
       gap: Spacing.sm,
     },
-    emptyEmoji: {
-      fontSize: 40,
+    emptyEmoji: { fontSize: 48 },
+    emptyTitle: { ...TextStyles.h3, color: theme.text.primary },
+    emptySubtitle: { ...TextStyles.body, color: theme.text.secondary, textAlign: 'center' },
+    emptyAction: {
+      marginTop: Spacing.sm,
+      backgroundColor: Colors.accent,
+      paddingHorizontal: Spacing.xl,
+      paddingVertical: 12,
+      borderRadius: BorderRadius.full,
     },
-    emptyTitle: {
-      ...TextStyles.h3,
-      color: theme.text.primary,
-    },
-    emptySubtitle: {
-      ...TextStyles.body,
-      color: theme.text.secondary,
-    },
+    emptyActionText: { ...TextStyles.bodyMedium, color: Colors.white },
     retryButton: {
       paddingVertical: Spacing.sm,
       paddingHorizontal: Spacing.lg,
@@ -208,29 +211,25 @@ function makeStyles(theme: Theme) {
       borderWidth: 1,
       borderColor: theme.border,
     },
-    retryText: {
-      ...TextStyles.button,
-      color: theme.text.secondary,
+    retryText: { ...TextStyles.button, color: theme.text.secondary },
+    errorText: { ...TextStyles.body, color: theme.error, textAlign: 'center' },
+    connectionBanner: {
+      marginHorizontal: Spacing.lg,
+      marginBottom: Spacing.sm,
+      padding: Spacing.sm,
+      borderRadius: BorderRadius.md,
+      backgroundColor: Colors.accent + '15',
+      borderWidth: 1,
+      borderColor: Colors.accent + '44',
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.sm,
     },
-    errorText: {
-      ...TextStyles.body,
-      color: theme.error,
-      textAlign: 'center',
-    },
-    chatIcon: {
-      fontSize: 22,
-      marginRight: Spacing.md,
-    },
+    connectionText: { ...TextStyles.small, color: Colors.accent, flex: 1 },
   });
 }
 
-function TaskCard({
-  task,
-  onComplete,
-}: {
-  task: BriefTask;
-  onComplete: (id: string) => void;
-}) {
+function TaskCard({ task, onComplete }: { task: BriefTask; onComplete: (id: string) => void }) {
   const theme = useTheme();
   const styles = makeStyles(theme);
   const isComplete = task.status === 'COMPLETED' || task.completedAt != null;
@@ -277,32 +276,30 @@ function TaskCard({
 export default function DashboardScreen() {
   const { brief, isLoading, error, fetchTodayBrief, completeTask } = useBriefStore();
   const { agents, connectionStatus } = useOpenClawStore();
+  const { user } = useAuthStore();
   const theme = useTheme();
   const styles = makeStyles(theme);
   const navigation = useNavigation();
 
   const firstAgent = agents[0];
+  const initial = (user?.displayName ?? 'U').charAt(0).toUpperCase();
 
   useLayoutEffect(() => {
     navigation.setOptions({
       headerRight: () => (
         <TouchableOpacity
-          onPress={() => {
-            if (firstAgent) {
-              router.push(`/(auth)/(drawer)/agents/${firstAgent.name}/chat` as any);
-            }
-          }}
+          onPress={() => navigation.dispatch(DrawerActions.openDrawer())}
           hitSlop={10}
-          activeOpacity={firstAgent ? 0.7 : 0.3}
-          disabled={!firstAgent || connectionStatus !== 'connected'}
+          activeOpacity={0.8}
+          style={{ marginRight: Spacing.md }}
         >
-          <Text style={[styles.chatIcon, (!firstAgent || connectionStatus !== 'connected') && { opacity: 0.3 }]}>
-            💬
-          </Text>
+          <View style={styles.profileBtn}>
+            <Text style={styles.profileInitial}>{initial}</Text>
+          </View>
         </TouchableOpacity>
       ),
     });
-  }, [navigation, styles, firstAgent, connectionStatus]);
+  }, [navigation, styles, initial]);
 
   useEffect(() => {
     void fetchTodayBrief();
@@ -348,6 +345,7 @@ export default function DashboardScreen() {
     (t) => t.status === 'COMPLETED' || t.completedAt != null,
   ).length ?? 0;
   const totalCount = brief?.tasks.length ?? 0;
+  const allDone = totalCount > 0 && completedCount === totalCount;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -363,40 +361,57 @@ export default function DashboardScreen() {
           />
         }
         ListHeaderComponent={
-          <View style={styles.header}>
-            <Text style={styles.greeting}>{brief?.greeting ?? 'Good morning'}</Text>
-            <Text style={styles.summary}>{brief?.summary ?? 'Pull down to load your brief.'}</Text>
+          <>
+            {/* OpenClaw connection nudge */}
+            {connectionStatus !== 'connected' && agents.length === 0 && (
+              <TouchableOpacity
+                style={styles.connectionBanner}
+                onPress={() => router.push('/(auth)/connect-openclaw')}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.connectionText}>
+                  Connect to your Mac to enable AI agents ›
+                </Text>
+              </TouchableOpacity>
+            )}
 
-            {totalCount > 0 && (
-              <View style={styles.progressRow}>
-                <View style={styles.progressBar}>
-                  <View
-                    style={[
-                      styles.progressFill,
-                      { width: `${totalCount > 0 ? (completedCount / totalCount) * 100 : 0}%` },
-                    ]}
-                  />
-                </View>
-                <Text style={styles.progressLabel}>
-                  {completedCount}/{totalCount} done
+            <View style={styles.header}>
+              <View style={styles.headerTop}>
+                <Text style={styles.greeting} numberOfLines={1}>
+                  {brief?.greeting ?? `Good morning${user?.displayName ? `, ${user.displayName.split(' ')[0]}` : ''}`}
                 </Text>
               </View>
-            )}
+              <Text style={styles.summary}>{brief?.summary ?? 'Pull down to load your brief.'}</Text>
 
-            {brief?.insights && brief.insights.length > 0 && (
-              <View style={styles.insightsBox}>
-                {brief.insights.map((insight, i) => (
-                  <Text key={i} style={styles.insightText}>
-                    💡 {insight}
+              {totalCount > 0 && (
+                <View style={styles.progressRow}>
+                  <View style={styles.progressBar}>
+                    <View
+                      style={[
+                        styles.progressFill,
+                        { width: `${(completedCount / totalCount) * 100}%` },
+                      ]}
+                    />
+                  </View>
+                  <Text style={styles.progressLabel}>
+                    {completedCount}/{totalCount} done
                   </Text>
-                ))}
-              </View>
-            )}
+                </View>
+              )}
 
-            {totalCount > 0 && (
-              <Text style={styles.sectionLabel}>Today's Tasks</Text>
-            )}
-          </View>
+              {brief?.insights && brief.insights.length > 0 && (
+                <View style={styles.insightsBox}>
+                  {brief.insights.map((insight, i) => (
+                    <Text key={i} style={styles.insightText}>💡 {insight}</Text>
+                  ))}
+                </View>
+              )}
+
+              {totalCount > 0 && (
+                <Text style={styles.sectionLabel}>Today's Tasks</Text>
+              )}
+            </View>
+          </>
         }
         renderItem={({ item }) => (
           <TaskCard task={item} onComplete={handleComplete} />
@@ -404,9 +419,22 @@ export default function DashboardScreen() {
         ListEmptyComponent={
           !isLoading ? (
             <View style={styles.emptyTasks}>
-              <Text style={styles.emptyEmoji}>🎉</Text>
-              <Text style={styles.emptyTitle}>All clear!</Text>
-              <Text style={styles.emptySubtitle}>No tasks scheduled today.</Text>
+              <Text style={styles.emptyEmoji}>{allDone ? '🎉' : '✨'}</Text>
+              <Text style={styles.emptyTitle}>{allDone ? 'All done!' : 'Clear day'}</Text>
+              <Text style={styles.emptySubtitle}>
+                {allDone
+                  ? 'Every task is complete. Great work today.'
+                  : 'No tasks scheduled. Add a goal to get started.'}
+              </Text>
+              {!allDone && (
+                <TouchableOpacity
+                  style={styles.emptyAction}
+                  onPress={() => router.push('/goal-setup')}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.emptyActionText}>Add a goal</Text>
+                </TouchableOpacity>
+              )}
             </View>
           ) : null
         }

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { User } from '@lyfestack/shared';
-import { authApi, setAuthToken, getAuthToken, registerUnauthorizedHandler } from '../services/api';
+import { authApi, setAuthToken, getAuthToken, setRefreshToken, getRefreshToken, registerUnauthorizedHandler } from '../services/api';
 
 interface AuthState {
   user: User | null;
@@ -35,6 +35,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         return;
       }
       await setAuthToken(result.accessToken);
+      await setRefreshToken(result.refreshToken);
       set({ user: result.user, isAuthenticated: true, authToken: result.accessToken, isLoading: false });
     } catch (err: any) {
       set({ isLoading: false, error: err.message ?? 'Sign up failed' });
@@ -47,6 +48,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       const result = await authApi.login(email, password);
       await setAuthToken(result.accessToken);
+      await setRefreshToken(result.refreshToken);
       set({ user: result.user, isAuthenticated: true, authToken: result.accessToken, isLoading: false });
     } catch (err: any) {
       set({ isLoading: false, error: err.message ?? 'Login failed' });
@@ -61,6 +63,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       // Best-effort server-side logout
     }
     await setAuthToken(null);
+    await setRefreshToken(null);
     set({ user: null, isAuthenticated: false, authToken: null });
   },
 
@@ -75,6 +78,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       set({ user, isAuthenticated: true, authToken: token, isRestoring: false });
     } catch {
       await setAuthToken(null);
+      await setRefreshToken(null);
       set({ user: null, isAuthenticated: false, authToken: null, isRestoring: false });
     }
   },
@@ -85,5 +89,6 @@ export const useAuthStore = create<AuthState>((set) => ({
 
 registerUnauthorizedHandler(async () => {
   await setAuthToken(null);
+  await setRefreshToken(null);
   useAuthStore.setState({ user: null, isAuthenticated: false, authToken: null });
 });

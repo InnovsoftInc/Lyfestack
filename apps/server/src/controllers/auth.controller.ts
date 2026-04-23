@@ -49,6 +49,19 @@ export class AuthController {
     }
   };
 
+  refresh = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    const { refreshToken } = req.body ?? {};
+    if (!refreshToken || typeof refreshToken !== 'string') {
+      return next(new ValidationError('refreshToken is required'));
+    }
+    try {
+      const result = await this.authService.refreshSession(refreshToken);
+      res.status(200).json({ data: result });
+    } catch (err) {
+      next(err);
+    }
+  };
+
   logout = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     const token = req.headers.authorization?.slice(7) ?? '';
     try {
