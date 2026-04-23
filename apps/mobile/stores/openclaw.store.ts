@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { openclawApi, tryConnect, autoDiscover } from '../services/openclaw.api';
+import { openclawApi, tryConnect, autoDiscover, streamAgentMessage } from '../services/openclaw.api';
 
 interface Agent {
   name: string;
@@ -12,6 +12,15 @@ interface Agent {
 
 export type ChatErrorType = 'billing' | 'rate_limit' | 'all_failed' | 'generic';
 
+export interface ChatAttachment {
+  id: string;
+  name: string;
+  type: 'text' | 'image' | 'file';
+  uri: string;
+  mimeType: string;
+  size: number;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'agent';
@@ -19,6 +28,8 @@ export interface ChatMessage {
   timestamp: string;
   isError?: boolean;
   errorType?: ChatErrorType;
+  streaming?: boolean;
+  attachments?: ChatAttachment[];
 }
 
 function classifyError(msg: string): ChatErrorType {
@@ -38,12 +49,15 @@ interface OpenClawStore {
   connectionError: string | null;
   agents: Agent[];
   activeChat: { agentName: string; messages: ChatMessage[] } | null;
+  streamAbort: AbortController | null;
   connect: () => Promise<void>;
   reconnect: () => Promise<void>;
   fetchAgents: () => Promise<void>;
   createAgent: (config: { name: string; role: string; model: string; systemPrompt: string }) => Promise<void>;
   deleteAgent: (name: string) => Promise<void>;
   sendMessage: (agentName: string, message: string) => Promise<void>;
+  sendMessageStream: (agentName: string, message: string, attachments?: ChatAttachment[]) => Promise<void>;
+  abortStream: () => void;
   openChat: (agentName: string) => void;
   closeChat: () => void;
   loadChatHistory: (agentName: string, messages: ChatMessage[]) => void;
@@ -69,6 +83,7 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
   connectionError: null,
   agents: [],
   activeChat: null,
+  streamAbort: null,
 
   connect: async () => {
     if (get().connectionStatus === 'connecting') {
@@ -181,6 +196,119 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
           ? { ...s.activeChat, messages: [...s.activeChat.messages, errMsg] }
           : null,
       }));
+    }
+  },
+
+  sendMessageStream: async (agentName, message, attachments) => {
+    // Build full message: prepend any text attachments as context blocks
+    let fullMessage = message;
+    const textAttachments = attachments?.filter((a) => a.type === 'text') ?? [];
+    if (textAttachments.length > 0) {
+      const context = textAttachments
+        .map((a) => `<context file="${a.name}">\n${a.uri}\n</context>`)
+        .join('\n\n');
+      fullMessage = `${context}\n\n${message}`;
+    }
+
+    const userMsg: ChatMessage = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: message,
+      timestamp: new Date().toISOString(),
+      ...(attachments?.length && { attachments }),
+    };
+    set((s) => ({
+      activeChat: s.activeChat
+        ? { ...s.activeChat, messages: [...s.activeChat.messages, userMsg] }
+        : { agentName, messages: [userMsg] },
+    }));
+
+    const agentMsgId = (Date.now() + 1).toString();
+    const placeholder: ChatMessage = {
+      id: agentMsgId,
+      role: 'agent',
+      content: '',
+      timestamp: new Date().toISOString(),
+      streaming: true,
+    };
+    set((s) => ({
+      activeChat: s.activeChat
+        ? { ...s.activeChat, messages: [...s.activeChat.messages, placeholder] }
+        : null,
+    }));
+
+    const abort = new AbortController();
+    set({ streamAbort: abort });
+
+    log('sendMessageStream()', { agentName });
+    await streamAgentMessage(
+      agentName,
+      fullMessage,
+      (chunk) => {
+        set((s) => {
+          if (!s.activeChat) return s;
+          return {
+            activeChat: {
+              ...s.activeChat,
+              messages: s.activeChat.messages.map((m) =>
+                m.id === agentMsgId ? { ...m, content: m.content + chunk } : m,
+              ),
+            },
+          };
+        });
+      },
+      (response) => {
+        set((s) => {
+          if (!s.activeChat) return s;
+          return {
+            streamAbort: null,
+            activeChat: {
+              ...s.activeChat,
+              messages: s.activeChat.messages.map((m) =>
+                m.id === agentMsgId ? { ...m, content: response, streaming: false } : m,
+              ),
+            },
+          };
+        });
+      },
+      (err) => {
+        log('sendMessageStream() error', err.message);
+        const rawMsg = err.message ?? 'Stream failed';
+        set((s) => {
+          if (!s.activeChat) return s;
+          return {
+            streamAbort: null,
+            activeChat: {
+              ...s.activeChat,
+              messages: s.activeChat.messages.map((m) =>
+                m.id === agentMsgId
+                  ? { ...m, content: rawMsg, streaming: false, isError: true, errorType: classifyError(rawMsg) }
+                  : m,
+              ),
+            },
+          };
+        });
+      },
+      abort.signal,
+    );
+  },
+
+  abortStream: () => {
+    const { streamAbort } = get();
+    if (streamAbort) {
+      streamAbort.abort();
+      set((s) => {
+        if (!s.activeChat) return { streamAbort: null };
+        return {
+          streamAbort: null,
+          activeChat: {
+            ...s.activeChat,
+            messages: s.activeChat.messages.map((m) =>
+              m.streaming ? { ...m, streaming: false } : m,
+            ),
+          },
+        };
+      });
     }
   },
 

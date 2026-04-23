@@ -1,15 +1,18 @@
 import {
   View, Text, StyleSheet, TextInput, TouchableOpacity,
-  FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, Modal, ScrollView,
+  FlatList, KeyboardAvoidingView, Platform, ActivityIndicator,
+  Modal, ScrollView, useColorScheme,
 } from 'react-native';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import MarkedBase from 'react-native-marked';
+const Marked = MarkedBase as any;
 import { useOpenClawStore } from '../../../../../stores/openclaw.store';
-import type { ChatErrorType } from '../../../../../stores/openclaw.store';
+import type { ChatErrorType, ChatAttachment } from '../../../../../stores/openclaw.store';
 import { openclawApi } from '../../../../../services/openclaw.api';
 import { useTheme } from '../../../../../hooks/useTheme';
-import { Spacing } from '../../../../../theme';
+import { Spacing, BorderRadius } from '../../../../../theme';
 import type { Theme } from '../../../../../theme';
 import { AgentAvatar } from '../index';
 
@@ -49,11 +52,9 @@ const ERROR_META: Record<ChatErrorType, { icon: string; title: string; body: str
 function ErrorBadge({ type, rawMessage, theme }: { type: ChatErrorType; rawMessage: string; theme: Theme }) {
   const meta = ERROR_META[type];
   const isKnown = type !== 'generic';
-  const bg = theme.error + '12';
-  const border = theme.error + '40';
   return (
     <View style={{ alignSelf: 'flex-start', maxWidth: '88%', marginBottom: 8 }}>
-      <View style={{ backgroundColor: bg, borderWidth: 1, borderColor: border, borderRadius: 14, borderBottomLeftRadius: 4, padding: 12, gap: 4 }}>
+      <View style={{ backgroundColor: theme.error + '12', borderWidth: 1, borderColor: theme.error + '40', borderRadius: 14, borderBottomLeftRadius: 4, padding: 12, gap: 4 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <Text style={{ fontSize: 15 }}>{meta.icon}</Text>
           <Text style={{ color: theme.error, fontSize: 13, fontWeight: '700' }}>{meta.title}</Text>
@@ -70,38 +71,95 @@ function ErrorBadge({ type, rawMessage, theme }: { type: ChatErrorType; rawMessa
   );
 }
 
+function AttachmentChip({ attachment, onRemove, theme }: { attachment: ChatAttachment; onRemove: () => void; theme: Theme }) {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: theme.accent + '18', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 4, gap: 4, borderWidth: 1, borderColor: theme.accent + '40' }}>
+      <Text style={{ fontSize: 12 }}>{attachment.type === 'image' ? '🖼' : '📄'}</Text>
+      <Text style={{ color: theme.accent, fontSize: 11, fontWeight: '600', maxWidth: 120 }} numberOfLines={1}>{attachment.name}</Text>
+      <TouchableOpacity onPress={onRemove} hitSlop={6}>
+        <Text style={{ color: theme.text.secondary, fontSize: 13 }}>✕</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+function AgentBubble({ content, streaming, theme, colorScheme }: { content: string; streaming?: boolean; theme: Theme; colorScheme: 'light' | 'dark' }) {
+  const markdownTheme = {
+    code: { backgroundColor: theme.background, color: theme.text.primary, borderRadius: BorderRadius.sm, padding: 8, fontFamily: 'Courier', fontSize: 12 },
+    codespan: { backgroundColor: theme.background, color: theme.accent, fontFamily: 'Courier', fontSize: 13 },
+    heading1: { color: theme.text.primary, fontSize: 18, fontWeight: '700' as const, marginTop: 8, marginBottom: 4 },
+    heading2: { color: theme.text.primary, fontSize: 15, fontWeight: '700' as const, marginTop: 6, marginBottom: 2 },
+    heading3: { color: theme.text.primary, fontSize: 13, fontWeight: '700' as const, marginTop: 4 },
+    paragraph: { color: theme.text.primary, fontSize: 15, lineHeight: 21, marginBottom: 4 },
+    strong: { color: theme.text.primary, fontWeight: '700' as const },
+    em: { color: theme.text.primary, fontStyle: 'italic' as const },
+    link: { color: theme.accent },
+    blockquote: { backgroundColor: theme.background, borderLeftColor: theme.accent, borderLeftWidth: 3, paddingLeft: Spacing.sm, paddingVertical: 2, marginVertical: 2 },
+    hr: { backgroundColor: theme.border, height: StyleSheet.hairlineWidth, marginVertical: Spacing.sm },
+    li: { color: theme.text.primary, fontSize: 15, lineHeight: 21 },
+    table: { borderColor: theme.border },
+    th: { backgroundColor: theme.background, color: theme.text.primary, fontWeight: '700' as const, padding: 4, fontSize: 13 },
+    td: { color: theme.text.primary, padding: 4, fontSize: 13 },
+    image: {},
+    text: { color: theme.text.primary },
+  };
+
+  return (
+    <View style={{ alignSelf: 'flex-start', maxWidth: '88%', backgroundColor: theme.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border, borderRadius: 20, borderBottomLeftRadius: 6, marginBottom: Spacing.sm, overflow: 'hidden' }}>
+      {streaming && content.length === 0 ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, padding: 12 }}>
+          <ActivityIndicator size="small" color={theme.text.secondary} />
+          <Text style={{ color: theme.text.secondary, fontSize: 13 }}>thinking...</Text>
+        </View>
+      ) : (
+        <Marked
+          value={content || ' '}
+          flatListProps={{
+            scrollEnabled: false,
+            contentContainerStyle: { paddingHorizontal: 14, paddingVertical: 10 },
+            style: { backgroundColor: 'transparent' },
+          } as any}
+          theme={markdownTheme as any}
+          colorScheme={colorScheme}
+        />
+      )}
+      {streaming && content.length > 0 && (
+        <View style={{ width: 6, height: 14, backgroundColor: theme.accent, marginLeft: 14, marginBottom: 10, borderRadius: 1 }} />
+      )}
+    </View>
+  );
+}
+
 export default function AgentChatScreen() {
   const { name } = useLocalSearchParams<{ name: string }>();
   const theme = useTheme();
+  const colorScheme = (useColorScheme() ?? 'dark') as 'light' | 'dark';
   const s = styles(theme);
-  const { activeChat, openChat, sendMessage, agents } = useOpenClawStore();
+  const { activeChat, openChat, sendMessageStream, abortStream, streamAbort, agents } = useOpenClawStore();
   const [input, setInput] = useState('');
-  const [sending, setSending] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [currentModel, setCurrentModel] = useState('');
   const [fallbackModels, setFallbackModels] = useState<string[]>([]);
   const [changingModel, setChangingModel] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [showFilePicker, setShowFilePicker] = useState(false);
+  const [workspaceFiles, setWorkspaceFiles] = useState<Array<{ filename: string; preview: string }>>([]);
+  const [loadingFiles, setLoadingFiles] = useState(false);
+  const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
   const listRef = useRef<FlatList>(null);
-
   const insets = useSafeAreaInsets();
   const agent = agents.find((a) => a.name === name);
+  const isStreaming = !!streamAbort;
 
-  // Load agent details (model + fallbacks) and chat history
   useEffect(() => {
     openChat(name);
-    // Load agent model info
     openclawApi.getAgent(name).then((res: any) => {
       setCurrentModel(res.data?.model ?? 'openrouter/auto');
       setFallbackModels(res.data?.fallbackModels ?? []);
     }).catch(() => {});
-    // Load chat history from OpenClaw sessions
     setLoadingHistory(true);
     openclawApi.listSessions(10).then((res: any) => {
-      const agentSessions = (res.data ?? []).filter((s: any) =>
-        s.agentId === name || s.label?.includes(name)
-      );
-      // Load messages from most recent session
+      const agentSessions = (res.data ?? []).filter((s: any) => s.agentId === name || s.label?.includes(name));
       if (agentSessions.length > 0) {
         openclawApi.getSession(agentSessions[0].key).then((sessionRes: any) => {
           const history = (sessionRes.data?.messages ?? []).map((m: any, i: number) => ({
@@ -110,9 +168,7 @@ export default function AgentChatScreen() {
             content: m.content,
             timestamp: m.timestamp ?? new Date().toISOString(),
           }));
-          if (history.length > 0) {
-            useOpenClawStore.getState().loadChatHistory(name, history);
-          }
+          if (history.length > 0) useOpenClawStore.getState().loadChatHistory(name, history);
         }).catch(() => {});
       }
     }).catch(() => {}).finally(() => setLoadingHistory(false));
@@ -124,20 +180,46 @@ export default function AgentChatScreen() {
       await openclawApi.updateAgent(name, { model });
       setCurrentModel(model);
       setShowModelPicker(false);
-    } catch {} finally {
-      setChangingModel(false);
-    }
+    } catch {} finally { setChangingModel(false); }
   };
 
-  const handleSend = async () => {
-    if (!input.trim() || sending) return;
-    setSending(true);
+  const openFilePicker = useCallback(async () => {
+    setLoadingFiles(true);
+    setShowFilePicker(true);
+    try {
+      const res = await openclawApi.listAgentFiles(name) as any;
+      setWorkspaceFiles(res.data ?? []);
+    } catch {} finally { setLoadingFiles(false); }
+  }, [name]);
+
+  const attachFile = useCallback(async (filename: string) => {
+    if (pendingAttachments.find((a) => a.name === filename)) {
+      setShowFilePicker(false);
+      return;
+    }
+    try {
+      const res = await openclawApi.getAgentFile(name, filename) as any;
+      const content: string = res.data?.content ?? '';
+      setPendingAttachments((prev) => [
+        ...prev,
+        { id: Date.now().toString(), name: filename, type: 'text', uri: content, mimeType: 'text/markdown', size: content.length },
+      ]);
+    } catch {} finally { setShowFilePicker(false); }
+  }, [name, pendingAttachments]);
+
+  const removeAttachment = useCallback((id: string) => {
+    setPendingAttachments((prev) => prev.filter((a) => a.id !== id));
+  }, []);
+
+  const handleSend = useCallback(async () => {
+    if (!input.trim() || isStreaming) return;
     const msg = input;
+    const attachments = [...pendingAttachments];
     setInput('');
-    await sendMessage(name, msg);
-    setSending(false);
+    setPendingAttachments([]);
+    await sendMessageStream(name, msg, attachments);
     setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
-  };
+  }, [input, isStreaming, pendingAttachments, name, sendMessageStream]);
 
   const messages = activeChat?.messages ?? [];
 
@@ -147,18 +229,11 @@ export default function AgentChatScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={20}
     >
-      {/* Modal drag handle */}
-      <View style={s.handleWrap}>
-        <View style={s.handle} />
-      </View>
+      <View style={s.handleWrap}><View style={s.handle} /></View>
 
       {/* Header */}
       <View style={s.header}>
-        <TouchableOpacity
-          onPress={() => router.push(`/(auth)/(drawer)/agents/${name}` as any)}
-          activeOpacity={0.8}
-          hitSlop={8}
-        >
+        <TouchableOpacity onPress={() => router.push(`/(auth)/(drawer)/agents/${name}` as any)} activeOpacity={0.8} hitSlop={8}>
           <AgentAvatar name={name} size={40} />
         </TouchableOpacity>
         <View style={s.headerInfo}>
@@ -168,7 +243,7 @@ export default function AgentChatScreen() {
             <Text style={s.modelArrow}>▾</Text>
           </TouchableOpacity>
           {fallbackModels.length > 0 && (
-            <Text style={s.fallbackText}>Fallbacks: {fallbackModels.map(m => m.split('/').pop()).join(', ')}</Text>
+            <Text style={s.fallbackText}>Fallbacks: {fallbackModels.map((m) => m.split('/').pop()).join(', ')}</Text>
           )}
         </View>
         <TouchableOpacity onPress={() => router.back()} style={s.closeBtn} hitSlop={10} activeOpacity={0.6}>
@@ -183,21 +258,45 @@ export default function AgentChatScreen() {
             <Text style={s.modalTitle}>Select Model</Text>
             <ScrollView style={s.modelList}>
               {AVAILABLE_MODELS.map((model) => (
-                <TouchableOpacity
-                  key={model}
-                  style={[s.modelOption, currentModel === model && s.modelOptionActive]}
-                  onPress={() => handleModelChange(model)}
-                  disabled={changingModel}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[s.modelOptionText, currentModel === model && s.modelOptionTextActive]}>
-                    {model}
-                  </Text>
+                <TouchableOpacity key={model} style={[s.modelOption, currentModel === model && s.modelOptionActive]} onPress={() => handleModelChange(model)} disabled={changingModel} activeOpacity={0.7}>
+                  <Text style={[s.modelOptionText, currentModel === model && s.modelOptionTextActive]}>{model}</Text>
                   {currentModel === model && <Text style={s.modelCheck}>✓</Text>}
                 </TouchableOpacity>
               ))}
             </ScrollView>
             <TouchableOpacity style={s.modalClose} onPress={() => setShowModelPicker(false)}>
+              <Text style={s.modalCloseText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Workspace File Picker Modal */}
+      <Modal visible={showFilePicker} transparent animationType="slide">
+        <View style={s.modalOverlay}>
+          <View style={s.modalContent}>
+            <Text style={s.modalTitle}>Attach Workspace File</Text>
+            {loadingFiles ? (
+              <ActivityIndicator color={theme.accent} style={{ marginVertical: Spacing.lg }} />
+            ) : (
+              <ScrollView style={s.modelList}>
+                {workspaceFiles.length === 0 && (
+                  <Text style={{ color: theme.text.secondary, fontSize: 14, textAlign: 'center', paddingVertical: Spacing.md }}>No workspace files found</Text>
+                )}
+                {workspaceFiles.map((file) => (
+                  <TouchableOpacity key={file.filename} style={s.fileOption} onPress={() => attachFile(file.filename)} activeOpacity={0.7}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.fileOptionName}>{file.filename}</Text>
+                      {file.preview ? <Text style={s.fileOptionPreview} numberOfLines={1}>{file.preview}</Text> : null}
+                    </View>
+                    {pendingAttachments.find((a) => a.name === file.filename) && (
+                      <Text style={{ color: theme.accent, fontSize: 14 }}>✓</Text>
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+            <TouchableOpacity style={s.modalClose} onPress={() => setShowFilePicker(false)}>
               <Text style={s.modalCloseText}>Cancel</Text>
             </TouchableOpacity>
           </View>
@@ -214,40 +313,55 @@ export default function AgentChatScreen() {
           if (item.isError && item.errorType) {
             return <ErrorBadge type={item.errorType} rawMessage={item.content} theme={theme} />;
           }
+          if (item.role === 'agent') {
+            return <AgentBubble content={item.content} streaming={item.streaming} theme={theme} colorScheme={colorScheme} />;
+          }
           return (
-            <View style={[
-              s.bubble,
-              item.role === 'user' ? s.userBubble : s.agentBubble,
-            ]}>
-              <Text style={[s.bubbleText, item.role === 'user' && s.userText]}>
-                {item.content}
-              </Text>
+            <View>
+              {item.attachments && item.attachments.length > 0 && (
+                <View style={{ alignSelf: 'flex-end', flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginBottom: 4, maxWidth: '80%' }}>
+                  {item.attachments.map((a: ChatAttachment) => (
+                    <View key={a.id} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: theme.accent + '18', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 3, gap: 3 }}>
+                      <Text style={{ fontSize: 11 }}>📄</Text>
+                      <Text style={{ color: theme.accent, fontSize: 11 }} numberOfLines={1}>{a.name}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+              <View style={[s.bubble, s.userBubble]}>
+                <Text style={[s.bubbleText, s.userText]}>{item.content}</Text>
+              </View>
             </View>
           );
         }}
         ListEmptyComponent={
-          <View style={s.emptyWrap}>
-            <AgentAvatar name={name} size={56} />
-            <Text style={s.emptyTitle}>Chat with {name}</Text>
-            <Text style={s.emptySubtitle}>Send a message to start the conversation.</Text>
-          </View>
+          loadingHistory ? (
+            <View style={s.emptyWrap}><ActivityIndicator color={theme.accent} /></View>
+          ) : (
+            <View style={s.emptyWrap}>
+              <AgentAvatar name={name} size={56} />
+              <Text style={s.emptyTitle}>Chat with {name}</Text>
+              <Text style={s.emptySubtitle}>Send a message to start the conversation.</Text>
+            </View>
+          )
         }
         onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
       />
 
-      {/* Typing indicator */}
-      {sending && (
-        <View style={s.typingRow}>
-          <AgentAvatar name={name} size={22} />
-          <View style={s.typingBubble}>
-            <ActivityIndicator size="small" color={theme.text.secondary} />
-            <Text style={s.typingText}>thinking...</Text>
-          </View>
+      {/* Pending attachments row */}
+      {pendingAttachments.length > 0 && (
+        <View style={s.attachmentsRow}>
+          {pendingAttachments.map((a) => (
+            <AttachmentChip key={a.id} attachment={a} onRemove={() => removeAttachment(a.id)} theme={theme} />
+          ))}
         </View>
       )}
 
       {/* Input bar */}
       <View style={[s.inputBar, { paddingBottom: insets.bottom + Spacing.sm + 2 }]}>
+        <TouchableOpacity onPress={openFilePicker} style={s.attachBtn} hitSlop={6} activeOpacity={0.7}>
+          <Text style={s.attachIcon}>📎</Text>
+        </TouchableOpacity>
         <TextInput
           style={s.input}
           value={input}
@@ -255,19 +369,25 @@ export default function AgentChatScreen() {
           placeholder={`Message ${name}...`}
           placeholderTextColor={theme.text.secondary}
           multiline
-          editable={!sending}
+          editable={!isStreaming}
           returnKeyType="send"
           onSubmitEditing={handleSend}
           blurOnSubmit={false}
         />
-        <TouchableOpacity
-          style={[s.sendBtn, (!input.trim() || sending) && s.sendBtnOff]}
-          onPress={handleSend}
-          disabled={!input.trim() || sending}
-          activeOpacity={0.8}
-        >
-          <Text style={s.sendIcon}>↑</Text>
-        </TouchableOpacity>
+        {isStreaming ? (
+          <TouchableOpacity style={s.stopBtn} onPress={abortStream} activeOpacity={0.8}>
+            <Text style={s.stopIcon}>■</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={[s.sendBtn, !input.trim() && s.sendBtnOff]}
+            onPress={handleSend}
+            disabled={!input.trim()}
+            activeOpacity={0.8}
+          >
+            <Text style={s.sendIcon}>↑</Text>
+          </TouchableOpacity>
+        )}
       </View>
     </KeyboardAvoidingView>
   );
@@ -286,7 +406,6 @@ const styles = (t: Theme) => StyleSheet.create({
   },
   headerInfo: { flex: 1 },
   agentTitle: { color: t.text.primary, fontSize: 16, fontWeight: '700' },
-  agentMeta: { color: t.text.secondary, fontSize: 11, marginTop: 1 },
   modelRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
   modelText: { color: t.accent, fontSize: 11, fontWeight: '600' },
   modelArrow: { color: t.accent, fontSize: 8 },
@@ -294,11 +413,10 @@ const styles = (t: Theme) => StyleSheet.create({
   closeBtn: { padding: Spacing.xs },
   closeIcon: { color: t.text.secondary, fontSize: 16 },
 
-  // Model picker modal
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
-  modalContent: { backgroundColor: t.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: Spacing.lg, maxHeight: '60%' },
+  modalContent: { backgroundColor: t.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: Spacing.lg, maxHeight: '65%' },
   modalTitle: { color: t.text.primary, fontSize: 18, fontWeight: '700', marginBottom: Spacing.md },
-  modelList: { maxHeight: 350 },
+  modelList: { maxHeight: 380 },
   modelOption: { paddingVertical: 14, paddingHorizontal: Spacing.md, borderRadius: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   modelOptionActive: { backgroundColor: t.accent + '15' },
   modelOptionText: { color: t.text.primary, fontSize: 15 },
@@ -307,25 +425,14 @@ const styles = (t: Theme) => StyleSheet.create({
   modalClose: { marginTop: Spacing.md, paddingVertical: 14, alignItems: 'center', borderRadius: 12, borderWidth: 1, borderColor: t.border },
   modalCloseText: { color: t.text.secondary, fontSize: 15, fontWeight: '600' },
 
+  fileOption: { paddingVertical: 12, paddingHorizontal: Spacing.md, borderRadius: 10, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  fileOptionName: { color: t.text.primary, fontSize: 14, fontWeight: '600' },
+  fileOptionPreview: { color: t.text.secondary, fontSize: 12, marginTop: 1 },
+
   messages: { padding: Spacing.md, paddingBottom: Spacing.sm, flexGrow: 1 },
 
-  bubble: {
-    maxWidth: '80%',
-    paddingHorizontal: 14, paddingVertical: 10,
-    borderRadius: 20,
-    marginBottom: Spacing.sm,
-  },
-  userBubble: {
-    alignSelf: 'flex-end',
-    backgroundColor: t.accent,
-    borderBottomRightRadius: 6,
-  },
-  agentBubble: {
-    alignSelf: 'flex-start',
-    backgroundColor: t.surface,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: t.border,
-    borderBottomLeftRadius: 6,
-  },
+  bubble: { maxWidth: '80%', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20, marginBottom: Spacing.sm },
+  userBubble: { alignSelf: 'flex-end', backgroundColor: t.accent, borderBottomRightRadius: 6 },
   bubbleText: { color: t.text.primary, fontSize: 15, lineHeight: 21 },
   userText: { color: '#fff' },
 
@@ -333,14 +440,11 @@ const styles = (t: Theme) => StyleSheet.create({
   emptyTitle: { color: t.text.primary, fontSize: 18, fontWeight: '600', marginTop: Spacing.sm },
   emptySubtitle: { color: t.text.secondary, fontSize: 14, textAlign: 'center', lineHeight: 20 },
 
-  typingRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingHorizontal: Spacing.md, paddingBottom: Spacing.sm },
-  typingBubble: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: t.surface, paddingHorizontal: 14, paddingVertical: 8,
-    borderRadius: 20, borderBottomLeftRadius: 6,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: t.border,
+  attachmentsRow: {
+    flexDirection: 'row', flexWrap: 'wrap', gap: 6,
+    paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.border,
   },
-  typingText: { color: t.text.secondary, fontSize: 13 },
 
   inputBar: {
     flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.sm,
@@ -348,6 +452,8 @@ const styles = (t: Theme) => StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.border,
     backgroundColor: t.surface,
   },
+  attachBtn: { paddingBottom: 6 },
+  attachIcon: { fontSize: 22 },
   input: {
     flex: 1,
     backgroundColor: t.background,
@@ -366,4 +472,10 @@ const styles = (t: Theme) => StyleSheet.create({
   },
   sendBtnOff: { backgroundColor: t.surface, shadowOpacity: 0, borderWidth: StyleSheet.hairlineWidth, borderColor: t.border },
   sendIcon: { color: '#fff', fontSize: 18, fontWeight: '700', marginTop: -1 },
+  stopBtn: {
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: t.error + 'cc',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  stopIcon: { color: '#fff', fontSize: 14, fontWeight: '700' },
 });

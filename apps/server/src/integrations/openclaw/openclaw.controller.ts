@@ -82,6 +82,33 @@ export const sendMessage = async (req: Request, res: Response, next: NextFunctio
   } catch (err) { next(err); }
 };
 
+export const streamMessage = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { name } = req.params;
+    const message = req.body?.message;
+    if (!name) { res.status(400).json({ error: 'Agent name required' }); return; }
+    if (typeof message !== 'string' || !message.trim()) { res.status(400).json({ error: 'message is required' }); return; }
+
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+
+    await service.sendMessageStream(
+      name,
+      message,
+      (chunk) => { res.write(`data: ${JSON.stringify({ chunk })}\n\n`); },
+      (response) => { res.write(`data: ${JSON.stringify({ done: true, response })}\n\n`); res.end(); },
+      (err) => { res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`); res.end(); },
+    );
+  } catch (err) {
+    if (!res.headersSent) { next(err); }
+    else { res.write(`data: ${JSON.stringify({ error: 'Internal server error' })}\n\n`); res.end(); }
+  }
+};
+
 export const getConfig = async (_req: Request, res: Response, next: NextFunction) => {
   try { res.json({ data: await service.getConfig() }); } catch (err) { next(err); }
 };

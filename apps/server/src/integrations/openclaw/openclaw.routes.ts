@@ -10,6 +10,7 @@ import {
   getAgentFile,
   updateAgentFile,
   sendMessage,
+  streamMessage,
   getConfig,
   updateConfig,
   getAuthProfiles,
@@ -37,6 +38,7 @@ router.get('/agents/:name/files', listAgentFiles);
 router.get('/agents/:name/files/:filename', getAgentFile);
 router.put('/agents/:name/files/:filename', updateAgentFile);
 router.post('/agents/:name/message', sendMessage);
+router.post('/agents/:name/message/stream', streamMessage);
 
 router.get('/skills', listSkills);
 router.post('/skills', createSkill);

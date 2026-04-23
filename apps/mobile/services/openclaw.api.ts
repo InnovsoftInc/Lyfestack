@@ -86,6 +86,62 @@ async function request(path: string, options?: RequestInit) {
   return res.json();
 }
 
+export async function streamAgentMessage(
+  agentId: string,
+  message: string,
+  onChunk: (chunk: string) => void,
+  onDone: (response: string) => void,
+  onError: (err: Error) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const base = await getBase();
+  const token = await getAuthToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Accept': 'text/event-stream',
+  };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  let res: Response;
+  try {
+    res = await fetch(
+      `${base}/api/openclaw/agents/${encodeURIComponent(agentId)}/message/stream`,
+      { method: 'POST', headers, body: JSON.stringify({ message }), signal: signal as any },
+    );
+  } catch (err: any) {
+    if (err?.name !== 'AbortError') onError(err instanceof Error ? err : new Error(err?.message ?? 'fetch failed'));
+    return;
+  }
+
+  if (!res.ok) { onError(new Error(`OpenClaw API error: ${res.status}`)); return; }
+  if (!res.body) { onError(new Error('No response body')); return; }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const data = JSON.parse(line.slice(6));
+          if (data.error) { onError(new Error(data.error)); return; }
+          if (data.done) { onDone(data.response); return; }
+          if (data.chunk) onChunk(data.chunk);
+        } catch { /* skip malformed SSE line */ }
+      }
+    }
+  } catch (err: any) {
+    if (err?.name !== 'AbortError') onError(err instanceof Error ? err : new Error(err?.message ?? 'stream read failed'));
+  }
+}
+
 export const openclawApi = {
   getStatus: () => request('/status'),
   listAgents: () => request('/agents'),

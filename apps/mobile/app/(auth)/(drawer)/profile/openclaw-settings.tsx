@@ -462,6 +462,40 @@ export default function OpenClawSettingsScreen() {
                   </View>
                 ))
               )}
+              <View style={styles.divider} />
+              {/* Add missing providers */}
+              {!profiles.find(p => p.name === 'openai:default') && (
+                <TouchableOpacity
+                  style={styles.row}
+                  onPress={() => {
+                    setKeyInput('');
+                    setModal({ type: 'editKey', profile: { name: 'openai:default', provider: 'openai', mode: 'api_key' } });
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.rowLeft}>
+                    <Text style={[styles.rowLabel, { color: Colors.accent }]}>+ Add OpenAI Key</Text>
+                  </View>
+                  <Text style={styles.rowValue}>Not configured</Text>
+                  <Text style={styles.rowArrow}>›</Text>
+                </TouchableOpacity>
+              )}
+              {!profiles.find(p => p.name === 'openrouter:default') && (
+                <TouchableOpacity
+                  style={styles.row}
+                  onPress={() => {
+                    setKeyInput('');
+                    setModal({ type: 'editKey', profile: { name: 'openrouter:default', provider: 'openrouter', mode: 'api_key' } });
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.rowLeft}>
+                    <Text style={[styles.rowLabel, { color: Colors.accent }]}>+ Add OpenRouter Key</Text>
+                  </View>
+                  <Text style={styles.rowValue}>Not configured</Text>
+                  <Text style={styles.rowArrow}>›</Text>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
 

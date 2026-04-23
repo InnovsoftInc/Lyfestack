@@ -1,4 +1,4 @@
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -153,6 +153,58 @@ export class OpenClawService {
       logger.error({ agent: agentName, err: err.message }, 'OpenClaw message failed');
       throw new Error(`Agent ${agentName} failed: ${err.message}`);
     }
+  }
+
+  async sendMessageStream(
+    agentName: string,
+    message: string,
+    onChunk: (chunk: string) => void,
+    onDone: (full: string) => void,
+    onError: (err: Error) => void,
+  ): Promise<void> {
+    const startTime = Date.now();
+    const bin = await this.resolveOpenclawBin();
+
+    const child = spawn(bin, ['agent', '--agent', agentName, '-m', message], {
+      env: { ...process.env },
+    });
+
+    let full = '';
+
+    child.stdout.on('data', (data: Buffer) => {
+      const chunk = data.toString();
+      full += chunk;
+      onChunk(chunk);
+    });
+
+    child.stderr.on('data', (data: Buffer) => {
+      logger.debug({ agent: agentName }, `stderr: ${data.toString().trim()}`);
+    });
+
+    child.on('close', (code) => {
+      if (full.length > 0) {
+        const response = full.trim();
+        this.getAgent(agentName)
+          .then((agent) =>
+            usageTracker.track({
+              agentName,
+              model: agent?.model ?? 'unknown',
+              message,
+              response,
+              duration: Date.now() - startTime,
+            })
+          )
+          .catch(() => {});
+        onDone(response);
+      } else {
+        onError(new Error(`Agent ${agentName} exited with code ${code ?? 'unknown'}`));
+      }
+    });
+
+    child.on('error', (err) => {
+      logger.error({ agent: agentName, err: err.message }, 'OpenClaw stream failed');
+      onError(err);
+    });
   }
 
   async createAgent(config: { name: string; role: string; model: string; systemPrompt: string }): Promise<void> {
@@ -383,8 +435,15 @@ export class OpenClawService {
 
   async updateAuthProfile(name: string, key: string): Promise<void> {
     const cfg = await readOpenclawJson();
-    const profile = cfg?.auth?.profiles?.[name];
-    if (!profile) throw new Error(`Auth profile '${name}' not found`);
+    // Auto-create profile if it doesn't exist
+    cfg.auth ??= {};
+    cfg.auth.profiles ??= {};
+    if (!cfg.auth.profiles[name]) {
+      const provider = name.split(':')[0] ?? name;
+      cfg.auth.profiles[name] = { provider, mode: 'api_key' };
+      logger.info({ profile: name, provider }, 'Created new auth profile');
+    }
+    const profile = cfg.auth.profiles[name];
     const providerUpper = (profile.provider as string | undefined)?.toUpperCase();
     if (!providerUpper) throw new Error('Cannot determine env var for profile');
     const envVar = `${providerUpper}_API_KEY`;
