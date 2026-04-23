@@ -419,8 +419,17 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
     if (!activeChat || activeChat.agentName !== agentName) return;
     if (activeChat.sessionKey && activeChat.sessionKey !== sessionKey) return;
     if (!messages.length) return;
-    const existing = new Set(activeChat.messages.map((m) => m.id));
-    const fresh = messages.filter((m) => !existing.has(m.id));
+    // Dedupe by ID and also by content+role (local vs server IDs differ for same message)
+    const existingIds = new Set(activeChat.messages.map((m) => m.id));
+    const existingContent = new Set(
+      activeChat.messages.map((m) => `${m.role}::${m.content.slice(0, 100)}`)
+    );
+    const fresh = messages.filter((m) => {
+      if (existingIds.has(m.id)) return false;
+      const contentKey = `${m.role}::${m.content.slice(0, 100)}`;
+      if (existingContent.has(contentKey)) return false;
+      return true;
+    });
     if (!fresh.length) return;
     set({ activeChat: { ...activeChat, sessionKey: activeChat.sessionKey ?? sessionKey, messages: [...activeChat.messages, ...fresh] } });
   },

@@ -137,8 +137,8 @@ function ToolActivityList({ tools, currentTool, theme }: { tools: string[]; curr
 
 function AgentBubble({ content, streaming, toolActivity, toolHistory, theme, colorScheme }: { content: string; streaming?: boolean; toolActivity?: string | null; toolHistory?: string[]; theme: Theme; colorScheme: 'light' | 'dark' }) {
   const markdownTheme = {
-    code: { backgroundColor: theme.surface, color: theme.text.primary, borderRadius: 12, padding: 12, fontFamily: 'Courier', fontSize: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border },
-    codespan: { backgroundColor: theme.surface, color: theme.accent, fontFamily: 'Courier', fontSize: 13 },
+    code: { backgroundColor: theme.surface, color: theme.text.primary, borderRadius: 10, padding: 12, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border, overflow: 'scroll' as any },
+    codespan: { backgroundColor: theme.surface, color: theme.accent, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: 12, paddingHorizontal: 4, paddingVertical: 1, borderRadius: 4 },
     heading1: { color: theme.text.primary, fontSize: 18, fontWeight: '700' as const, marginTop: 8, marginBottom: 4 },
     heading2: { color: theme.text.primary, fontSize: 15, fontWeight: '700' as const, marginTop: 6, marginBottom: 2 },
     heading3: { color: theme.text.primary, fontSize: 13, fontWeight: '700' as const, marginTop: 4 },
@@ -606,7 +606,13 @@ export default function AgentChatScreen() {
             return (
               <View style={{ marginBottom: Spacing.sm }}>
                 <AgentBubble content={item.content} streaming={item.streaming} toolActivity={item.toolActivity} toolHistory={item.toolHistory} theme={theme} colorScheme={colorScheme} />
-                {!item.streaming && <AgentAvatar name={name} size={24} />}
+                {!item.streaming && item.content.length > 0 && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                    <AgentAvatar name={name} size={24} />
+                    <CopyButton content={item.content} theme={theme} variant="agent" />
+                  </View>
+                )}
+                {!item.streaming && item.content.length === 0 && <AgentAvatar name={name} size={24} />}
               </View>
             );
           }
