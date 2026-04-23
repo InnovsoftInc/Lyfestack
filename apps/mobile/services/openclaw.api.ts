@@ -146,15 +146,16 @@ export const openclawApi = {
   deleteSkill: (name: string) =>
     request(`/skills/${encodeURIComponent(name)}`, { method: 'DELETE' }),
 
-  // Automations
+  // Automations / Routines
   listAutomations: () => request('/automations'),
   createAutomation: (data: {
     name: string;
-    agentName: string;
-    cronExpression: string;
-    scheduleLabel: string;
-    message: string;
-    enabled: boolean;
+    triggerPath: string;
+    messageTemplate: string;
+    agentName?: string;
+    model?: string;
+    channel?: string;
+    deliver?: boolean;
   }) => request('/automations', { method: 'POST', body: JSON.stringify(data) }),
   deleteAutomation: (id: string) => request(`/automations/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   toggleAutomation: (id: string, enabled: boolean) =>

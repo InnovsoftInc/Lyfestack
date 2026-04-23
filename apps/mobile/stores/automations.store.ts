@@ -1,28 +1,39 @@
 import { create } from 'zustand';
 import { openclawApi } from '../services/openclaw.api';
 
-export interface Automation {
+export interface Routine {
   id: string;
   name: string;
-  agentName: string;
-  cronExpression: string;
-  scheduleLabel: string;
-  message: string;
+  description: string;
+  type: 'heartbeat' | 'hook' | 'cron' | 'custom';
+  schedule: string;
+  trigger?: string;
+  agentName?: string;
+  model?: string;
+  channel?: string;
   enabled: boolean;
-  createdAt: string;
-  lastRunAt?: string;
-  nextRunAt?: string;
-  lastResult?: string;
-  lastRunStatus?: 'success' | 'error';
+  source: 'openclaw' | 'lyfestack';
+  lastRun?: string;
+  config?: Record<string, unknown>;
 }
 
+export type Automation = Routine;
+
 interface AutomationsStore {
-  automations: Automation[];
+  automations: Routine[];
   isLoading: boolean;
   runningIds: string[];
   error: string | null;
   fetch: () => Promise<void>;
-  create: (data: Omit<Automation, 'id' | 'createdAt' | 'lastRunAt' | 'nextRunAt' | 'lastResult'>) => Promise<void>;
+  create: (data: {
+    name: string;
+    triggerPath: string;
+    messageTemplate: string;
+    agentName?: string;
+    model?: string;
+    channel?: string;
+    deliver?: boolean;
+  }) => Promise<void>;
   remove: (id: string) => Promise<void>;
   toggle: (id: string, enabled: boolean) => Promise<void>;
   runNow: (id: string) => Promise<{ status: 'success' | 'error'; result?: string; error?: string }>;
@@ -39,8 +50,8 @@ export const useAutomationsStore = create<AutomationsStore>((set, get) => ({
     try {
       const res = await openclawApi.listAutomations();
       set({ automations: res.data ?? [], isLoading: false });
-    } catch (err: any) {
-      set({ isLoading: false, error: err?.message ?? 'Failed to load automations' });
+    } catch (err: unknown) {
+      set({ isLoading: false, error: err instanceof Error ? err.message : 'Failed to load routines' });
     }
   },
 
@@ -66,7 +77,7 @@ export const useAutomationsStore = create<AutomationsStore>((set, get) => ({
     try {
       const res = await openclawApi.runAutomationNow(id);
       await get().fetch();
-      return { status: res.data?.status ?? 'success', result: res.data?.result, error: res.data?.error };
+      return { status: res.data?.status ?? 'error', result: res.data?.result, error: res.data?.error };
     } finally {
       set((s) => ({ runningIds: s.runningIds.filter((rid) => rid !== id) }));
     }
