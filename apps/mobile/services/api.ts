@@ -21,8 +21,8 @@ export function registerUnauthorizedHandler(handler: UnauthorizedHandler) {
 }
 
 function getDevApiBase(): string {
-  // In Expo Go on a physical device, hostUri is the Metro server's LAN IP (e.g. "192.168.1.142:8082").
-  // Extract just the host so we can point at the backend on the same machine.
+  const envUrl = process.env['EXPO_PUBLIC_API_URL'];
+  if (envUrl) return envUrl;
   const hostUri = Constants.expoConfig?.hostUri ?? Constants.manifest?.debuggerHost;
   if (hostUri) {
     const host = hostUri.split(':')[0];
@@ -31,9 +31,13 @@ function getDevApiBase(): string {
   return 'http://localhost:3000';
 }
 
-// Non-sensitive: server URL stored in AsyncStorage
 export async function getApiBase(): Promise<string> {
   if (cachedBase) return cachedBase;
+  const envUrl = process.env['EXPO_PUBLIC_API_URL'];
+  if (envUrl) {
+    cachedBase = envUrl;
+    return cachedBase;
+  }
   try {
     const saved = await AsyncStorage.getItem(API_BASE_KEY);
     cachedBase = saved ?? getDevApiBase();
@@ -153,8 +157,10 @@ export async function request<T>(path: string, options?: RequestOptions): Promis
       const newToken = await getAuthToken();
       if (newToken) fetchOptions.headers = { ...(fetchOptions.headers as Record<string, string>), Authorization: `Bearer ${newToken}` };
       res = await fetch(`${base}${path}`, fetchOptions);
-    }
-    if (res.status === 401 && !handlingUnauthorized) {
+    } else if (!handlingUnauthorized) {
+      // Only log out when the refresh token itself is rejected. A 401 on the
+      // retried request after a successful refresh is surfaced as a normal
+      // error so a transient failure doesn't clobber a valid session.
       handlingUnauthorized = true;
       cachedToken = null;
       cachedRefreshToken = null;

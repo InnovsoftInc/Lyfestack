@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \"import sys,json; v=json.load\\(sys.stdin\\); stable=[x for x in v if not 'canary' in x and not 'preview' in x and not 'alpha' in x and \\(x.startswith\\('4.'\\) or x.startswith\\('5.'\\)\\)]; print\\(stable[-15:]\\)\")",
+      "Bash(python3 -c \"import sys,json; v=json.load\\(sys.stdin\\); stable=[x for x in v if not 'canary' in x and not 'preview' in x]; print\\([x for x in stable if x.startswith\\('2.'\\) or x.startswith\\('3.'\\)][-10:]\\)\")",
+      "Bash(python3 -c \"import sys,json; v=json.load\\(sys.stdin\\); stable=[x for x in v if not 'canary' in x and not 'preview' in x and not 'alpha' in x and x.startswith\\('4.'\\)]; print\\(stable\\)\")",
+      "Bash(python3 -c \"import sys,json; v=json.load\\(sys.stdin\\); stable=[x for x in v if not 'canary' in x and not 'preview' in x]; print\\([x for x in stable if x.startswith\\('2.'\\)][-5:]\\)\")",
+      "Bash(python3 -c \"import sys,json; v=json.load\\(sys.stdin\\); stable=[x for x in v if not 'canary' in x and not 'rc' in x and not 'beta' in x and not 'alpha' in x]; print\\(stable[-15:]\\)\")",
+      "Bash(python3 -c \"import sys,json; v=json.load\\(sys.stdin\\); stable=[x for x in v if not 'nightly' in x and not 'rc' in x and not 'beta' in x and not 'alpha' in x and not 'canary' in x]; print\\(stable[-20:]\\)\")",
+      "Bash(python3 -c \"import sys,json; v=json.load\\(sys.stdin\\); print\\([x for x in v if x.startswith\\('0.77'\\) or x.startswith\\('0.78'\\) or x.startswith\\('0.79'\\)][:20]\\)\")",
+      "Bash(python3 -c \"import sys,json; v=json.load\\(sys.stdin\\); stable=[x for x in v if not 'nightly' in x and not 'rc' in x and not 'beta' in x and not 'alpha' in x and not 'canary' in x]; print\\([x for x in stable if x.startswith\\('0.77'\\) or x.startswith\\('0.78'\\) or x.startswith\\('0.79'\\)]\\)\")",
+      "Bash(python3 -c \"import sys,json; v=json.load\\(sys.stdin\\); stable=[x for x in v if not 'rc' in x and not 'alpha' in x]; print\\(stable[-10:]\\)\")"
+    ]
+  }
+}

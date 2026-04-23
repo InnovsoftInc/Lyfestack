@@ -54,3 +54,50 @@ export interface OpenClawSession {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface SessionUsage {
+  totalTokens: number;
+  lastInputTokens: number;
+  lastOutputTokens: number;
+  lastCacheReadTokens: number;
+  contextUsedTokens: number;
+  totalTokensFresh: boolean;
+}
+
+export interface OpenClawSessionSummary {
+  key: string;
+  agentId: string;
+  sessionId: string;
+  label: string;
+  createdAt: string;
+  updatedAt: string;
+  model: string;
+  contextWindow: number;
+  usage: SessionUsage;
+  compactionCount: number;
+}
+
+export interface SessionMessagePayload {
+  index: number;
+  role: 'user' | 'agent';
+  content: string;
+  timestamp: string;
+}
+
+export interface OpenClawSessionDetail {
+  key: string;
+  messages: SessionMessagePayload[];
+  total: number;
+  firstIndex: number;
+  lastIndex: number;
+  model: string;
+  contextWindow: number;
+  usage: SessionUsage;
+  compactionCount: number;
+}
+
+export interface SessionActionResult {
+  ok: boolean;
+  session?: OpenClawSessionSummary;
+  error?: string;
+}

@@ -5,6 +5,11 @@ let cachedBase: string | null = null;
 
 async function getBase(): Promise<string> {
   if (cachedBase) return cachedBase;
+  const envUrl = process.env['EXPO_PUBLIC_API_URL'];
+  if (envUrl) {
+    cachedBase = envUrl;
+    return cachedBase;
+  }
   const saved = await AsyncStorage.getItem('@lyfestack_api_base');
   cachedBase = saved ?? 'http://localhost:3000';
   return cachedBase;
@@ -18,6 +23,17 @@ const SUBNETS = ['192.168.1', '192.168.0', '10.0.0', '10.0.1'];
 const COMMON_HOSTS = [1, 2, 10, 50, 100, 142, 200];
 
 export async function tryConnect(): Promise<string | null> {
+  const envUrl = process.env['EXPO_PUBLIC_API_URL'];
+  if (envUrl) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const res = await fetch(`${envUrl}/api/openclaw/status`, { signal: controller.signal });
+      clearTimeout(timeout);
+      if (res.ok) { cachedBase = envUrl; return envUrl; }
+    } catch { /* env URL unreachable */ }
+  }
+
   let saved: string | null = null;
   try {
     saved = await AsyncStorage.getItem('@lyfestack_api_base');
@@ -221,7 +237,12 @@ export const openclawApi = {
     }),
 
   // Sessions
-  listSessions: (limit: number = 20) => request(`/sessions?limit=${limit}`),
+  listSessions: (opts?: { agentId?: string; limit?: number }) => {
+    const qs: string[] = [];
+    qs.push(`limit=${opts?.limit ?? 20}`);
+    if (opts?.agentId) qs.push(`agentId=${encodeURIComponent(opts.agentId)}`);
+    return request(`/sessions?${qs.join('&')}`);
+  },
   getSession: (key: string, opts?: { limit?: number; beforeIndex?: number; afterIndex?: number }) => {
     const qs = [`key=${encodeURIComponent(key)}`];
     if (opts?.limit !== undefined) qs.push(`limit=${opts.limit}`);
@@ -229,10 +250,14 @@ export const openclawApi = {
     if (opts?.afterIndex !== undefined) qs.push(`afterIndex=${opts.afterIndex}`);
     return request(`/sessions/detail?${qs.join('&')}`);
   },
-  createSession: (agentId: string, label?: string) =>
+  createSession: (agentId: string) =>
     request('/sessions', {
       method: 'POST',
-      body: JSON.stringify({ agentId, label }),
+      body: JSON.stringify({ agentId }),
+    }),
+  deleteSession: (agentId: string, sessionId: string) =>
+    request(`/sessions/${encodeURIComponent(agentId)}/${encodeURIComponent(sessionId)}`, {
+      method: 'DELETE',
     }),
 
   // Usage tracking

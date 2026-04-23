@@ -31,6 +31,7 @@ export interface ChatMessage {
   streaming?: boolean;
   attachments?: ChatAttachment[];
   toolActivity?: string | null;
+  toolHistory?: string[];
 }
 
 function classifyError(msg: string): ChatErrorType {
@@ -44,12 +45,46 @@ function classifyError(msg: string): ChatErrorType {
   return 'generic';
 }
 
+export interface SessionUsage {
+  totalTokens: number;
+  lastInputTokens: number;
+  lastOutputTokens: number;
+  lastCacheReadTokens: number;
+  contextUsedTokens: number;
+  totalTokensFresh: boolean;
+}
+
+export interface SessionSummary {
+  key: string;
+  agentId: string;
+  sessionId: string;
+  label: string;
+  createdAt: string;
+  updatedAt: string;
+  model: string;
+  contextWindow: number;
+  usage: SessionUsage;
+  compactionCount: number;
+}
+
+export interface CurrentSession {
+  key: string;
+  agentId: string;
+  sessionId: string;
+  model: string;
+  contextWindow: number;
+  usage: SessionUsage;
+  compactionCount: number;
+}
+
 interface OpenClawStore {
   connectionStatus: 'disconnected' | 'connecting' | 'connected';
   connectionUrl: string | null;
   connectionError: string | null;
   agents: Agent[];
-  activeChat: { agentName: string; messages: ChatMessage[] } | null;
+  activeChat: { agentName: string; sessionKey: string | null; messages: ChatMessage[] } | null;
+  currentSession: CurrentSession | null;
+  agentSessions: SessionSummary[];
   streamAbort: AbortController | null;
   connect: () => Promise<void>;
   reconnect: () => Promise<void>;
@@ -61,9 +96,14 @@ interface OpenClawStore {
   abortStream: () => void;
   openChat: (agentName: string) => void;
   closeChat: () => void;
-  loadChatHistory: (agentName: string, messages: ChatMessage[]) => void;
-  appendChatMessages: (agentName: string, messages: ChatMessage[]) => void;
-  prependChatMessages: (agentName: string, messages: ChatMessage[]) => void;
+  loadChatHistory: (agentName: string, sessionKey: string, messages: ChatMessage[]) => void;
+  appendChatMessages: (agentName: string, sessionKey: string, messages: ChatMessage[]) => void;
+  prependChatMessages: (agentName: string, sessionKey: string, messages: ChatMessage[]) => void;
+  setCurrentSession: (session: CurrentSession | null) => void;
+  updateSessionUsage: (patch: Partial<Pick<CurrentSession, 'usage' | 'compactionCount' | 'model' | 'contextWindow'>>) => void;
+  loadAgentSessions: (agentId: string) => Promise<SessionSummary[]>;
+  newSession: (agentId: string) => Promise<SessionSummary | null>;
+  deleteSession: (agentId: string, sessionId: string) => Promise<boolean>;
   startHeartbeat: () => void;
   stopHeartbeat: () => void;
 }
@@ -86,6 +126,8 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
   connectionError: null,
   agents: [],
   activeChat: null,
+  currentSession: null,
+  agentSessions: [],
   streamAbort: null,
 
   connect: async () => {
@@ -167,7 +209,7 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
     set((s) => ({
       activeChat: s.activeChat
         ? { ...s.activeChat, messages: [...s.activeChat.messages, userMsg] }
-        : { agentName, messages: [userMsg] },
+        : { agentName, sessionKey: s.currentSession?.key ?? null, messages: [userMsg] },
     }));
     try {
       log('sendMessage()', { agentName });
@@ -223,7 +265,7 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
     set((s) => ({
       activeChat: s.activeChat
         ? { ...s.activeChat, messages: [...s.activeChat.messages, userMsg] }
-        : { agentName, messages: [userMsg] },
+        : { agentName, sessionKey: s.currentSession?.key ?? null, messages: [userMsg] },
     }));
 
     const agentMsgId = (Date.now() + 1).toString();
@@ -268,7 +310,7 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
             activeChat: {
               ...s.activeChat,
               messages: s.activeChat.messages.map((m) =>
-                m.id === agentMsgId ? { ...m, content: response, streaming: false, toolActivity: null } : m,
+                m.id === agentMsgId ? { ...m, content: response, streaming: false, toolActivity: null, toolHistory: m.toolHistory ?? [] } : m,
               ),
             },
           };
@@ -300,7 +342,13 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
             activeChat: {
               ...s.activeChat,
               messages: s.activeChat.messages.map((m) =>
-                m.id === agentMsgId ? { ...m, toolActivity: toolName } : m,
+                m.id === agentMsgId
+                  ? {
+                      ...m,
+                      toolActivity: toolName,
+                      toolHistory: [...(m.toolHistory ?? []), toolName],
+                    }
+                  : m,
               ),
             },
           };
@@ -332,36 +380,96 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
     const current = get().activeChat;
     if (current?.agentName === agentName) return;
     log('openChat()', { agentName });
-    set({ activeChat: { agentName, messages: [] } });
+    set({ activeChat: { agentName, sessionKey: null, messages: [] }, currentSession: null, agentSessions: [] });
   },
 
-  closeChat: () => set({ activeChat: null }),
+  closeChat: () => set({ activeChat: null, currentSession: null, agentSessions: [] }),
 
-  loadChatHistory: (agentName, messages) => {
+  loadChatHistory: (agentName, sessionKey, messages) => {
     const current = get().activeChat;
-    if (current?.agentName === agentName && current.messages.length === 0) {
-      set({ activeChat: { agentName, messages } });
+    if (!current || current.agentName !== agentName) return;
+    if (current.sessionKey && current.sessionKey !== sessionKey) return;
+    if (current.messages.length === 0) {
+      set({ activeChat: { agentName, sessionKey, messages } });
+    } else if (!current.sessionKey) {
+      set({ activeChat: { ...current, sessionKey } });
     }
   },
 
-  appendChatMessages: (agentName, messages) => {
+  appendChatMessages: (agentName, sessionKey, messages) => {
     const { activeChat } = get();
     if (!activeChat || activeChat.agentName !== agentName) return;
+    if (activeChat.sessionKey && activeChat.sessionKey !== sessionKey) return;
     if (!messages.length) return;
     const existing = new Set(activeChat.messages.map((m) => m.id));
     const fresh = messages.filter((m) => !existing.has(m.id));
     if (!fresh.length) return;
-    set({ activeChat: { ...activeChat, messages: [...activeChat.messages, ...fresh] } });
+    set({ activeChat: { ...activeChat, sessionKey: activeChat.sessionKey ?? sessionKey, messages: [...activeChat.messages, ...fresh] } });
   },
 
-  prependChatMessages: (agentName, messages) => {
+  prependChatMessages: (agentName, sessionKey, messages) => {
     const { activeChat } = get();
     if (!activeChat || activeChat.agentName !== agentName) return;
+    if (activeChat.sessionKey && activeChat.sessionKey !== sessionKey) return;
     if (!messages.length) return;
     const existing = new Set(activeChat.messages.map((m) => m.id));
     const fresh = messages.filter((m) => !existing.has(m.id));
     if (!fresh.length) return;
-    set({ activeChat: { ...activeChat, messages: [...fresh, ...activeChat.messages] } });
+    set({ activeChat: { ...activeChat, sessionKey: activeChat.sessionKey ?? sessionKey, messages: [...fresh, ...activeChat.messages] } });
+  },
+
+  setCurrentSession: (session) => set({ currentSession: session }),
+
+  updateSessionUsage: (patch) => {
+    const { currentSession } = get();
+    if (!currentSession) return;
+    set({ currentSession: { ...currentSession, ...patch } });
+  },
+
+  loadAgentSessions: async (agentId) => {
+    try {
+      const res: any = await openclawApi.listSessions({ agentId, limit: 50 });
+      const sessions: SessionSummary[] = res.data ?? [];
+      set({ agentSessions: sessions });
+      return sessions;
+    } catch (err: any) {
+      log('loadAgentSessions() error', err?.message);
+      return [];
+    }
+  },
+
+  newSession: async (agentId) => {
+    try {
+      log('newSession()', { agentId });
+      const res: any = await openclawApi.createSession(agentId);
+      const session: SessionSummary | undefined = res.data;
+      if (!session) return null;
+      set((s) => ({ agentSessions: [session, ...s.agentSessions] }));
+      return session;
+    } catch (err: any) {
+      log('newSession() error', err?.message);
+      return null;
+    }
+  },
+
+  deleteSession: async (agentId, sessionId) => {
+    try {
+      log('deleteSession()', { agentId, sessionId });
+      await openclawApi.deleteSession(agentId, sessionId);
+      const key = `${agentId}/${sessionId}`;
+      set((s) => ({
+        agentSessions: s.agentSessions.filter((sess) => sess.key !== key),
+      }));
+      const { activeChat, currentSession } = get();
+      if (currentSession?.key === key) set({ currentSession: null });
+      if (activeChat?.sessionKey === key) {
+        set({ activeChat: { agentName: activeChat.agentName, sessionKey: null, messages: [] } });
+      }
+      return true;
+    } catch (err: any) {
+      log('deleteSession() error', err?.message);
+      return false;
+    }
   },
 
   startHeartbeat: () => {

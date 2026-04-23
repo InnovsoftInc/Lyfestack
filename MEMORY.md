@@ -103,11 +103,21 @@
 - [ ] Routines (cron job management from mobile)
 - [ ] Activity Feed (real-time OpenClaw activity log)
 
+### Build Recommendations
+- [x] **Chat model selector** — now dynamic, fetched from `getConfig().availableModels`
+- [x] **Tool usage visibility in chat** — tool activity pill shown during streaming
+- [x] **Real SSE streaming** — XHR-based SSE replaces fake POST fallback
+- [ ] **Activity Feed** — aggregate hook events, agent messages, automation runs, heartbeat pings into a real-time timeline
+- [ ] **System health dashboard** — gateway up/down, last heartbeat, channel connection status (Telegram/Slack), model availability
+- [ ] **Hook manager** — view and create webhook mappings from mobile (Gmail, Calendly triggers)
+- [ ] **Plugin toggles** — enable/disable OpenClaw plugins from mobile without editing JSON
+
 ### Known Issues
 - git push from code sessions hangs on InnovsoftInc org — user pushes manually from terminal
 - In-memory goal store doesn't persist across server restarts — need Supabase migrations run
 - OpenClaw gateway must be running for AI features to work
 - OpenRouter key may hit monthly limits — needs credits
+- Primary branch is `main`, not `master`
 
 ## Key Files
 - `apps/server/src/index.ts` — Express server entry, all routes mounted

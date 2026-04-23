@@ -68,18 +68,25 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   restoreSession: async () => {
+    const token = await getAuthToken();
+    if (!token) {
+      set({ isRestoring: false });
+      return;
+    }
     try {
-      const token = await getAuthToken();
-      if (!token) {
-        set({ isRestoring: false });
-        return;
-      }
       const user = await authApi.me();
       set({ user, isAuthenticated: true, authToken: token, isRestoring: false });
     } catch {
-      await setAuthToken(null);
-      await setRefreshToken(null);
-      set({ user: null, isAuthenticated: false, authToken: null, isRestoring: false });
+      // If the refresh token was rejected, the unauthorized handler (below)
+      // has already cleared storage — stay logged out. Otherwise treat this
+      // as a transient failure (network, slow server) and keep the session
+      // so the next successful API call re-hydrates the user.
+      const stillPresent = await getAuthToken();
+      if (stillPresent) {
+        set({ isAuthenticated: true, authToken: stillPresent, isRestoring: false });
+      } else {
+        set({ user: null, isAuthenticated: false, authToken: null, isRestoring: false });
+      }
     }
   },
 

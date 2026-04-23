@@ -30,12 +30,15 @@ function CopyButton({ content, theme, variant = 'agent' }: { content: string; th
   );
 }
 import { useOpenClawStore } from '../../../../../stores/openclaw.store';
-import type { ChatErrorType, ChatAttachment, ChatMessage } from '../../../../../stores/openclaw.store';
+import type { ChatErrorType, ChatAttachment, ChatMessage, SessionSummary, CurrentSession } from '../../../../../stores/openclaw.store';
 import { openclawApi } from '../../../../../services/openclaw.api';
 import { useTheme } from '../../../../../hooks/useTheme';
 import { Spacing, BorderRadius } from '../../../../../theme';
 import type { Theme } from '../../../../../theme';
 import { AgentAvatar } from '../index';
+import { ContextUsageBadge } from '../../../../../components/ContextUsageBadge';
+import { ContextWarningBanner } from '../../../../../components/ContextWarningBanner';
+import { SessionPickerSheet } from '../../../../../components/SessionPickerSheet';
 
 
 const ERROR_META: Record<ChatErrorType, { icon: string; title: string; body: string }> = {
@@ -95,16 +98,38 @@ function AttachmentChip({ attachment, onRemove, theme }: { attachment: ChatAttac
   );
 }
 
-function ToolPill({ label, theme }: { label: string; theme: Theme }) {
+function ToolPill({ label, active, theme }: { label: string; active?: boolean; theme: Theme }) {
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', backgroundColor: theme.accent + '18', borderRadius: 12, borderWidth: 1, borderColor: theme.accent + '40', paddingHorizontal: 8, paddingVertical: 3, marginBottom: 6, gap: 4 }}>
-      <ActivityIndicator size="small" color={theme.accent} style={{ width: 12, height: 12 }} />
-      <Text style={{ color: theme.accent, fontSize: 11, fontWeight: '600' }}>{label}</Text>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 2 }}>
+      {active ? (
+        <ActivityIndicator size="small" color={theme.accent} style={{ width: 10, height: 10 }} />
+      ) : (
+        <Text style={{ color: theme.text.secondary, fontSize: 10 }}>✓</Text>
+      )}
+      <Text style={{ color: active ? theme.accent : theme.text.secondary, fontSize: 11, fontWeight: active ? '600' : '400' }}>{label}</Text>
     </View>
   );
 }
 
-function AgentBubble({ content, streaming, toolActivity, theme, colorScheme }: { content: string; streaming?: boolean; toolActivity?: string | null; theme: Theme; colorScheme: 'light' | 'dark' }) {
+function ToolActivityList({ tools, currentTool, theme }: { tools: string[]; currentTool?: string | null; theme: Theme }) {
+  if (!tools.length && !currentTool) return null;
+  // Dedupe while preserving order
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const t of tools) {
+    if (!seen.has(t)) { seen.add(t); unique.push(t); }
+  }
+  return (
+    <View style={{ marginBottom: 6, gap: 1 }}>
+      {unique.map((tool, i) => {
+        const isActive = currentTool === tool && i === unique.length - 1;
+        return <ToolPill key={`${tool}-${i}`} label={tool} active={isActive} theme={theme} />;
+      })}
+    </View>
+  );
+}
+
+function AgentBubble({ content, streaming, toolActivity, toolHistory, theme, colorScheme }: { content: string; streaming?: boolean; toolActivity?: string | null; toolHistory?: string[]; theme: Theme; colorScheme: 'light' | 'dark' }) {
   const markdownTheme = {
     code: { backgroundColor: theme.surface, color: theme.text.primary, borderRadius: 12, padding: 12, fontFamily: 'Courier', fontSize: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border },
     codespan: { backgroundColor: theme.surface, color: theme.accent, fontFamily: 'Courier', fontSize: 13 },
@@ -127,7 +152,9 @@ function AgentBubble({ content, streaming, toolActivity, theme, colorScheme }: {
 
   return (
     <View style={{ alignSelf: 'flex-start', maxWidth: '88%', marginBottom: Spacing.xs }}>
-      {streaming && toolActivity && <ToolPill label={toolActivity} theme={theme} />}
+      {(toolHistory?.length || toolActivity) && (
+        <ToolActivityList tools={toolHistory ?? []} currentTool={streaming ? toolActivity : null} theme={theme} />
+      )}
       {streaming && content.length === 0 && !toolActivity ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8 }}>
           <ActivityIndicator size="small" color={theme.text.secondary} />
@@ -157,7 +184,12 @@ export default function AgentChatScreen() {
   const theme = useTheme();
   const colorScheme = (useColorScheme() ?? 'dark') as 'light' | 'dark';
   const s = styles(theme);
-  const { activeChat, openChat, sendMessageStream, abortStream, streamAbort, agents } = useOpenClawStore();
+  const {
+    activeChat, openChat, sendMessageStream, abortStream, streamAbort, agents,
+    currentSession, agentSessions,
+    setCurrentSession, updateSessionUsage,
+    loadAgentSessions, newSession, deleteSession,
+  } = useOpenClawStore();
   const [input, setInput] = useState('');
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [currentModel, setCurrentModel] = useState('');
@@ -170,10 +202,15 @@ export default function AgentChatScreen() {
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
   const [pinnedToBottom, setPinnedToBottom] = useState(true);
+  const [showSessionPicker, setShowSessionPicker] = useState(false);
+  const [loadingSessions, setLoadingSessions] = useState(false);
+  const [deletingKey, setDeletingKey] = useState<string | null>(null);
+  const [compactionToast, setCompactionToast] = useState(false);
   const listRef = useRef<FlatList>(null);
   const pinnedRef = useRef(true);
-  const sessionRef = useRef<{ key: string; oldestIndex: number; newestIndex: number; total: number } | null>(null);
+  const sessionRef = useRef<{ key: string; oldestIndex: number; newestIndex: number; total: number; compactionCount: number } | null>(null);
   const loadingOlderRef = useRef(false);
+  const warningDismissedRef = useRef<{ soft: boolean; hard: boolean }>({ soft: false, hard: false });
 
   const PAGE_SIZE = 50;
 
@@ -187,10 +224,44 @@ export default function AgentChatScreen() {
   const agent = agents.find((a) => a.name === name);
   const isStreaming = !!streamAbort;
 
+  const loadSession = useCallback(async (key: string, opts: { silent?: boolean } = {}) => {
+    if (!opts.silent) setLoadingHistory(true);
+    try {
+      const sessionRes: any = await openclawApi.getSession(key, { limit: PAGE_SIZE });
+      const data = sessionRes.data ?? {};
+      const messages: ChatMessage[] = (data.messages ?? []).map(mapMessage);
+      const [agentId] = key.split('/');
+      const sessionId = key.slice((agentId?.length ?? 0) + 1);
+      sessionRef.current = {
+        key,
+        oldestIndex: data.firstIndex ?? -1,
+        newestIndex: data.lastIndex ?? -1,
+        total: data.total ?? messages.length,
+        compactionCount: data.compactionCount ?? 0,
+      };
+      warningDismissedRef.current = { soft: false, hard: false };
+      const store = useOpenClawStore.getState();
+      store.setCurrentSession({
+        key,
+        agentId: agentId ?? name,
+        sessionId,
+        model: data.model ?? '',
+        contextWindow: data.contextWindow ?? 0,
+        usage: data.usage ?? { totalTokens: 0, lastInputTokens: 0, lastOutputTokens: 0, lastCacheReadTokens: 0, contextUsedTokens: 0, totalTokensFresh: false },
+        compactionCount: data.compactionCount ?? 0,
+      });
+      // Replace active chat history with messages from the newly selected session.
+      useOpenClawStore.setState({
+        activeChat: { agentName: name, sessionKey: key, messages },
+      });
+    } catch { /* ignore — next poll will retry */ }
+    finally { if (!opts.silent) setLoadingHistory(false); }
+  }, [name]);
+
   useEffect(() => {
     openChat(name);
     openclawApi.getAgent(name).then((res: any) => {
-      setCurrentModel(res.data?.model ?? 'openrouter/auto');
+      setCurrentModel(res.data?.model ?? '');
       setFallbackModels(res.data?.fallbackModels ?? []);
     }).catch(() => {});
     openclawApi.getConfig().then((res: any) => {
@@ -200,26 +271,19 @@ export default function AgentChatScreen() {
 
     let cancelled = false;
     sessionRef.current = null;
-    setLoadingHistory(true);
 
     const initial = async () => {
       try {
-        const res: any = await openclawApi.listSessions(20);
-        const agentSessions = (res.data ?? []).filter((s: any) => s.agentId === name || s.label?.includes(name));
-        if (!agentSessions.length) return;
-        const key = agentSessions[0].key;
-        const sessionRes: any = await openclawApi.getSession(key, { limit: PAGE_SIZE });
+        const sessions = await useOpenClawStore.getState().loadAgentSessions(name);
         if (cancelled) return;
-        const data = sessionRes.data ?? {};
-        const messages: ChatMessage[] = (data.messages ?? []).map(mapMessage);
-        sessionRef.current = {
-          key,
-          oldestIndex: data.firstIndex ?? -1,
-          newestIndex: data.lastIndex ?? -1,
-          total: data.total ?? messages.length,
-        };
-        if (messages.length) useOpenClawStore.getState().loadChatHistory(name, messages);
-      } catch { /* next tick */ }
+        let key = sessions[0]?.key ?? null;
+        if (!key) {
+          const created = await useOpenClawStore.getState().newSession(name);
+          key = created?.key ?? null;
+        }
+        if (!key || cancelled) { setLoadingHistory(false); return; }
+        await loadSession(key);
+      } catch { setLoadingHistory(false); }
     };
 
     const syncTail = async () => {
@@ -231,19 +295,36 @@ export default function AgentChatScreen() {
         if (cancelled) return;
         const data = res.data ?? {};
         const messages: ChatMessage[] = (data.messages ?? []).map(mapMessage);
-        if (!messages.length) return;
-        sref.newestIndex = data.lastIndex ?? sref.newestIndex;
-        sref.total = data.total ?? sref.total;
-        useOpenClawStore.getState().appendChatMessages(name, messages);
+        if (messages.length) {
+          sref.newestIndex = data.lastIndex ?? sref.newestIndex;
+          sref.total = data.total ?? sref.total;
+          useOpenClawStore.getState().appendChatMessages(name, sref.key, messages);
+        }
+        // Update usage + detect compaction on every tick, not only when new messages arrive.
+        const store = useOpenClawStore.getState();
+        if (store.currentSession?.key === sref.key) {
+          store.updateSessionUsage({
+            usage: data.usage ?? store.currentSession.usage,
+            compactionCount: data.compactionCount ?? store.currentSession.compactionCount,
+            model: data.model ?? store.currentSession.model,
+            contextWindow: data.contextWindow ?? store.currentSession.contextWindow,
+          });
+        }
+        if ((data.compactionCount ?? 0) > sref.compactionCount) {
+          sref.compactionCount = data.compactionCount;
+          warningDismissedRef.current = { soft: false, hard: false };
+          setCompactionToast(true);
+          setTimeout(() => setCompactionToast(false), 4500);
+        }
       } catch { /* next tick */ }
     };
 
-    initial().finally(() => { if (!cancelled) setLoadingHistory(false); });
+    initial();
 
     const interval = setInterval(syncTail, 3000);
 
     return () => { cancelled = true; clearInterval(interval); };
-  }, [name]);
+  }, [name, loadSession, openChat]);
 
   const loadOlder = useCallback(async () => {
     const sref = sessionRef.current;
@@ -259,7 +340,7 @@ export default function AgentChatScreen() {
       const messages: ChatMessage[] = (data.messages ?? []).map(mapMessage);
       if (messages.length) {
         sref.oldestIndex = data.firstIndex ?? sref.oldestIndex;
-        useOpenClawStore.getState().prependChatMessages(name, messages);
+        useOpenClawStore.getState().prependChatMessages(name, sref.key, messages);
       } else {
         sref.oldestIndex = 0;
       }
@@ -268,6 +349,48 @@ export default function AgentChatScreen() {
       loadingOlderRef.current = false;
     }
   }, [name]);
+
+  const openSessionPicker = useCallback(async () => {
+    setShowSessionPicker(true);
+    setLoadingSessions(true);
+    try { await loadAgentSessions(name); } finally { setLoadingSessions(false); }
+  }, [name, loadAgentSessions]);
+
+  const handleSelectSession = useCallback(async (key: string) => {
+    setShowSessionPicker(false);
+    if (sessionRef.current?.key === key) return;
+    sessionRef.current = null;
+    await loadSession(key);
+  }, [loadSession]);
+
+  const handleNewSession = useCallback(async () => {
+    const created = await newSession(name);
+    if (!created) return;
+    setShowSessionPicker(false);
+    sessionRef.current = null;
+    await loadSession(created.key);
+  }, [name, newSession, loadSession]);
+
+  const handleDeleteSession = useCallback(async (key: string) => {
+    const [agentId, sessionId] = key.split('/');
+    if (!agentId || !sessionId) return;
+    setDeletingKey(key);
+    const wasActive = sessionRef.current?.key === key;
+    const ok = await deleteSession(agentId, sessionId);
+    setDeletingKey(null);
+    if (!ok) return;
+    if (wasActive) {
+      sessionRef.current = null;
+      const remaining = useOpenClawStore.getState().agentSessions;
+      const fallbackKey = remaining.find((sess) => sess.key !== key)?.key ?? null;
+      if (fallbackKey) {
+        await loadSession(fallbackKey);
+      } else {
+        const created = await newSession(name);
+        if (created) await loadSession(created.key);
+      }
+    }
+  }, [deleteSession, newSession, loadSession, name]);
 
   const handleModelChange = async (model: string) => {
     setChangingModel(true);
@@ -360,10 +483,28 @@ export default function AgentChatScreen() {
             <Text style={s.fallbackText}>Fallbacks: {fallbackModels.map((m) => m.split('/').pop()).join(', ')}</Text>
           )}
         </View>
+        {currentSession && currentSession.contextWindow > 0 && (
+          <ContextUsageBadge
+            used={currentSession.usage.contextUsedTokens}
+            contextWindow={currentSession.contextWindow}
+            compactionCount={currentSession.compactionCount}
+            theme={theme}
+            onPress={openSessionPicker}
+          />
+        )}
+        <TouchableOpacity onPress={openSessionPicker} style={s.closeBtn} hitSlop={10} activeOpacity={0.6}>
+          <Text style={s.closeIcon}>☰</Text>
+        </TouchableOpacity>
         <TouchableOpacity onPress={() => router.back()} style={s.closeBtn} hitSlop={10} activeOpacity={0.6}>
           <Text style={s.closeIcon}>✕</Text>
         </TouchableOpacity>
       </View>
+
+      {compactionToast && (
+        <View style={{ marginHorizontal: Spacing.md, marginTop: Spacing.xs, padding: 10, borderRadius: 10, backgroundColor: theme.accent + '18', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.accent + '55' }}>
+          <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>↻ Session compacted — older messages summarized.</Text>
+        </View>
+      )}
 
       {/* Model Picker Modal */}
       <Modal visible={showModelPicker} transparent animationType="slide">
@@ -422,6 +563,29 @@ export default function AgentChatScreen() {
         </View>
       </Modal>
 
+      {/* Context warnings */}
+      {(() => {
+        if (!currentSession || currentSession.contextWindow <= 0) return null;
+        const pct = (currentSession.usage.contextUsedTokens / currentSession.contextWindow) * 100;
+        if (pct >= 95 && !warningDismissedRef.current.hard) return <ContextWarningBanner level="hard" theme={theme} />;
+        if (pct >= 80 && !warningDismissedRef.current.soft) return <ContextWarningBanner level="soft" theme={theme} />;
+        return null;
+      })()}
+
+      {/* Session Picker Sheet */}
+      <SessionPickerSheet
+        visible={showSessionPicker}
+        sessions={agentSessions}
+        activeKey={currentSession?.key ?? null}
+        loading={loadingSessions}
+        busyKey={deletingKey}
+        theme={theme}
+        onClose={() => setShowSessionPicker(false)}
+        onSelect={handleSelectSession}
+        onNew={handleNewSession}
+        onDelete={handleDeleteSession}
+      />
+
       {/* Messages */}
       <FlatList
         ref={listRef}
@@ -435,7 +599,7 @@ export default function AgentChatScreen() {
           if (item.role === 'agent') {
             return (
               <View style={{ marginBottom: Spacing.sm }}>
-                <AgentBubble content={item.content} streaming={item.streaming} toolActivity={item.toolActivity} theme={theme} colorScheme={colorScheme} />
+                <AgentBubble content={item.content} streaming={item.streaming} toolActivity={item.toolActivity} toolHistory={item.toolHistory} theme={theme} colorScheme={colorScheme} />
                 {!item.streaming && <AgentAvatar name={name} size={24} />}
               </View>
             );

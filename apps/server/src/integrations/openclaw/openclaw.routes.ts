@@ -49,12 +49,14 @@ router.delete('/skills/:name', deleteSkill);
 export { router as openclawRoutes };
 
 // Sessions — read-through to ~/.openclaw/agents/<agent>/sessions/*.jsonl
-import { listSessions, getSession } from './sessions.service';
+import { listSessions, getSession, createSession, deleteSession } from './sessions.service';
 
 router.get('/sessions', async (req, res, next) => {
   try {
     const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 200);
-    res.json({ data: await listSessions(limit) });
+    const opts: { agentId?: string; limit: number } = { limit };
+    if (typeof req.query.agentId === 'string' && req.query.agentId) opts.agentId = req.query.agentId;
+    res.json({ data: await listSessions(opts) });
   } catch (err) { next(err); }
 });
 
@@ -69,6 +71,33 @@ router.get('/sessions/detail', async (req, res, next) => {
     const session = await getSession(key, opts);
     if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
     res.json({ data: session });
+  } catch (err) { next(err); }
+});
+
+router.post('/sessions', async (req, res, next) => {
+  try {
+    const agentId = typeof req.body?.agentId === 'string' ? req.body.agentId : '';
+    if (!agentId) { res.status(400).json({ error: 'agentId is required' }); return; }
+    const result = await createSession(agentId);
+    if (!result.ok) {
+      const status = result.error === 'agent not found' ? 404 : 400;
+      res.status(status).json({ error: result.error ?? 'failed to create session' });
+      return;
+    }
+    res.status(201).json({ data: result.session });
+  } catch (err) { next(err); }
+});
+
+router.delete('/sessions/:agentId/:sessionId', async (req, res, next) => {
+  try {
+    const { agentId, sessionId } = req.params;
+    const result = await deleteSession(`${agentId}/${sessionId}`);
+    if (!result.ok) {
+      const status = result.error === 'session not found' ? 404 : 400;
+      res.status(status).json({ error: result.error ?? 'failed to delete session' });
+      return;
+    }
+    res.json({ data: { ok: true } });
   } catch (err) { next(err); }
 });
 
