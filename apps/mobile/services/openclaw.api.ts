@@ -109,6 +109,11 @@ export const openclawApi = {
       method: 'PUT', body: JSON.stringify({ content }),
     }),
 
+  getUsage: () => request('/usage'),
+  getUsageHistory: () => request('/usage/history'),
+  getUsageByAgent: () => request('/usage/by-agent'),
+  getUsageByModel: () => request('/usage/by-model'),
+
   // Sessions
   listSessions: (limit = 20) => request(`/sessions?limit=${limit}`),
   getSession: (key: string) => request(`/sessions/detail?key=${encodeURIComponent(key)}`),

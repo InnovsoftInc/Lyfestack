@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { OpenClawService } from './openclaw.service';
+import { usageTracker } from './usage-tracker';
 
 const service = new OpenClawService();
 
@@ -77,5 +78,34 @@ export const sendMessage = async (req: Request, res: Response, next: NextFunctio
     if (!name) { res.status(400).json({ error: 'Agent name required' }); return; }
     const response = await service.sendMessage(name, req.body.message as string);
     res.json({ data: { response } });
+  } catch (err) { next(err); }
+};
+
+export const getUsage = async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const [today, week, month] = await Promise.all([
+      usageTracker.getTodayUsage(),
+      usageTracker.getWeeklyUsage(),
+      usageTracker.getMonthlyUsage(),
+    ]);
+    res.json({ data: { today, week, month } });
+  } catch (err) { next(err); }
+};
+
+export const getUsageHistory = async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    res.json({ data: await usageTracker.getRecent(100) });
+  } catch (err) { next(err); }
+};
+
+export const getUsageByAgent = async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    res.json({ data: await usageTracker.getByAgent() });
+  } catch (err) { next(err); }
+};
+
+export const getUsageByModel = async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    res.json({ data: await usageTracker.getByModel() });
   } catch (err) { next(err); }
 };
