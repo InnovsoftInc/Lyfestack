@@ -301,7 +301,7 @@ export class OpenClawService {
     logger.info({ agent: name }, 'OpenClaw agent deleted');
   }
 
-  async getAgent(name: string): Promise<OpenClawAgent & { systemPrompt?: string; persona?: Record<string, unknown> } | null> {
+  async getAgent(name: string): Promise<OpenClawAgent & { systemPrompt?: string; persona?: Record<string, unknown>; skills?: string[] } | null> {
     try {
       const config = await readOpenclawJson();
       const list: Array<{ id: string; agentDir?: string }> = config?.agents?.list ?? [];
@@ -310,6 +310,9 @@ export class OpenClawService {
       const agentDir = entry.agentDir ?? path.join(OPENCLAW_CONFIG, 'agents', name, 'agent');
       const raw = await fs.readFile(path.join(agentDir, 'config.json'), 'utf-8').catch(() => '{}');
       const agentConfig = JSON.parse(raw);
+      const skills = Array.isArray(agentConfig.skills)
+        ? agentConfig.skills
+        : (await this.listSkills()).map((s) => s.name);
       return {
         name,
         role: agentConfig.role ?? name,
@@ -318,12 +321,44 @@ export class OpenClawService {
         systemPrompt: agentConfig.systemPrompt ?? '',
         persona: agentConfig.persona ?? {},
         tools: agentConfig.tools ?? [],
+        skills,
         status: 'idle',
       };
     } catch (err) {
       logger.error({ err, agent: name }, 'Failed to get agent');
       return null;
     }
+  }
+
+  async getAgentSkills(name: string): Promise<string[]> {
+    try {
+      const config = await readOpenclawJson();
+      const list: Array<{ id: string; agentDir?: string }> = config?.agents?.list ?? [];
+      const entry = list.find((e) => e.id === name);
+      const agentDir = entry?.agentDir ?? path.join(OPENCLAW_CONFIG, 'agents', name, 'agent');
+      const raw = await fs.readFile(path.join(agentDir, 'config.json'), 'utf-8').catch(() => '{}');
+      const agentConfig = JSON.parse(raw);
+      if (Array.isArray(agentConfig.skills)) return agentConfig.skills;
+      // No explicit assignment — return all available skills
+      const allSkills = await this.listSkills();
+      return allSkills.map((s) => s.name);
+    } catch (err) {
+      logger.error({ err, agent: name }, 'Failed to get agent skills');
+      return [];
+    }
+  }
+
+  async setAgentSkills(name: string, skillNames: string[]): Promise<void> {
+    const config = await readOpenclawJson();
+    const list: Array<{ id: string; agentDir?: string }> = config?.agents?.list ?? [];
+    const entry = list.find((e) => e.id === name);
+    const agentDir = entry?.agentDir ?? path.join(OPENCLAW_CONFIG, 'agents', name, 'agent');
+    const configPath = path.join(agentDir, 'config.json');
+    const raw = await fs.readFile(configPath, 'utf-8').catch(() => '{}');
+    const existing = JSON.parse(raw);
+    existing.skills = skillNames;
+    await fs.writeFile(configPath, JSON.stringify(existing, null, 2));
+    logger.info({ agent: name, skills: skillNames }, 'Agent skills updated');
   }
 
   async updateAgent(name: string, updates: { role?: string; model?: string; systemPrompt?: string; persona?: Record<string, unknown> }): Promise<void> {

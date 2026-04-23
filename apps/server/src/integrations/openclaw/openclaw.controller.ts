@@ -294,6 +294,19 @@ export const updateAuthProfile = async (req: Request, res: Response, next: NextF
   }
 };
 
+export const getAgentSkills = async (req: Request, res: Response, next: NextFunction) => {
+  try { res.json({ data: await service.getAgentSkills(req.params.name) }); } catch (err) { next(err); }
+};
+
+export const setAgentSkills = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { skills } = req.body as { skills: unknown };
+    if (!Array.isArray(skills)) { res.status(400).json({ error: 'skills must be an array' }); return; }
+    await service.setAgentSkills(req.params.name, skills as string[]);
+    res.json({ success: true });
+  } catch (err) { next(err); }
+};
+
 export const listSkills = async (_req: Request, res: Response, next: NextFunction) => {
   try { res.json({ data: await service.listSkills() }); } catch (err) { next(err); }
 };
