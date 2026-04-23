@@ -6,6 +6,8 @@ import { cronRunner, type CronJob } from '../services/cron-runner.service';
 
 const OPENCLAW_DIR = path.join(os.homedir(), '.openclaw');
 const OPENCLAW_CONFIG = path.join(OPENCLAW_DIR, 'openclaw.json');
+const OPENCLAW_CRON_FILE = path.join(OPENCLAW_DIR, 'cron', 'jobs.json');
+const OPENCLAW_CRON_STATE = path.join(OPENCLAW_DIR, 'cron', 'jobs-state.json');
 const WORKSPACE_DIR = path.join(OPENCLAW_DIR, 'workspace');
 
 export interface Routine {
@@ -146,6 +148,66 @@ async function scanCronFiles(): Promise<Routine[]> {
   return routines;
 }
 
+interface OpenClawCronJob {
+  id: string;
+  agentId?: string;
+  name: string;
+  enabled: boolean;
+  createdAtMs?: number;
+  schedule: { kind: string; expr: string; tz?: string; staggerMs?: number };
+  sessionTarget?: string;
+  wakeMode?: string;
+  payload?: { kind: string; message?: string };
+  delivery?: { mode?: string; channel?: string; to?: string };
+  state?: Record<string, unknown>;
+}
+
+interface OpenClawCronState {
+  [jobId: string]: { lastRunMs?: number; lastStatus?: string; nextRunMs?: number };
+}
+
+async function readOpenClawCronJobs(): Promise<Routine[]> {
+  const routines: Routine[] = [];
+  try {
+    const raw = await fs.readFile(OPENCLAW_CRON_FILE, 'utf-8');
+    const data = JSON.parse(raw) as { version?: number; jobs?: OpenClawCronJob[] };
+    const jobs = data.jobs ?? [];
+
+    let state: OpenClawCronState = {};
+    try {
+      state = JSON.parse(await fs.readFile(OPENCLAW_CRON_STATE, 'utf-8')) as OpenClawCronState;
+    } catch { /* no state file */ }
+
+    for (const job of jobs) {
+      const cronExpr = job.schedule?.expr ?? '';
+      const tz = job.schedule?.tz ? ` (${job.schedule.tz})` : '';
+      const jobState = state[job.id];
+      const lastRunMs = jobState?.lastRunMs;
+
+      routines.push({
+        id: `openclaw-cron:${job.id}`,
+        name: job.name,
+        description: job.payload?.message?.slice(0, 150) ?? '',
+        type: 'cron',
+        schedule: `${cronExpr}${tz}`,
+        trigger: 'cron',
+        agent: job.agentId,
+        agentName: job.agentId,
+        prompt: job.payload?.message,
+        channel: job.delivery?.channel,
+        enabled: job.enabled,
+        source: 'openclaw',
+        ...(lastRunMs && { lastRun: new Date(lastRunMs).toISOString() }),
+        ...(jobState?.lastStatus && { lastRunStatus: jobState.lastStatus as 'success' | 'error' }),
+        config: job as unknown as Record<string, unknown>,
+      });
+    }
+  } catch (err) {
+    logger.debug({ err }, '[AutomationsService] Could not read OpenClaw cron jobs');
+  }
+  return routines;
+}
+
 function cronJobToRoutine(job: CronJob): Routine {
   const lastRunRecord = cronRunner.getLastRun(job.id);
   return {
@@ -209,12 +271,15 @@ export class AutomationsService {
       });
     }
 
-    // 3. Cron jobs from openclaw.json
+    // 3. OpenClaw native cron jobs (~/.openclaw/cron/jobs.json)
+    routines.push(...(await readOpenClawCronJobs()));
+
+    // 4. Cron jobs from openclaw.json (legacy, if any)
     for (const job of config.cron?.jobs ?? []) {
       routines.push(cronJobToRoutine(job));
     }
 
-    // 4. .cron files in workspace
+    // 5. .cron files in workspace
     routines.push(...(await scanCronFiles()));
 
     return routines;

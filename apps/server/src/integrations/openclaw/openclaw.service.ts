@@ -3,8 +3,8 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { logger } from '../../utils/logger';
 import { usageTracker } from './usage-tracker';
-const OPENCLAW_CONFIG = path.join(process.env.HOME ?? '', '.openclaw');
-const OPENCLAW_JSON = path.join(OPENCLAW_CONFIG, 'openclaw.json');
+import { OPENCLAW_HOME, OPENCLAW_JSON, readOpenclawJson as sharedRead, writeOpenclawJson as sharedWrite } from './openclaw-json';
+const OPENCLAW_CONFIG = OPENCLAW_HOME;
 const WORKSPACE = path.join(OPENCLAW_CONFIG, 'workspace');
 const SKILLS_DIR = path.join(OPENCLAW_CONFIG, 'skills');
 
@@ -66,12 +66,11 @@ export interface OpenClawAgent {
 }
 
 async function readOpenclawJson(): Promise<any> {
-  const raw = await fs.readFile(OPENCLAW_JSON, 'utf-8');
-  return JSON.parse(raw);
+  return sharedRead<any>();
 }
 
 async function writeOpenclawJson(data: any): Promise<void> {
-  await fs.writeFile(OPENCLAW_JSON, JSON.stringify(data, null, 2));
+  await sharedWrite(data);
 }
 
 export class OpenClawService {

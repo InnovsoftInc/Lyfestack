@@ -338,6 +338,17 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
       (toolName) => {
         set((s) => {
           if (!s.activeChat) return s;
+          // '__done_current__' = text started streaming, mark current tool as done
+          if (toolName === '__done_current__') {
+            return {
+              activeChat: {
+                ...s.activeChat,
+                messages: s.activeChat.messages.map((m) =>
+                  m.id === agentMsgId ? { ...m, toolActivity: null } : m,
+                ),
+              },
+            };
+          }
           return {
             activeChat: {
               ...s.activeChat,

@@ -25,6 +25,7 @@ import { createUsersRouter } from './routes/users.routes';
 import { createIntegrationsRouter } from './routes/integrations.routes';
 import { openclawRoutes } from './integrations/openclaw/openclaw.routes';
 import { getStatus as openclawStatus } from './integrations/openclaw/openclaw.controller';
+import { openaiRoutes } from './integrations/openai/openai.routes';
 import { createGoalRouter } from './routes/goal.routes';
 import { createGoalBuilderRouter } from './routes/goal-builder.routes';
 import { cronRunner } from './services/cron-runner.service';
@@ -90,6 +91,9 @@ app.get('/api/templates/:id', getTemplateById);
 // OpenClaw bridge — status is public (used for connection discovery), rest requires auth
 app.get('/api/openclaw/status', openclawStatus);
 app.use('/api/openclaw', authMiddleware, requireAuth, openclawRoutes);
+
+// OpenAI feature surface (mobile-UX helpers: voice, vision, TTS, embeddings, etc.)
+app.use('/api/openai', authMiddleware, requireAuth, openaiRoutes);
 
 // Plan preview SSE — no auth (pre-signup flow)
 app.post('/api/plan-preview/stream', (req: Request, res: Response) => {

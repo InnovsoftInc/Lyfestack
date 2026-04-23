@@ -98,6 +98,45 @@ async function request(path: string, options?: RequestInit): Promise<unknown> {
   });
 }
 
+// Map raw tool names to human-readable labels
+function formatToolLabel(name: string): string {
+  if (!name) return '';
+  const lower = name.toLowerCase();
+  const map: Record<string, string> = {
+    'read': 'Reading file',
+    'write': 'Writing file',
+    'edit': 'Editing file',
+    'bash': 'Running command',
+    'grep': 'Searching code',
+    'glob': 'Finding files',
+    'webfetch': 'Fetching web page',
+    'websearch': 'Searching the web',
+    'web_search': 'Searching the web',
+    'web_fetch': 'Fetching web page',
+    'list_directory': 'Listing directory',
+    'execute_code': 'Running code',
+    'python': 'Running Python',
+    'node': 'Running Node.js',
+    'create_file': 'Creating file',
+    'delete_file': 'Deleting file',
+    'move_file': 'Moving file',
+    'search': 'Searching',
+    'browser': 'Using browser',
+    'screenshot': 'Taking screenshot',
+  };
+  // Check exact match first
+  if (map[lower]) return map[lower];
+  // Check partial match
+  for (const [key, label] of Object.entries(map)) {
+    if (lower.includes(key)) return label;
+  }
+  // Fallback: humanize the name (snake_case / camelCase → words)
+  return name
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/_/g, ' ')
+    .replace(/^\w/, (c) => c.toUpperCase());
+}
+
 export async function streamAgentMessage(
   agentId: string,
   message: string,
@@ -147,18 +186,21 @@ export async function streamAgentMessage(
               safeReject(new Error(payload.error));
               return;
             }
-            if (payload.type === 'tool_use') {
-              onToolActivity?.(payload.name ?? 'using tools...');
+            if (payload.type === 'tool_use' || payload.type === 'tool_result') {
+              // Build a descriptive label from the tool name
+              const rawName: string = payload.name ?? payload.tool ?? '';
+              const label = formatToolLabel(rawName);
+              if (label) onToolActivity?.(label);
             } else if (payload.chunk !== undefined) {
               if (!firstChunkReceived) {
                 firstChunkReceived = true;
                 clearToolTimer();
-                onToolActivity?.(null);
+                // Mark current tool as done but DON'T clear history
+                onToolActivity?.('__done_current__');
               }
               onChunk(payload.chunk);
             } else if (payload.done) {
               clearToolTimer();
-              onToolActivity?.(null);
               onDone(payload.response ?? '');
               safeResolve();
             }

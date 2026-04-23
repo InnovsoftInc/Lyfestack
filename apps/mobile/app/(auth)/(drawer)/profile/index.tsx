@@ -284,6 +284,11 @@ export default function ProfileScreen() {
               label="Manage Skills"
               onPress={() => router.push('/(auth)/(drawer)/profile/skills' as any)}
             />
+            <View style={styles.divider} />
+            <SettingRow
+              label="OpenAI Features"
+              onPress={() => router.push('/(auth)/(drawer)/profile/openai-settings' as any)}
+            />
           </View>
         </View>
 

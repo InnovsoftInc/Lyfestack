@@ -106,13 +106,9 @@ function stripTimestamp(text: string): string {
 
 function ToolPill({ label, active, theme }: { label: string; active?: boolean; theme: Theme }) {
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 2 }}>
-      {active ? (
-        <ActivityIndicator size="small" color={theme.accent} style={{ width: 10, height: 10 }} />
-      ) : (
-        <Text style={{ color: theme.text.secondary, fontSize: 10 }}>✓</Text>
-      )}
-      <Text style={{ color: active ? theme.accent : theme.text.secondary, fontSize: 11, fontWeight: active ? '600' : '400' }}>{label}</Text>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 1.5 }}>
+      <Text style={{ color: active ? theme.accent : theme.text.secondary, fontSize: 8, lineHeight: 12 }}>{active ? '●' : '✓'}</Text>
+      <Text style={{ color: active ? theme.accent : theme.text.secondary, fontSize: 12, fontWeight: active ? '600' : '400' }}>{label}</Text>
     </View>
   );
 }
@@ -125,12 +121,38 @@ function ToolActivityList({ tools, currentTool, theme }: { tools: string[]; curr
   for (const t of tools) {
     if (!seen.has(t)) { seen.add(t); unique.push(t); }
   }
+  // If there's a current tool not yet in history, add it
+  if (currentTool && !seen.has(currentTool)) {
+    unique.push(currentTool);
+  }
   return (
-    <View style={{ marginBottom: 6, gap: 1 }}>
+    <View style={{ marginBottom: 6, gap: 0 }}>
       {unique.map((tool, i) => {
-        const isActive = currentTool === tool && i === unique.length - 1;
+        const isActive = currentTool === tool;
         return <ToolPill key={`${tool}-${i}`} label={tool} active={isActive} theme={theme} />;
       })}
+    </View>
+  );
+}
+
+function CodeBlockWithCopy({ code, language, theme }: { code: string; language?: string; theme: Theme }) {
+  const [copied, setCopied] = useState(false);
+  const onCopy = async () => {
+    await Clipboard.setStringAsync(code);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+  return (
+    <View style={{ marginVertical: 4, borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border, overflow: 'hidden' }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 4, backgroundColor: theme.border + '30' }}>
+        <Text style={{ color: theme.text.secondary, fontSize: 10, fontWeight: '600' }}>{language || 'code'}</Text>
+        <TouchableOpacity onPress={onCopy} hitSlop={6} activeOpacity={0.6}>
+          <Text style={{ color: theme.text.secondary, fontSize: 10, fontWeight: '600' }}>{copied ? '✓ Copied' : '⧉ Copy'}</Text>
+        </TouchableOpacity>
+      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ backgroundColor: theme.surface, padding: 10 }}>
+        <Text style={{ color: theme.text.primary, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: 12, lineHeight: 18 }}>{code}</Text>
+      </ScrollView>
     </View>
   );
 }
@@ -176,6 +198,11 @@ function AgentBubble({ content, streaming, toolActivity, toolHistory, theme, col
           } as any}
           theme={markdownTheme as any}
           colorScheme={colorScheme}
+          renderer={{
+            code: (code: string, language?: string) => (
+              <CodeBlockWithCopy key={code.slice(0, 20)} code={code} language={language} theme={theme} />
+            ),
+          }}
         />
       ) : null}
       {streaming && content.length > 0 && (

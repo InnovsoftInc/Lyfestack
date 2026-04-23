@@ -181,6 +181,7 @@ export default function DrawerLayout() {
       <Drawer.Screen name="profile/integrations" options={{ drawerItemStyle: { display: 'none' } }} />
       <Drawer.Screen name="profile/openclaw-settings" options={{ drawerItemStyle: { display: 'none' } }} />
       <Drawer.Screen name="profile/openclaw-usage" options={{ drawerItemStyle: { display: 'none' } }} />
+      <Drawer.Screen name="profile/openai-settings" options={{ drawerItemStyle: { display: 'none' } }} />
     </Drawer>
   );
 }
