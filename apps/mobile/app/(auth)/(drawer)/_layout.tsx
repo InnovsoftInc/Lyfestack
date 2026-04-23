@@ -183,6 +183,14 @@ export default function DrawerLayout() {
         options={{ title: 'Ask OpenClaw', drawerIcon: ({ focused }) => <Text style={{ fontSize: 18, opacity: focused ? 1 : 0.5 }}>🎙</Text> }}
       />
       <Drawer.Screen
+        name="realtime/index"
+        options={{ title: 'Realtime Voice', drawerIcon: ({ focused }) => <Text style={{ fontSize: 18, opacity: focused ? 1 : 0.5 }}>🎧</Text> }}
+      />
+      <Drawer.Screen
+        name="search/index"
+        options={{ title: 'Search', drawerIcon: ({ focused }) => <Text style={{ fontSize: 18, opacity: focused ? 1 : 0.5 }}>🔎</Text> }}
+      />
+      <Drawer.Screen
         name="approvals/index"
         options={{ title: 'Approvals', drawerIcon: ({ focused }) => <Text style={{ fontSize: 18, opacity: focused ? 1 : 0.5 }}>✅</Text> }}
       />

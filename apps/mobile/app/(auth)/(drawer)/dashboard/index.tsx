@@ -20,6 +20,7 @@ import { useOpenClawStore } from '../../../../stores/openclaw.store';
 import { useAuthStore } from '../../../../stores/auth.store';
 import type { BriefTask } from '../../../../services/briefs.api';
 import { GlassHeader, headerSpacerHeight } from '../../../../components/ui';
+import { TtsPlayer } from '../../../../components/TtsPlayer';
 
 const TASK_TYPE_ICON: Record<string, string> = {
   HABIT: '🔁',
@@ -426,10 +427,17 @@ export default function DashboardScreen() {
             )}
 
             <View style={styles.header}>
-              <View style={styles.headerTop}>
+              <View style={[styles.headerTop, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}>
                 <Text style={styles.greeting} numberOfLines={1}>
                   {brief?.greeting ?? `Good morning${user?.displayName ? `, ${user.displayName.split(' ')[0]}` : ''}`}
                 </Text>
+                {brief?.summary ? (
+                  <TtsPlayer
+                    text={`${brief.greeting ?? ''}. ${brief.summary}. ${(brief.insights ?? []).join('. ')}`.slice(0, 4000)}
+                    style={{ paddingHorizontal: 8, paddingVertical: 4 }}
+                    textStyle={{ color: '#0EA5E9', fontSize: 13, fontWeight: '600' }}
+                  />
+                ) : null}
               </View>
               <Text style={styles.summary}>{brief?.summary ?? 'Pull down to load your brief.'}</Text>
             </View>

@@ -122,6 +122,82 @@ export const pushApi = {
     }),
 };
 
+export interface SearchHit {
+  id: string;
+  scope: 'sessions' | 'skills' | 'memory';
+  source: string;
+  snippet: string;
+  score: number;
+}
+
+export const searchApi = {
+  query: (q: string, scopes?: Array<'sessions' | 'skills' | 'memory'>, limit?: number) =>
+    request<{ data: SearchHit[] }>('/api/openai/search', {
+      method: 'POST',
+      body: { q, ...(scopes ? { scopes } : {}), ...(limit ? { limit } : {}) },
+    }).then((r) => r.data),
+
+  reindex: (scopes?: Array<'sessions' | 'skills' | 'memory'>) =>
+    request<{ data: { added: number; updated: number; removed: number; total: number; skipped: number } }>('/api/openai/search/reindex', {
+      method: 'POST',
+      body: scopes ? { scopes } : {},
+    }).then((r) => r.data),
+
+  stats: () =>
+    request<{ data: { total: number; byScope: Record<string, number> } }>('/api/openai/search/stats').then((r) => r.data),
+};
+
+export interface RealtimeSession {
+  sessionId: string;
+  clientSecret: string;
+  expiresAt: number;
+  model: string;
+  voice: string;
+  modalities: string[];
+}
+
+export const realtimeApi = {
+  mintSession: (opts?: { voice?: string; instructions?: string }) =>
+    request<{ data: RealtimeSession }>('/api/openai/realtime/session', {
+      method: 'POST',
+      body: opts ?? {},
+    }).then((r) => r.data),
+};
+
+/**
+ * Fetch the binary TTS audio for `text`. Returns a base64 data URI suitable
+ * for `expo-audio`'s createAudioPlayer.
+ */
+export async function fetchTtsDataUri(text: string, voice?: string): Promise<string> {
+  const base = await getApiBase();
+  const token = await getAuthToken();
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(`${base}/api/openai/tts`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ text, ...(voice ? { voice } : {}), format: 'mp3' }),
+  });
+  if (!res.ok) {
+    const t = await res.text().catch(() => '');
+    throw new Error(t || `TTS failed: ${res.status}`);
+  }
+  const arr = await res.arrayBuffer();
+  const b64 = arrayBufferToBase64(arr);
+  return `data:audio/mpeg;base64,${b64}`;
+}
+
+function arrayBufferToBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  let bin = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    bin += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunk)) as number[]);
+  }
+  // eslint-disable-next-line no-undef
+  return globalThis.btoa(bin);
+}
+
 import { getApiBase, getAuthToken } from './api';
 
 // ── Orchestrator (SSE) ─────────────────────────────────────────────────────

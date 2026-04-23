@@ -99,6 +99,39 @@ app.use('/api/openai', authMiddleware, requireAuth, openaiRoutes);
 import { pushRoutes } from './integrations/push/push.routes';
 app.use('/api/push', authMiddleware, requireAuth, pushRoutes);
 
+// Nightly OpenAI background jobs — batch report + search-index refresh
+import cron from 'node-cron';
+import { submitNightlyBatch, pollAndStoreBatch } from './integrations/openai/batch.service';
+import { reindex as reindexSearchIndex } from './integrations/openai/search-index.service';
+
+let pendingBatchId: string | null = null;
+cron.schedule('15 2 * * *', async () => {
+  try {
+    const { batchId } = await submitNightlyBatch();
+    pendingBatchId = batchId;
+    logger.info({ batchId }, 'nightly batch submitted');
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, 'nightly batch submit failed');
+  }
+});
+cron.schedule('*/30 * * * *', async () => {
+  if (!pendingBatchId) return;
+  try {
+    const result = await pollAndStoreBatch(pendingBatchId);
+    if (result) { logger.info({ batchId: pendingBatchId }, 'nightly batch result stored'); pendingBatchId = null; }
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, 'nightly batch poll failed');
+  }
+});
+cron.schedule('30 3 * * *', async () => {
+  try {
+    const stats = await reindexSearchIndex();
+    logger.info(stats, 'search index nightly refresh done');
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, 'search reindex failed');
+  }
+});
+
 // Plan preview SSE — no auth (pre-signup flow)
 app.post('/api/plan-preview/stream', (req: Request, res: Response) => {
   const { templateId, answers = [] } = req.body as { templateId?: string; answers?: DiagnosticAnswer[] };
