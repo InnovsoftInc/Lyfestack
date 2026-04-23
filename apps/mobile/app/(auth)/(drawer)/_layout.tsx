@@ -145,6 +145,10 @@ export default function DrawerLayout() {
           options={{ title: 'Agents', headerShown: false, drawerIcon: ({ focused }) => <Text style={{ fontSize: 18, opacity: focused ? 1 : 0.5 }}>🤖</Text> }}
         />
         <Drawer.Screen
+          name="automations"
+          options={{ title: 'Routines', headerShown: false, drawerIcon: ({ focused }) => <Text style={{ fontSize: 18, opacity: focused ? 1 : 0.5 }}>⏰</Text> }}
+        />
+        <Drawer.Screen
           name="profile/index"
           options={{ title: 'Profile', drawerIcon: ({ focused }) => <Text style={{ fontSize: 18, opacity: focused ? 1 : 0.5 }}>👤</Text> }}
         />

@@ -21,6 +21,8 @@ import { createIntegrationsRouter } from './routes/integrations.routes';
 import { openclawRoutes } from './integrations/openclaw/openclaw.routes';
 import { getStatus as openclawStatus } from './integrations/openclaw/openclaw.controller';
 import { createGoalRouter } from './routes/goal.routes';
+import { createRoutinesRouter } from './routes/routines.routes';
+import { routinesService } from './services/routines.service';
 import { startCronJobs } from './jobs/cron';
 import { createAuthMiddleware, requireAuth } from './middleware/auth.middleware';
 import { getSupabaseClient } from './config/database';
@@ -67,6 +69,9 @@ app.use('/integrations', createIntegrationsRouter());
 
 // Goals CRUD
 app.use('/api/goals', createGoalRouter());
+
+// Routines (user-defined scheduled automations) — no auth required (local-only)
+app.use('/api/routines', createRoutinesRouter());
 
 // OpenClaw bridge — status is public (used for connection discovery), rest requires auth
 app.get('/api/openclaw/status', openclawStatus);
@@ -128,6 +133,7 @@ app.use(errorMiddleware);
 app.listen(config.PORT, () => {
   logger.info({ port: config.PORT, env: config.NODE_ENV }, 'Server started');
   startCronJobs();
+  routinesService.init();
 });
 
 export default app;
