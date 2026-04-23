@@ -6,6 +6,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOpenClawStore } from '../../../../../stores/openclaw.store';
+import type { ChatErrorType } from '../../../../../stores/openclaw.store';
 import { openclawApi } from '../../../../../services/openclaw.api';
 import { useTheme } from '../../../../../hooks/useTheme';
 import { Spacing } from '../../../../../theme';
@@ -21,6 +22,53 @@ const AVAILABLE_MODELS = [
   'ollama/llama3.2:latest',
   'ollama/mistral:latest',
 ];
+
+const ERROR_META: Record<ChatErrorType, { icon: string; title: string; body: string }> = {
+  billing: {
+    icon: '💳',
+    title: 'Out of Credits',
+    body: 'Your API key has insufficient balance. Top up at openrouter.ai/settings/credits or switch to a different key in OpenClaw Settings.',
+  },
+  rate_limit: {
+    icon: '⏱',
+    title: 'Rate Limited',
+    body: 'Too many requests to the free model tier. Wait a minute and try again, or switch to a paid model in the header above.',
+  },
+  all_failed: {
+    icon: '🚫',
+    title: 'All Models Failed',
+    body: 'Every model in the fallback chain failed. Check your API keys and model configuration in OpenClaw Settings.',
+  },
+  generic: {
+    icon: '⚠️',
+    title: 'Agent Error',
+    body: '',
+  },
+};
+
+function ErrorBadge({ type, rawMessage, theme }: { type: ChatErrorType; rawMessage: string; theme: Theme }) {
+  const meta = ERROR_META[type];
+  const isKnown = type !== 'generic';
+  const bg = theme.error + '12';
+  const border = theme.error + '40';
+  return (
+    <View style={{ alignSelf: 'flex-start', maxWidth: '88%', marginBottom: 8 }}>
+      <View style={{ backgroundColor: bg, borderWidth: 1, borderColor: border, borderRadius: 14, borderBottomLeftRadius: 4, padding: 12, gap: 4 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Text style={{ fontSize: 15 }}>{meta.icon}</Text>
+          <Text style={{ color: theme.error, fontSize: 13, fontWeight: '700' }}>{meta.title}</Text>
+        </View>
+        {isKnown ? (
+          <Text style={{ color: theme.text.secondary, fontSize: 13, lineHeight: 18 }}>{meta.body}</Text>
+        ) : (
+          <Text style={{ color: theme.text.secondary, fontSize: 12, lineHeight: 17, fontFamily: 'Courier' }} numberOfLines={4}>
+            {rawMessage.split('\n')[0]}
+          </Text>
+        )}
+      </View>
+    </View>
+  );
+}
 
 export default function AgentChatScreen() {
   const { name } = useLocalSearchParams<{ name: string }>();
@@ -162,22 +210,21 @@ export default function AgentChatScreen() {
         data={messages}
         keyExtractor={(item) => item.id}
         contentContainerStyle={s.messages}
-        renderItem={({ item }) => (
-          <View style={[
-            s.bubble,
-            item.role === 'user' ? s.userBubble :
-            item.isError ? s.errorBubble : s.agentBubble,
-          ]}>
-            {item.isError && <Text style={s.errorLabel}>Error</Text>}
-            <Text style={[
-              s.bubbleText,
-              item.role === 'user' && s.userText,
-              item.isError && s.errorText,
+        renderItem={({ item }) => {
+          if (item.isError && item.errorType) {
+            return <ErrorBadge type={item.errorType} rawMessage={item.content} theme={theme} />;
+          }
+          return (
+            <View style={[
+              s.bubble,
+              item.role === 'user' ? s.userBubble : s.agentBubble,
             ]}>
-              {item.content}
-            </Text>
-          </View>
-        )}
+              <Text style={[s.bubbleText, item.role === 'user' && s.userText]}>
+                {item.content}
+              </Text>
+            </View>
+          );
+        }}
         ListEmptyComponent={
           <View style={s.emptyWrap}>
             <AgentAvatar name={name} size={56} />
@@ -279,16 +326,8 @@ const styles = (t: Theme) => StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth, borderColor: t.border,
     borderBottomLeftRadius: 6,
   },
-  errorBubble: {
-    alignSelf: 'flex-start',
-    backgroundColor: t.error + '18',
-    borderWidth: StyleSheet.hairlineWidth, borderColor: t.error + '55',
-    borderBottomLeftRadius: 6,
-  },
   bubbleText: { color: t.text.primary, fontSize: 15, lineHeight: 21 },
   userText: { color: '#fff' },
-  errorLabel: { color: t.error, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', marginBottom: 4 },
-  errorText: { color: t.error },
 
   emptyWrap: { alignItems: 'center', gap: Spacing.sm, paddingTop: 80, paddingHorizontal: Spacing.xl },
   emptyTitle: { color: t.text.primary, fontSize: 18, fontWeight: '600', marginTop: Spacing.sm },

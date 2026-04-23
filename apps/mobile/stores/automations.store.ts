@@ -13,22 +13,25 @@ export interface Automation {
   lastRunAt?: string;
   nextRunAt?: string;
   lastResult?: string;
+  lastRunStatus?: 'success' | 'error';
 }
 
 interface AutomationsStore {
   automations: Automation[];
   isLoading: boolean;
+  runningIds: string[];
   error: string | null;
   fetch: () => Promise<void>;
   create: (data: Omit<Automation, 'id' | 'createdAt' | 'lastRunAt' | 'nextRunAt' | 'lastResult'>) => Promise<void>;
   remove: (id: string) => Promise<void>;
   toggle: (id: string, enabled: boolean) => Promise<void>;
-  runNow: (id: string) => Promise<void>;
+  runNow: (id: string) => Promise<{ status: 'success' | 'error'; result?: string; error?: string }>;
 }
 
 export const useAutomationsStore = create<AutomationsStore>((set, get) => ({
   automations: [],
   isLoading: false,
+  runningIds: [],
   error: null,
 
   fetch: async () => {
@@ -59,7 +62,13 @@ export const useAutomationsStore = create<AutomationsStore>((set, get) => ({
   },
 
   runNow: async (id) => {
-    await openclawApi.runAutomationNow(id);
-    await get().fetch();
+    set((s) => ({ runningIds: [...s.runningIds, id] }));
+    try {
+      const res = await openclawApi.runAutomationNow(id);
+      await get().fetch();
+      return { status: res.data?.status ?? 'success', result: res.data?.result, error: res.data?.error };
+    } finally {
+      set((s) => ({ runningIds: s.runningIds.filter((rid) => rid !== id) }));
+    }
   },
 }));

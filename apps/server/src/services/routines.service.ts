@@ -142,16 +142,14 @@ class RoutinesService {
     logger.info({ routineId: id, agent: routine.agentName }, '[RoutinesService] Executing routine');
 
     try {
-      // Execute via agent orchestrator
-      const { agentOrchestrator } = await import('../agents/agent.orchestrator');
-      const output = await agentOrchestrator.dispatch({
-        agentKey: routine.agentName,
-        input: { userId: 'system', prompt: routine.prompt },
-      });
+      // Execute via OpenClaw agent
+      const { OpenClawService } = await import('../integrations/openclaw/openclaw.service');
+      const openclawService = new OpenClawService();
+      const output = await openclawService.sendMessage(routine.agentName, routine.prompt);
 
       record.status = 'success';
       record.completedAt = new Date().toISOString();
-      record.output = typeof output === 'string' ? output : JSON.stringify(output);
+      record.output = output;
     } catch (err) {
       record.status = 'error';
       record.completedAt = new Date().toISOString();

@@ -10,12 +10,26 @@ interface Agent {
   status: 'active' | 'idle' | 'offline';
 }
 
-interface ChatMessage {
+export type ChatErrorType = 'billing' | 'rate_limit' | 'all_failed' | 'generic';
+
+export interface ChatMessage {
   id: string;
   role: 'user' | 'agent';
   content: string;
   timestamp: string;
   isError?: boolean;
+  errorType?: ChatErrorType;
+}
+
+function classifyError(msg: string): ChatErrorType {
+  const lower = msg.toLowerCase();
+  const hasBilling = lower.includes('billing') || lower.includes('out of credits') || lower.includes('insufficient balance') || lower.includes('402');
+  const hasRateLimit = lower.includes('rate limit') || lower.includes('rate_limit') || lower.includes('429');
+  const allFailed = lower.includes('all models failed');
+  if (allFailed) return hasBilling ? 'billing' : hasRateLimit ? 'rate_limit' : 'all_failed';
+  if (hasBilling) return 'billing';
+  if (hasRateLimit) return 'rate_limit';
+  return 'generic';
 }
 
 interface OpenClawStore {
@@ -153,12 +167,14 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
       }));
     } catch (err: any) {
       log('sendMessage() error', err?.message);
+      const rawMsg: string = err?.message ?? 'Failed to get response';
       const errMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'agent',
-        content: err?.message ?? 'Failed to get response',
+        content: rawMsg,
         timestamp: new Date().toISOString(),
         isError: true,
+        errorType: classifyError(rawMsg),
       };
       set((s) => ({
         activeChat: s.activeChat

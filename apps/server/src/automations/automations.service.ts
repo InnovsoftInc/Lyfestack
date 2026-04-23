@@ -21,6 +21,7 @@ export interface Automation {
   lastRunAt?: string;
   nextRunAt?: string;
   lastResult?: string;
+  lastRunStatus?: 'success' | 'error';
 }
 
 const activeTasks = new Map<string, cron.ScheduledTask>();
@@ -93,15 +94,20 @@ export class AutomationsService {
     return automations[idx]!;
   }
 
-  async runNow(id: string): Promise<{ result: string }> {
+  async runNow(id: string): Promise<{ result: string; status: 'success' | 'error'; error?: string }> {
     const automations = await readAutomations();
     const automation = automations.find((a) => a.id === id);
     if (!automation) throw new Error('Automation not found');
-    const result = await this.execute(automation);
-    return { result };
+    try {
+      const result = await this.execute(automation);
+      return { result, status: 'success' };
+    } catch (err: any) {
+      return { result: '', status: 'error', error: err.message };
+    }
   }
 
   private async execute(automation: Automation): Promise<string> {
+    const now = new Date().toISOString();
     try {
       const escaped = automation.message.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
       const { stdout } = await execAsync(
@@ -113,13 +119,22 @@ export class AutomationsService {
       const automations = await readAutomations();
       const idx = automations.findIndex((a) => a.id === automation.id);
       if (idx !== -1) {
-        automations[idx]!.lastRunAt = new Date().toISOString();
+        automations[idx]!.lastRunAt = now;
         automations[idx]!.lastResult = result.slice(0, 300);
+        automations[idx]!.lastRunStatus = 'success';
         await writeAutomations(automations);
       }
       logger.info({ id: automation.id }, 'Automation executed successfully');
       return result;
     } catch (err: any) {
+      const automations = await readAutomations();
+      const idx = automations.findIndex((a) => a.id === automation.id);
+      if (idx !== -1) {
+        automations[idx]!.lastRunAt = now;
+        automations[idx]!.lastResult = err.message?.slice(0, 300) ?? '';
+        automations[idx]!.lastRunStatus = 'error';
+        await writeAutomations(automations);
+      }
       logger.error({ id: automation.id, err: err.message }, 'Automation execution failed');
       throw new Error(`Automation failed: ${err.message}`);
     }

@@ -17,6 +17,7 @@ import type { Theme } from '../../../../theme/colors';
 import { TextStyles, Spacing, BorderRadius } from '../../../../theme';
 import { Colors } from '@lyfestack/shared';
 import { openclawApi } from '../../../../services/openclaw.api';
+import { MarkdownEditorModal } from '../../../../components/ui/MarkdownEditorModal';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -32,7 +33,7 @@ interface SkillDetail {
   content: string;
 }
 
-type ViewMode = 'list' | 'detail' | 'create';
+type ViewMode = 'list' | 'create';
 
 // ─── Templates ───────────────────────────────────────────────────────────────
 
@@ -313,10 +314,10 @@ export default function SkillsScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  // Detail state
-  const [detail, setDetail] = useState<SkillDetail | null>(null);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editContent, setEditContent] = useState('');
+  // Modal state
+  const [modal, setModal] = useState<{ visible: boolean; skill: SkillDetail | null; loading: boolean }>({
+    visible: false, skill: null, loading: false,
+  });
 
   // Create state
   const [newName, setNewName] = useState('');
@@ -352,27 +353,27 @@ export default function SkillsScreen() {
     setCreateContent(tpl.content(safeName));
   };
 
-  // ── Open detail ──────────────────────────────────────────────────────────
-  const openDetail = async (name: string) => {
+  // ── Open modal ────────────────────────────────────────────────────────────
+  const openModal = async (name: string) => {
+    setModal({ visible: true, skill: null, loading: true });
     try {
       const res = await openclawApi.getSkill(name);
-      setDetail(res.data);
-      setEditContent(res.data.content);
-      setIsEditing(false);
-      setView('detail');
+      setModal({ visible: true, skill: res.data, loading: false });
     } catch {
+      setModal({ visible: false, skill: null, loading: false });
       Alert.alert('Error', 'Could not load skill.');
     }
   };
 
-  // ── Save edit ─────────────────────────────────────────────────────────────
-  const saveEdit = async () => {
-    if (!detail) return;
+  const closeModal = () => setModal({ visible: false, skill: null, loading: false });
+
+  // ── Save via modal ────────────────────────────────────────────────────────
+  const saveSkill = async (content: string) => {
+    if (!modal.skill) return;
     setSaving(true);
     try {
-      await openclawApi.updateSkill(detail.name, editContent);
-      setDetail({ ...detail, content: editContent });
-      setIsEditing(false);
+      await openclawApi.updateSkill(modal.skill.name, content);
+      setModal((m) => m.skill ? { ...m, skill: { ...m.skill, content } } : m);
       await loadSkills();
     } catch {
       Alert.alert('Error', 'Could not save skill.');
@@ -394,7 +395,7 @@ export default function SkillsScreen() {
           onPress: async () => {
             try {
               await openclawApi.deleteSkill(name);
-              if (view === 'detail') setView('list');
+              closeModal();
               await loadSkills();
             } catch {
               Alert.alert('Error', 'Could not delete skill.');
@@ -454,7 +455,7 @@ export default function SkillsScreen() {
                   <TouchableOpacity
                     key={skill.name}
                     style={styles.skillCard}
-                    onPress={() => openDetail(skill.name)}
+                    onPress={() => openModal(skill.name)}
                     activeOpacity={0.75}
                   >
                     <View style={styles.skillCardRow}>
@@ -483,81 +484,17 @@ export default function SkillsScreen() {
         <TouchableOpacity style={styles.fab} onPress={() => setView('create')} activeOpacity={0.85}>
           <Text style={styles.fabText}>+</Text>
         </TouchableOpacity>
+
+        <MarkdownEditorModal
+          visible={modal.visible}
+          title={modal.skill?.name ?? ''}
+          initialContent={modal.skill?.content ?? ''}
+          loading={modal.loading}
+          saving={saving}
+          onSave={saveSkill}
+          onClose={closeModal}
+        />
       </View>
-    );
-  }
-
-  // ── Render: Detail ────────────────────────────────────────────────────────
-  if (view === 'detail' && detail) {
-    return (
-      <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={styles.header}>
-          <TouchableOpacity style={styles.backButton} onPress={() => { setView('list'); setIsEditing(false); }}>
-            <Text style={styles.backText}>← Skills</Text>
-          </TouchableOpacity>
-          <Text style={styles.heading}>{detail.name}</Text>
-        </View>
-
-        <View style={styles.detailActions}>
-          {isEditing ? (
-            <>
-              <TouchableOpacity
-                style={[styles.actionBtn, styles.actionBtnPrimary]}
-                onPress={saveEdit}
-                disabled={saving}
-                activeOpacity={0.85}
-              >
-                {saving ? (
-                  <ActivityIndicator color={Colors.white} size="small" />
-                ) : (
-                  <Text style={[styles.actionBtnText, styles.actionBtnTextPrimary]}>Save</Text>
-                )}
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.actionBtn}
-                onPress={() => { setEditContent(detail.content); setIsEditing(false); }}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.actionBtnText}>Cancel</Text>
-              </TouchableOpacity>
-            </>
-          ) : (
-            <>
-              <TouchableOpacity
-                style={[styles.actionBtn, styles.actionBtnPrimary]}
-                onPress={() => setIsEditing(true)}
-                activeOpacity={0.85}
-              >
-                <Text style={[styles.actionBtnText, styles.actionBtnTextPrimary]}>Edit</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.actionBtn, styles.actionBtnDanger]}
-                onPress={() => confirmDelete(detail.name)}
-                activeOpacity={0.85}
-              >
-                <Text style={[styles.actionBtnText, styles.actionBtnTextDanger]}>Delete</Text>
-              </TouchableOpacity>
-            </>
-          )}
-        </View>
-
-        {isEditing ? (
-          <TextInput
-            style={[styles.editor, { flex: 1 }]}
-            value={editContent}
-            onChangeText={setEditContent}
-            multiline
-            autoCapitalize="none"
-            autoCorrect={false}
-            spellCheck={false}
-            scrollEnabled
-          />
-        ) : (
-          <ScrollView style={styles.readonlyContent}>
-            <Text style={styles.readonlyText}>{detail.content}</Text>
-          </ScrollView>
-        )}
-      </KeyboardAvoidingView>
     );
   }
 

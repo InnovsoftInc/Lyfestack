@@ -73,6 +73,14 @@ function makeStyles(theme: Theme) {
       justifyContent: 'space-between',
     },
     lastRun: { ...TextStyles.caption, color: theme.text.secondary },
+    statusDot: {
+      width: 7,
+      height: 7,
+      borderRadius: 4,
+      marginRight: 4,
+      alignSelf: 'center',
+    },
+    lastRunRow: { flexDirection: 'row', alignItems: 'center' },
     actionRow: { flexDirection: 'row', gap: Spacing.sm },
     runBtn: {
       paddingHorizontal: 12,
@@ -80,6 +88,12 @@ function makeStyles(theme: Theme) {
       borderRadius: BorderRadius.sm,
       borderWidth: 1,
       borderColor: Colors.accent,
+      minWidth: 80,
+      alignItems: 'center',
+    },
+    runBtnRunning: {
+      borderColor: Colors.accent + '60',
+      backgroundColor: Colors.accent + '10',
     },
     runBtnText: { ...TextStyles.caption, color: Colors.accent, fontWeight: '600' },
     deleteBtn: {
@@ -150,11 +164,13 @@ function makeStyles(theme: Theme) {
 
 function AutomationCard({
   automation,
+  isRunning,
   onToggle,
   onDelete,
   onRun,
 }: {
   automation: Automation;
+  isRunning: boolean;
   onToggle: (enabled: boolean) => void;
   onDelete: () => void;
   onRun: () => void;
@@ -165,6 +181,12 @@ function AutomationCard({
   const lastRun = automation.lastRunAt
     ? `Last run ${new Date(automation.lastRunAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`
     : 'Never run';
+
+  const statusDotColor = isRunning
+    ? Colors.accent
+    : automation.lastRunStatus === 'success'
+      ? '#22c55e'
+      : '#ef4444';
 
   return (
     <View style={[styles.card, !automation.enabled && styles.cardDisabled]}>
@@ -187,10 +209,24 @@ function AutomationCard({
       </Text>
 
       <View style={styles.cardFooter}>
-        <Text style={styles.lastRun}>{lastRun}</Text>
+        <View style={styles.lastRunRow}>
+          {(isRunning || automation.lastRunStatus) && (
+            <View style={[styles.statusDot, { backgroundColor: statusDotColor }]} />
+          )}
+          <Text style={styles.lastRun}>{isRunning ? 'Running...' : lastRun}</Text>
+        </View>
         <View style={styles.actionRow}>
-          <TouchableOpacity style={styles.runBtn} onPress={onRun} activeOpacity={0.7}>
-            <Text style={styles.runBtnText}>▶ Run now</Text>
+          <TouchableOpacity
+            style={[styles.runBtn, isRunning && styles.runBtnRunning]}
+            onPress={onRun}
+            activeOpacity={0.7}
+            disabled={isRunning}
+          >
+            {isRunning ? (
+              <ActivityIndicator size="small" color={Colors.accent} />
+            ) : (
+              <Text style={styles.runBtnText}>▶ Run now</Text>
+            )}
           </TouchableOpacity>
           <TouchableOpacity style={styles.deleteBtn} onPress={onDelete} activeOpacity={0.7}>
             <Text style={styles.deleteBtnText}>Delete</Text>
@@ -201,10 +237,18 @@ function AutomationCard({
   );
 }
 
+function cleanRunError(raw?: string): string {
+  if (!raw) return 'Automation failed.';
+  const fallbackMatch = raw.match(/FallbackSummaryError:\s*(.+)/s);
+  if (fallbackMatch) return fallbackMatch[1]!.trim().slice(0, 500);
+  const stripped = raw.replace(/^Automation failed:\s*/i, '').replace(/^Command failed:[^\n]+\n?/i, '').trim();
+  return stripped.slice(0, 500) || 'Automation failed.';
+}
+
 export default function AutomationsScreen() {
   const theme = useTheme();
   const styles = makeStyles(theme);
-  const { automations, isLoading, fetch, toggle, remove, runNow } = useAutomationsStore();
+  const { automations, isLoading, runningIds, fetch, toggle, remove, runNow } = useAutomationsStore();
   const { connectionStatus } = useOpenClawStore();
   const isConnected = connectionStatus === 'connected';
 
@@ -226,14 +270,14 @@ export default function AutomationsScreen() {
   };
 
   const handleRun = (automation: Automation) => {
-    Alert.alert(
-      'Run now',
-      `Send "${automation.message}" to ${automation.agentName} immediately?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Run', onPress: () => void runNow(automation.id) },
-      ],
-    );
+    void (async () => {
+      const res = await runNow(automation.id);
+      if (res.status === 'success') {
+        Alert.alert('Run complete', res.result?.trim().slice(0, 400) || 'Automation ran successfully.');
+      } else {
+        Alert.alert('Run failed', cleanRunError(res.error));
+      }
+    })();
   };
 
   if (!isConnected) {
@@ -290,6 +334,7 @@ export default function AutomationsScreen() {
         renderItem={({ item }) => (
           <AutomationCard
             automation={item}
+            isRunning={runningIds.includes(item.id)}
             onToggle={(enabled) => void toggle(item.id, enabled)}
             onDelete={() => handleDelete(item)}
             onRun={() => handleRun(item)}
