@@ -122,11 +122,23 @@ export const openclawApi = {
     }),
 
   // Sessions
-  listSessions: (limit = 20) => request(`/sessions?limit=${limit}`),
+  listSessions: (limit: number = 20) => request(`/sessions?limit=${limit}`),
   getSession: (key: string) => request(`/sessions/detail?key=${encodeURIComponent(key)}`),
   createSession: (agentId: string, label?: string) =>
     request('/sessions', {
       method: 'POST',
       body: JSON.stringify({ agentId, label }),
     }),
+
+  // Usage tracking
+  getUsage: () => request('/usage'),
+  getUsageHistory: (limit: number = 100) => request(`/usage/history?limit=${limit}`),
+  getUsageByAgent: () => request('/usage/by-agent'),
+  getUsageByModel: () => request('/usage/by-model'),
+
+  // Config
+  getConfig: () => request('/config'),
+  updateConfig: (updates: Record<string, unknown>) => request('/config', { method: 'PATCH', body: JSON.stringify(updates) }),
+  getAuthProfiles: () => request('/auth-profiles'),
+  updateAuthProfile: (name: string, key: string) => request(`/auth-profiles/${encodeURIComponent(name)}`, { method: 'PATCH', body: JSON.stringify({ key }) }),
 };

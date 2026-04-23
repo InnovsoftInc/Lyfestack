@@ -1,12 +1,10 @@
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useTheme } from '../../hooks/useTheme';
 import type { Theme } from '../../theme/colors';
 import { TextStyles, Spacing, BorderRadius } from '../../theme';
 import { Colors } from '@lyfestack/shared';
-
-const { height } = Dimensions.get('window');
 
 function makeStyles(theme: Theme) {
   return StyleSheet.create({
@@ -20,8 +18,7 @@ function makeStyles(theme: Theme) {
       justifyContent: 'space-between',
     },
     hero: {
-      marginTop: height * 0.06,
-      gap: Spacing.md,
+      gap: Spacing.sm,
     },
     logoMark: {
       width: 52,
@@ -30,7 +27,7 @@ function makeStyles(theme: Theme) {
       backgroundColor: Colors.accent,
       justifyContent: 'center',
       alignItems: 'center',
-      marginBottom: Spacing.sm,
+      marginBottom: Spacing.xs,
     },
     logoMarkText: {
       ...TextStyles.h4,

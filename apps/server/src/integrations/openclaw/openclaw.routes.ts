@@ -34,3 +34,11 @@ router.put('/agents/:name/files/:filename', updateAgentFile);
 router.post('/agents/:name/message', sendMessage);
 
 export { router as openclawRoutes };
+
+// Usage tracking
+import { getUsageSummary, getUsageHistory, getUsageByAgent, getUsageByModel } from './usage-tracker';
+
+router.get('/usage', async (_req, res) => { res.json({ data: await getUsageSummary() }); });
+router.get('/usage/history', async (req, res) => { res.json({ data: await getUsageHistory(Number(req.query.limit) || 100) }); });
+router.get('/usage/by-agent', async (_req, res) => { res.json({ data: await getUsageByAgent() }); });
+router.get('/usage/by-model', async (_req, res) => { res.json({ data: await getUsageByModel() }); });

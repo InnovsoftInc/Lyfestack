@@ -52,6 +52,7 @@ export interface OpenClawAgent {
   name: string;
   role: string;
   model: string;
+  fallbackModels?: string[];
   systemPrompt?: string;
   tools: string[];
   status: 'active' | 'idle' | 'offline';
@@ -166,6 +167,7 @@ export class OpenClawService {
         name,
         role: agentConfig.role ?? name,
         model: agentConfig.model?.primary ?? 'openrouter/auto',
+        fallbackModels: agentConfig.model?.fallbacks ?? [],
         systemPrompt: agentConfig.systemPrompt ?? '',
         persona: agentConfig.persona ?? {},
         tools: agentConfig.tools ?? [],

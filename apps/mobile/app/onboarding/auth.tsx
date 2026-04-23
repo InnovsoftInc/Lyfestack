@@ -1,6 +1,6 @@
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams, Redirect } from 'expo-router';
 import { useState } from 'react';
 import { useTheme } from '../../hooks/useTheme';
 import type { Theme } from '../../theme/colors';
@@ -57,6 +57,10 @@ function makeStyles(theme: Theme) {
       paddingVertical: 12,
       paddingHorizontal: Spacing.md,
     },
+    passwordWrapper: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.surface, borderRadius: BorderRadius.md, borderWidth: 1, borderColor: theme.border },
+    passwordInput: { ...TextStyles.body, color: theme.text.primary, flex: 1, paddingVertical: 12, paddingHorizontal: Spacing.md },
+    eyeButton: { paddingHorizontal: Spacing.md, paddingVertical: 12 },
+    eyeText: { ...TextStyles.small, color: theme.text.secondary, fontWeight: '600' },
     continueButton: {
       backgroundColor: Colors.accent,
       paddingVertical: 14,
@@ -96,7 +100,8 @@ export default function AuthScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
-  const { signup, login, isLoading, error, confirmationPending } = useAuthStore();
+  const [showPassword, setShowPassword] = useState(false);
+  const { signup, login, isLoading, error, confirmationPending, isAuthenticated, isRestoring } = useAuthStore();
   const { selectedTemplateId, diagnosticAnswers, reset: resetOnboarding } = useOnboardingStore();
   const { createGoal } = useGoalsStore();
   const theme = useTheme();
@@ -159,6 +164,10 @@ export default function AuthScreen() {
       // error shown via store
     }
   };
+
+  if (!isRestoring && isAuthenticated) {
+    return <Redirect href="/(auth)/(drawer)/dashboard" />;
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -255,14 +264,19 @@ export default function AuthScreen() {
               </View>
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Password</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Min. 8 characters"
-                  placeholderTextColor={theme.text.secondary}
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry
-                />
+                <View style={styles.passwordWrapper}>
+                  <TextInput
+                    style={styles.passwordInput}
+                    placeholder="Min. 8 characters"
+                    placeholderTextColor={theme.text.secondary}
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry={!showPassword}
+                  />
+                  <TouchableOpacity style={styles.eyeButton} onPress={() => setShowPassword(v => !v)}>
+                    <Text style={styles.eyeText}>{showPassword ? 'Hide' : 'Show'}</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
 
               <TouchableOpacity
@@ -297,14 +311,19 @@ export default function AuthScreen() {
               </View>
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Password</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Password"
-                  placeholderTextColor={theme.text.secondary}
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry
-                />
+                <View style={styles.passwordWrapper}>
+                  <TextInput
+                    style={styles.passwordInput}
+                    placeholder="Password"
+                    placeholderTextColor={theme.text.secondary}
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry={!showPassword}
+                  />
+                  <TouchableOpacity style={styles.eyeButton} onPress={() => setShowPassword(v => !v)}>
+                    <Text style={styles.eyeText}>{showPassword ? 'Hide' : 'Show'}</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
 
               <TouchableOpacity

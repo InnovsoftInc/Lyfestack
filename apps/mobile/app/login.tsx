@@ -1,6 +1,6 @@
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, Redirect } from 'expo-router';
 import { useState } from 'react';
 import { useTheme } from '../hooks/useTheme';
 import type { Theme } from '../theme/colors';
@@ -22,6 +22,10 @@ function makeStyles(theme: Theme) {
     inputGroup: { gap: Spacing.sm },
     inputLabel: { ...TextStyles.small, color: theme.text.secondary, fontWeight: '600' },
     input: { ...TextStyles.body, color: theme.text.primary, backgroundColor: theme.surface, borderRadius: BorderRadius.md, borderWidth: 1, borderColor: theme.border, paddingVertical: 12, paddingHorizontal: Spacing.md },
+    passwordWrapper: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.surface, borderRadius: BorderRadius.md, borderWidth: 1, borderColor: theme.border },
+    passwordInput: { ...TextStyles.body, color: theme.text.primary, flex: 1, paddingVertical: 12, paddingHorizontal: Spacing.md },
+    eyeButton: { paddingHorizontal: Spacing.md, paddingVertical: 12 },
+    eyeText: { ...TextStyles.small, color: theme.text.secondary, fontWeight: '600' },
     loginButton: { backgroundColor: Colors.accent, paddingVertical: 14, borderRadius: BorderRadius.md, alignItems: 'center' },
     loginButtonDisabled: { opacity: 0.4 },
     loginButtonText: { ...TextStyles.button, color: Colors.white, fontSize: 17 },
@@ -39,7 +43,8 @@ function makeStyles(theme: Theme) {
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const { login, isLoading, error } = useAuthStore();
+  const [showPassword, setShowPassword] = useState(false);
+  const { login, isLoading, error, isAuthenticated, isRestoring } = useAuthStore();
   const theme = useTheme();
   const styles = makeStyles(theme);
 
@@ -52,6 +57,10 @@ export default function LoginScreen() {
       // error shown via store
     }
   };
+
+  if (!isRestoring && isAuthenticated) {
+    return <Redirect href="/(auth)/(drawer)/dashboard" />;
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -84,15 +93,20 @@ export default function LoginScreen() {
 
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Password</Text>
-              <TextInput
-                style={styles.input}
-                value={password}
-                onChangeText={setPassword}
-                placeholder="••••••••"
-                placeholderTextColor={theme.text.secondary}
-                secureTextEntry
-                autoComplete="password"
-              />
+              <View style={styles.passwordWrapper}>
+                <TextInput
+                  style={styles.passwordInput}
+                  value={password}
+                  onChangeText={setPassword}
+                  placeholder="••••••••"
+                  placeholderTextColor={theme.text.secondary}
+                  secureTextEntry={!showPassword}
+                  autoComplete="password"
+                />
+                <TouchableOpacity style={styles.eyeButton} onPress={() => setShowPassword(v => !v)}>
+                  <Text style={styles.eyeText}>{showPassword ? 'Hide' : 'Show'}</Text>
+                </TouchableOpacity>
+              </View>
             </View>
 
             <TouchableOpacity onPress={() => {}}>

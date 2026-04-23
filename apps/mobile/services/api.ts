@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
+import Constants from 'expo-constants';
 import type { User, Goal, DailyBrief, AgentAction } from '@lyfestack/shared';
 
 const API_BASE_KEY = '@lyfestack_api_base';
@@ -16,14 +17,25 @@ export function registerUnauthorizedHandler(handler: UnauthorizedHandler) {
   unauthorizedHandler = handler;
 }
 
+function getDevApiBase(): string {
+  // In Expo Go on a physical device, hostUri is the Metro server's LAN IP (e.g. "192.168.1.142:8082").
+  // Extract just the host so we can point at the backend on the same machine.
+  const hostUri = Constants.expoConfig?.hostUri ?? Constants.manifest?.debuggerHost;
+  if (hostUri) {
+    const host = hostUri.split(':')[0];
+    return `http://${host}:3000`;
+  }
+  return 'http://localhost:3000';
+}
+
 // Non-sensitive: server URL stored in AsyncStorage
 export async function getApiBase(): Promise<string> {
   if (cachedBase) return cachedBase;
   try {
     const saved = await AsyncStorage.getItem(API_BASE_KEY);
-    cachedBase = saved ?? 'http://localhost:3000';
+    cachedBase = saved ?? getDevApiBase();
   } catch {
-    cachedBase = 'http://localhost:3000';
+    cachedBase = getDevApiBase();
   }
   return cachedBase;
 }

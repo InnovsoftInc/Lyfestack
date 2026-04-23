@@ -32,7 +32,7 @@ const config: ExpoConfig = {
   extra: {
     apiUrl: process.env['EXPO_PUBLIC_API_URL'] ?? 'http://localhost:3000',
     eas: {
-      projectId: 'your-eas-project-id',
+      projectId: process.env['EXPO_PUBLIC_PROJECT_ID'] ?? undefined,
     },
   },
 };

@@ -32,6 +32,7 @@ interface OpenClawStore {
   sendMessage: (agentName: string, message: string) => Promise<void>;
   openChat: (agentName: string) => void;
   closeChat: () => void;
+  loadChatHistory: (agentName: string, messages: ChatMessage[]) => void;
   startHeartbeat: () => void;
   stopHeartbeat: () => void;
 }
@@ -175,6 +176,13 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
   },
 
   closeChat: () => set({ activeChat: null }),
+
+  loadChatHistory: (agentName, messages) => {
+    const current = get().activeChat;
+    if (current?.agentName === agentName && current.messages.length === 0) {
+      set({ activeChat: { agentName, messages } });
+    }
+  },
 
   startHeartbeat: () => {
     if (heartbeatTimer) return;

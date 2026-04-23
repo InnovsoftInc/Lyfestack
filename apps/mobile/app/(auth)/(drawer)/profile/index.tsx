@@ -277,7 +277,12 @@ export default function ProfileScreen() {
             <View style={styles.divider} />
             <SettingRow
               label="OpenClaw Settings"
-              onPress={() => router.push('/(auth)/(drawer)/profile/openclaw-settings')}
+              onPress={() => router.push('/(auth)/(drawer)/profile/openclaw-settings' as any)}
+            />
+            <View style={styles.divider} />
+            <SettingRow
+              label="Usage & Tokens"
+              onPress={() => router.push('/(auth)/(drawer)/profile/openclaw-usage' as any)}
             />
           </View>
         </View>

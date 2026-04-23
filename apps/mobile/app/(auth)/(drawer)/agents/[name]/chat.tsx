@@ -1,15 +1,26 @@
 import {
   View, Text, StyleSheet, TextInput, TouchableOpacity,
-  FlatList, KeyboardAvoidingView, Platform, ActivityIndicator,
+  FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, Modal, ScrollView,
 } from 'react-native';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOpenClawStore } from '../../../../../stores/openclaw.store';
+import { openclawApi } from '../../../../../services/openclaw.api';
 import { useTheme } from '../../../../../hooks/useTheme';
 import { Spacing } from '../../../../../theme';
 import type { Theme } from '../../../../../theme';
 import { AgentAvatar } from '../index';
+
+const AVAILABLE_MODELS = [
+  'openrouter/auto',
+  'anthropic/claude-sonnet-4',
+  'anthropic/claude-haiku-4',
+  'openai/gpt-4o',
+  'openai/gpt-4o-mini',
+  'ollama/llama3.2:latest',
+  'ollama/mistral:latest',
+];
 
 export default function AgentChatScreen() {
   const { name } = useLocalSearchParams<{ name: string }>();
@@ -18,12 +29,57 @@ export default function AgentChatScreen() {
   const { activeChat, openChat, sendMessage, agents } = useOpenClawStore();
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [showModelPicker, setShowModelPicker] = useState(false);
+  const [currentModel, setCurrentModel] = useState('');
+  const [fallbackModels, setFallbackModels] = useState<string[]>([]);
+  const [changingModel, setChangingModel] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
   const listRef = useRef<FlatList>(null);
 
   const insets = useSafeAreaInsets();
   const agent = agents.find((a) => a.name === name);
 
-  useEffect(() => { openChat(name); }, [name]);
+  // Load agent details (model + fallbacks) and chat history
+  useEffect(() => {
+    openChat(name);
+    // Load agent model info
+    openclawApi.getAgent(name).then((res: any) => {
+      setCurrentModel(res.data?.model ?? 'openrouter/auto');
+      setFallbackModels(res.data?.fallbackModels ?? []);
+    }).catch(() => {});
+    // Load chat history from OpenClaw sessions
+    setLoadingHistory(true);
+    openclawApi.listSessions(10).then((res: any) => {
+      const agentSessions = (res.data ?? []).filter((s: any) =>
+        s.agentId === name || s.label?.includes(name)
+      );
+      // Load messages from most recent session
+      if (agentSessions.length > 0) {
+        openclawApi.getSession(agentSessions[0].key).then((sessionRes: any) => {
+          const history = (sessionRes.data?.messages ?? []).map((m: any, i: number) => ({
+            id: `history-${i}`,
+            role: m.role === 'user' ? 'user' as const : 'agent' as const,
+            content: m.content,
+            timestamp: m.timestamp ?? new Date().toISOString(),
+          }));
+          if (history.length > 0) {
+            useOpenClawStore.getState().loadChatHistory(name, history);
+          }
+        }).catch(() => {});
+      }
+    }).catch(() => {}).finally(() => setLoadingHistory(false));
+  }, [name]);
+
+  const handleModelChange = async (model: string) => {
+    setChangingModel(true);
+    try {
+      await openclawApi.updateAgent(name, { model });
+      setCurrentModel(model);
+      setShowModelPicker(false);
+    } catch {} finally {
+      setChangingModel(false);
+    }
+  };
 
   const handleSend = async () => {
     if (!input.trim() || sending) return;
@@ -53,12 +109,46 @@ export default function AgentChatScreen() {
         <AgentAvatar name={name} size={40} />
         <View style={s.headerInfo}>
           <Text style={s.agentTitle}>{name}</Text>
-          {agent && <Text style={s.agentMeta}>{agent.role}</Text>}
+          <TouchableOpacity onPress={() => setShowModelPicker(true)} activeOpacity={0.7} style={s.modelRow}>
+            <Text style={s.modelText}>{currentModel ? currentModel.split('/').pop() : agent?.model ?? '...'}</Text>
+            <Text style={s.modelArrow}>▾</Text>
+          </TouchableOpacity>
+          {fallbackModels.length > 0 && (
+            <Text style={s.fallbackText}>Fallbacks: {fallbackModels.map(m => m.split('/').pop()).join(', ')}</Text>
+          )}
         </View>
         <TouchableOpacity onPress={() => router.back()} style={s.closeBtn} hitSlop={10} activeOpacity={0.6}>
           <Text style={s.closeIcon}>✕</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Model Picker Modal */}
+      <Modal visible={showModelPicker} transparent animationType="slide">
+        <View style={s.modalOverlay}>
+          <View style={s.modalContent}>
+            <Text style={s.modalTitle}>Select Model</Text>
+            <ScrollView style={s.modelList}>
+              {AVAILABLE_MODELS.map((model) => (
+                <TouchableOpacity
+                  key={model}
+                  style={[s.modelOption, currentModel === model && s.modelOptionActive]}
+                  onPress={() => handleModelChange(model)}
+                  disabled={changingModel}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[s.modelOptionText, currentModel === model && s.modelOptionTextActive]}>
+                    {model}
+                  </Text>
+                  {currentModel === model && <Text style={s.modelCheck}>✓</Text>}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <TouchableOpacity style={s.modalClose} onPress={() => setShowModelPicker(false)}>
+              <Text style={s.modalCloseText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {/* Messages */}
       <FlatList
@@ -144,8 +234,25 @@ const styles = (t: Theme) => StyleSheet.create({
   headerInfo: { flex: 1 },
   agentTitle: { color: t.text.primary, fontSize: 16, fontWeight: '700' },
   agentMeta: { color: t.text.secondary, fontSize: 11, marginTop: 1 },
+  modelRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+  modelText: { color: t.accent, fontSize: 11, fontWeight: '600' },
+  modelArrow: { color: t.accent, fontSize: 8 },
+  fallbackText: { color: t.text.secondary, fontSize: 9, marginTop: 1, opacity: 0.7 },
   closeBtn: { padding: Spacing.xs },
   closeIcon: { color: t.text.secondary, fontSize: 16 },
+
+  // Model picker modal
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
+  modalContent: { backgroundColor: t.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: Spacing.lg, maxHeight: '60%' },
+  modalTitle: { color: t.text.primary, fontSize: 18, fontWeight: '700', marginBottom: Spacing.md },
+  modelList: { maxHeight: 350 },
+  modelOption: { paddingVertical: 14, paddingHorizontal: Spacing.md, borderRadius: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  modelOptionActive: { backgroundColor: t.accent + '15' },
+  modelOptionText: { color: t.text.primary, fontSize: 15 },
+  modelOptionTextActive: { color: t.accent, fontWeight: '600' },
+  modelCheck: { color: t.accent, fontSize: 16, fontWeight: '700' },
+  modalClose: { marginTop: Spacing.md, paddingVertical: 14, alignItems: 'center', borderRadius: 12, borderWidth: 1, borderColor: t.border },
+  modalCloseText: { color: t.text.secondary, fontSize: 15, fontWeight: '600' },
 
   messages: { padding: Spacing.md, paddingBottom: Spacing.sm, flexGrow: 1 },
 
