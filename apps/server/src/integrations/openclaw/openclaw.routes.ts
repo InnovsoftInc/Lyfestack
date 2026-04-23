@@ -14,6 +14,11 @@ import {
   updateConfig,
   getAuthProfiles,
   updateAuthProfile,
+  listSkills,
+  getSkill,
+  createSkill,
+  updateSkill,
+  deleteSkill,
 } from './openclaw.controller';
 
 const router = Router();
@@ -32,6 +37,12 @@ router.get('/agents/:name/files', listAgentFiles);
 router.get('/agents/:name/files/:filename', getAgentFile);
 router.put('/agents/:name/files/:filename', updateAgentFile);
 router.post('/agents/:name/message', sendMessage);
+
+router.get('/skills', listSkills);
+router.post('/skills', createSkill);
+router.get('/skills/:name', getSkill);
+router.put('/skills/:name', updateSkill);
+router.delete('/skills/:name', deleteSkill);
 
 export { router as openclawRoutes };
 

@@ -107,3 +107,43 @@ export const updateAuthProfile = async (req: Request, res: Response, next: NextF
     next(err);
   }
 };
+
+export const listSkills = async (_req: Request, res: Response, next: NextFunction) => {
+  try { res.json({ data: await service.listSkills() }); } catch (err) { next(err); }
+};
+
+export const getSkill = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const skill = await service.getSkill(req.params.name);
+    if (!skill) { res.status(404).json({ error: 'Skill not found' }); return; }
+    res.json({ data: skill });
+  } catch (err) { next(err); }
+};
+
+export const createSkill = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { name, content } = req.body as { name: string; content: string };
+    if (!name || !content) { res.status(400).json({ error: 'name and content required' }); return; }
+    await service.createSkill(name, content);
+    res.status(201).json({ success: true });
+  } catch (err: any) {
+    if (err.message?.includes('already exists')) { res.status(409).json({ error: err.message }); return; }
+    next(err);
+  }
+};
+
+export const updateSkill = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { content } = req.body as { content: string };
+    if (!content) { res.status(400).json({ error: 'content required' }); return; }
+    await service.updateSkill(req.params.name, content);
+    res.json({ success: true });
+  } catch (err) { next(err); }
+};
+
+export const deleteSkill = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await service.deleteSkill(req.params.name);
+    res.json({ success: true });
+  } catch (err) { next(err); }
+};

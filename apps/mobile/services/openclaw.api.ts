@@ -136,9 +136,13 @@ export const openclawApi = {
   getUsageByAgent: () => request('/usage/by-agent'),
   getUsageByModel: () => request('/usage/by-model'),
 
-  // Config
-  getConfig: () => request('/config'),
-  updateConfig: (updates: Record<string, unknown>) => request('/config', { method: 'PATCH', body: JSON.stringify(updates) }),
-  getAuthProfiles: () => request('/auth-profiles'),
-  updateAuthProfile: (name: string, key: string) => request(`/auth-profiles/${encodeURIComponent(name)}`, { method: 'PATCH', body: JSON.stringify({ key }) }),
+  // Skills
+  listSkills: () => request('/skills'),
+  getSkill: (name: string) => request(`/skills/${encodeURIComponent(name)}`),
+  createSkill: (name: string, content: string) =>
+    request('/skills', { method: 'POST', body: JSON.stringify({ name, content }) }),
+  updateSkill: (name: string, content: string) =>
+    request(`/skills/${encodeURIComponent(name)}`, { method: 'PUT', body: JSON.stringify({ content }) }),
+  deleteSkill: (name: string) =>
+    request(`/skills/${encodeURIComponent(name)}`, { method: 'DELETE' }),
 };

@@ -8,6 +8,7 @@ const execAsync = promisify(exec);
 const OPENCLAW_CONFIG = path.join(process.env.HOME ?? '', '.openclaw');
 const OPENCLAW_JSON = path.join(OPENCLAW_CONFIG, 'openclaw.json');
 const WORKSPACE = path.join(OPENCLAW_CONFIG, 'workspace');
+const SKILLS_DIR = path.join(OPENCLAW_CONFIG, 'skills');
 
 // Core identity files every agent shares
 const SHARED_FILES = ['IDENTITY.md', 'SOUL.md', 'ROLES.md', 'USER.md', 'AGENTS.md'];
@@ -41,6 +42,13 @@ export interface AuthProfileInfo {
   mode: string;
   maskedKey?: string;
   envVar?: string;
+}
+
+export interface SkillInfo {
+  name: string;
+  description: string;
+  size: number;
+  modifiedAt: string;
 }
 
 function maskKey(key: string): string {
@@ -349,5 +357,65 @@ export class OpenClawService {
     cfg.env[envVar] = key;
     await writeOpenclawJson(cfg);
     logger.info({ profile: name, envVar }, 'Auth profile key updated');
+  }
+
+  async listSkills(): Promise<SkillInfo[]> {
+    try {
+      await fs.mkdir(SKILLS_DIR, { recursive: true });
+      const entries = await fs.readdir(SKILLS_DIR, { withFileTypes: true });
+      const skills: SkillInfo[] = [];
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const skillPath = path.join(SKILLS_DIR, entry.name, 'SKILL.md');
+        try {
+          const [content, stat] = await Promise.all([
+            fs.readFile(skillPath, 'utf-8'),
+            fs.stat(skillPath),
+          ]);
+          const descMatch = content.match(/^description:\s*["']?(.*?)["']?\s*$/m);
+          const description = descMatch ? descMatch[1].replace(/^["']|["']$/g, '') : '';
+          skills.push({ name: entry.name, description, size: stat.size, modifiedAt: stat.mtime.toISOString() });
+        } catch {
+          skills.push({ name: entry.name, description: '', size: 0, modifiedAt: '' });
+        }
+      }
+      return skills;
+    } catch (err) {
+      logger.error({ err }, 'Failed to list skills');
+      return [];
+    }
+  }
+
+  async getSkill(name: string): Promise<{ name: string; content: string } | null> {
+    const safe = path.basename(name);
+    try {
+      const content = await fs.readFile(path.join(SKILLS_DIR, safe, 'SKILL.md'), 'utf-8');
+      return { name: safe, content };
+    } catch {
+      return null;
+    }
+  }
+
+  async createSkill(name: string, content: string): Promise<void> {
+    const safe = path.basename(name).replace(/[^a-zA-Z0-9_-]/g, '-');
+    if (!safe) throw new Error('Invalid skill name');
+    const skillDir = path.join(SKILLS_DIR, safe);
+    const existing = await fs.stat(path.join(skillDir, 'SKILL.md')).catch(() => null);
+    if (existing) throw new Error(`Skill '${safe}' already exists`);
+    await fs.mkdir(skillDir, { recursive: true });
+    await fs.writeFile(path.join(skillDir, 'SKILL.md'), content, 'utf-8');
+    logger.info({ skill: safe }, 'Skill created');
+  }
+
+  async updateSkill(name: string, content: string): Promise<void> {
+    const safe = path.basename(name);
+    await fs.writeFile(path.join(SKILLS_DIR, safe, 'SKILL.md'), content, 'utf-8');
+    logger.info({ skill: safe }, 'Skill updated');
+  }
+
+  async deleteSkill(name: string): Promise<void> {
+    const safe = path.basename(name);
+    await fs.rm(path.join(SKILLS_DIR, safe), { recursive: true, force: true });
+    logger.info({ skill: safe }, 'Skill deleted');
   }
 }
