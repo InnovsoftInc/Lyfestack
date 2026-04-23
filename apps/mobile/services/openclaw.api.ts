@@ -489,6 +489,13 @@ export const openclawApi = {
   getUsageByAgent: () => request('/usage/by-agent'),
   getUsageByModel: () => request('/usage/by-model'),
 
+  // Agent skills
+  getAgentSkills: (name: string) => request(`/agents/${encodeURIComponent(name)}/skills`),
+  setAgentSkills: (name: string, skills: string[]) =>
+    request(`/agents/${encodeURIComponent(name)}/skills`, {
+      method: 'PUT', body: JSON.stringify({ skills }),
+    }),
+
   // Skills
   listSkills: () => request('/skills'),
   getSkill: (name: string) => request(`/skills/${encodeURIComponent(name)}`),

@@ -2,7 +2,7 @@ import {
   View, Text, StyleSheet, ScrollView, TextInput,
   TouchableOpacity, ActivityIndicator, Switch, FlatList, Modal, Alert,
 } from 'react-native';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useOpenClawStore } from '../../../../stores/openclaw.store';
@@ -12,6 +12,13 @@ import { Spacing } from '../../../../theme';
 import type { Theme } from '../../../../theme';
 import { AgentAvatar } from './index';
 import { GlassHeader } from '../../../../components/ui';
+
+interface SkillInfo {
+  name: string;
+  description: string;
+  size: number;
+  modifiedAt: string;
+}
 
 const TRAITS = ['Analytical', 'Creative', 'Direct', 'Friendly', 'Precise', 'Witty', 'Empathetic', 'Strategic', 'Thorough', 'Bold'];
 const TONES = ['Professional', 'Casual', 'Technical', 'Simple', 'Formal', 'Conversational'];
@@ -55,7 +62,7 @@ export default function AgentProfileScreen() {
   const s = styles(theme);
   const { deleteAgent } = useOpenClawStore();
 
-  const [tab, setTab] = useState<'profile' | 'files'>('profile');
+  const [tab, setTab] = useState<'profile' | 'skills' | 'files'>('profile');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [advancedMode, setAdvancedMode] = useState(false);
@@ -67,6 +74,10 @@ export default function AgentProfileScreen() {
   const [renameValue, setRenameValue] = useState('');
   const [renameSaving, setRenameSaving] = useState(false);
   const [renameError, setRenameError] = useState<string | null>(null);
+  const [allSkills, setAllSkills] = useState<SkillInfo[]>([]);
+  const [assignedSkills, setAssignedSkills] = useState<string[]>([]);
+  const [skillsLoading, setSkillsLoading] = useState(false);
+  const skillsTogglingRef = useRef<Set<string>>(new Set());
 
   const [role, setRole] = useState('');
   const [description, setDescription] = useState('');
@@ -94,12 +105,40 @@ export default function AgentProfileScreen() {
       .then((res: any) => setFiles(res.data ?? []))
       .catch(() => {})
       .finally(() => setFilesLoading(false));
+
+    setSkillsLoading(true);
+    Promise.all([
+      openclawApi.listSkills() as Promise<{ data: SkillInfo[] }>,
+      openclawApi.getAgentSkills(name) as Promise<{ data: string[] }>,
+    ])
+      .then(([skillsRes, assignedRes]) => {
+        setAllSkills((skillsRes as any).data ?? []);
+        setAssignedSkills((assignedRes as any).data ?? []);
+      })
+      .catch(() => {})
+      .finally(() => setSkillsLoading(false));
   }, [name]);
 
   useFocusEffect(useCallback(() => { loadAgent(); }, [loadAgent]));
 
   const toggleTrait = (t: string) =>
     setTraits((prev) => prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]);
+
+  const toggleSkill = async (skillName: string) => {
+    if (skillsTogglingRef.current.has(skillName)) return;
+    skillsTogglingRef.current.add(skillName);
+    const next = assignedSkills.includes(skillName)
+      ? assignedSkills.filter((s) => s !== skillName)
+      : [...assignedSkills, skillName];
+    setAssignedSkills(next);
+    try {
+      await openclawApi.setAgentSkills(name, next);
+    } catch {
+      setAssignedSkills(assignedSkills); // revert
+    } finally {
+      skillsTogglingRef.current.delete(skillName);
+    }
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -189,16 +228,46 @@ export default function AgentProfileScreen() {
 
       {/* Tab bar */}
       <View style={s.tabBar}>
-        {(['profile', 'files'] as const).map((t) => (
+        {(['profile', 'skills', 'files'] as const).map((t) => (
           <TouchableOpacity key={t} style={[s.tab, tab === t && s.tabActive]} onPress={() => setTab(t)} activeOpacity={0.7}>
             <Text style={[s.tabText, tab === t && s.tabTextActive]}>
-              {t === 'profile' ? 'Profile' : `Files${files.length ? ` (${files.length})` : ''}`}
+              {t === 'profile' ? 'Overview' : t === 'skills' ? `Skills${allSkills.length ? ` (${assignedSkills.length}/${allSkills.length})` : ''}` : `Files${files.length ? ` (${files.length})` : ''}`}
             </Text>
           </TouchableOpacity>
         ))}
       </View>
 
-      {tab === 'files' ? (
+      {tab === 'skills' ? (
+        skillsLoading ? (
+          <View style={s.center}><ActivityIndicator color={theme.accent} size="large" /></View>
+        ) : (
+          <FlatList
+            data={allSkills}
+            keyExtractor={(item) => item.name}
+            contentContainerStyle={s.filesList}
+            ListEmptyComponent={
+              <View style={s.center}><Text style={s.emptyText}>No skills available</Text></View>
+            }
+            renderItem={({ item }) => (
+              <View style={s.skillCard}>
+                <View style={s.skillInfo}>
+                  <Text style={s.skillName}>{item.name}</Text>
+                  {item.description ? (
+                    <Text style={s.skillDesc} numberOfLines={2}>{item.description}</Text>
+                  ) : null}
+                </View>
+                <Switch
+                  value={assignedSkills.includes(item.name)}
+                  onValueChange={() => toggleSkill(item.name)}
+                  trackColor={{ false: theme.border, true: theme.accent + '99' }}
+                  thumbColor={assignedSkills.includes(item.name) ? theme.accent : theme.text.secondary}
+                />
+              </View>
+            )}
+            ItemSeparatorComponent={() => <View style={{ height: Spacing.sm }} />}
+          />
+        )
+      ) : tab === 'files' ? (
         <FlatList
           data={files}
           keyExtractor={(item) => item.filename}
@@ -541,4 +610,14 @@ const styles = (t: Theme) => StyleSheet.create({
   filePreview: { color: t.text.secondary, fontSize: 12, lineHeight: 16 },
   chevron: { color: t.border, fontSize: 22 },
   emptyText: { color: t.text.secondary, fontSize: 15 },
+
+  skillCard: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+    backgroundColor: t.surface,
+    borderRadius: 16, padding: Spacing.md,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: t.border,
+  },
+  skillInfo: { flex: 1, gap: 3 },
+  skillName: { color: t.text.primary, fontSize: 14, fontWeight: '600' },
+  skillDesc: { color: t.text.secondary, fontSize: 12, lineHeight: 16 },
 });

@@ -18,6 +18,8 @@ import {
   updateConfig,
   getAuthProfiles,
   updateAuthProfile,
+  getAgentSkills,
+  setAgentSkills,
   listSkills,
   getSkill,
   createSkill,
@@ -38,6 +40,8 @@ router.get('/agents/:name', getAgent);
 router.put('/agents/:name', updateAgent);
 router.post('/agents/:name/rename', renameAgent);
 router.delete('/agents/:name', deleteAgent);
+router.get('/agents/:name/skills', getAgentSkills);
+router.put('/agents/:name/skills', setAgentSkills);
 router.get('/agents/:name/files', listAgentFiles);
 router.get('/agents/:name/files/:filename', getAgentFile);
 router.put('/agents/:name/files/:filename', updateAgentFile);
