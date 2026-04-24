@@ -1,7 +1,7 @@
 import {
   View, Text, StyleSheet, TextInput, TouchableOpacity,
   FlatList, KeyboardAvoidingView, Platform, ActivityIndicator,
-  Modal, ScrollView, useColorScheme,
+  Modal, ScrollView, useColorScheme, AppState,
 } from 'react-native';
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useLocalSearchParams, router } from 'expo-router';
@@ -374,6 +374,12 @@ export default function AgentChatScreen() {
     let cancelled = false;
     sessionRef.current = null;
 
+    // Track app foreground/background state to pause polling when backgrounded.
+    let appIsActive = AppState.currentState === 'active';
+    const appStateSub = AppState.addEventListener('change', (nextState) => {
+      appIsActive = nextState === 'active';
+    });
+
     const initial = async () => {
       try {
         const sessions = await useOpenClawStore.getState().loadAgentSessions(name);
@@ -389,9 +395,11 @@ export default function AgentChatScreen() {
     };
 
     const syncTail = async () => {
+      if (!appIsActive) return;
       const sref = sessionRef.current;
       if (!sref) return;
-      if (useOpenClawStore.getState().streamAbort) return;
+      const storeState = useOpenClawStore.getState();
+      if (storeState.streamAbort || storeState.resumeAbort) return;
       try {
         const res: any = await openclawApi.getSession(sref.key, { afterIndex: sref.newestIndex });
         if (cancelled) return;
@@ -431,7 +439,11 @@ export default function AgentChatScreen() {
       void store.resumeActiveStream();
     }
 
-    return () => { cancelled = true; clearInterval(interval); };
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      appStateSub.remove();
+    };
   }, [name, loadSession, openChat]);
 
   const loadOlder = useCallback(async () => {
@@ -730,9 +742,16 @@ export default function AgentChatScreen() {
             </View>
             <ScrollView style={s.modelList}>
               {filteredModels.length === 0 && (
-                <Text style={{ color: theme.text.secondary, fontSize: 14, textAlign: 'center', paddingVertical: Spacing.md }}>
-                  {availableModels.length === 0 ? 'Loading models...' : 'No models match this intelligence tier.'}
-                </Text>
+                availableModels.length === 0 ? (
+                  <View style={{ alignItems: 'center', paddingVertical: Spacing.md, gap: 8 }}>
+                    <ActivityIndicator size="small" color={theme.accent} />
+                    <Text style={{ color: theme.text.secondary, fontSize: 14 }}>Loading models...</Text>
+                  </View>
+                ) : (
+                  <Text style={{ color: theme.text.secondary, fontSize: 14, textAlign: 'center', paddingVertical: Spacing.md }}>
+                    No models match this intelligence tier.
+                  </Text>
+                )
               )}
               {filteredModels.map((model) => {
                 const meta = availableModelDetails.find((entry) => entry.id === model);
