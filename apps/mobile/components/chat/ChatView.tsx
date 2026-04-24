@@ -23,11 +23,12 @@ type ChatViewProps = {
   onScrollNearTop?: () => void;
   attachmentCount?: number;
   avatarSlot?: (size: number) => React.ReactNode;
+  contentTopPadding?: number;
 };
 
 export const ChatView = forwardRef<ChatViewHandle, ChatViewProps>(({
   messages, agentName, isLoading, theme, colorScheme,
-  emptyStateContent, onScrollNearTop, attachmentCount = 0, avatarSlot,
+  emptyStateContent, onScrollNearTop, attachmentCount = 0, avatarSlot, contentTopPadding = 0,
 }, ref) => {
   const listRef = useRef<FlatList>(null);
   const pinnedRef = useRef(true);
@@ -64,7 +65,7 @@ export const ChatView = forwardRef<ChatViewHandle, ChatViewProps>(({
         ref={listRef}
         data={messages}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={{ padding: Spacing.md, paddingBottom: Spacing.sm, flexGrow: 1 }}
+        contentContainerStyle={{ padding: Spacing.md, paddingTop: Spacing.md + contentTopPadding, paddingBottom: Spacing.sm, flexGrow: 1 }}
         renderItem={({ item }) => (
           <ChatMessageItem
             message={item}

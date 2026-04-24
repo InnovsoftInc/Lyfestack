@@ -13,6 +13,7 @@ type PopoverProps = {
   width?: number;
   maxHeight?: number;
   align?: 'left' | 'right';
+  openUpward?: boolean;
   children: ReactNode;
 };
 
@@ -47,6 +48,7 @@ export function CustomPopover({
   width = 260,
   maxHeight = 420,
   align = 'left',
+  openUpward = false,
   children,
 }: PopoverProps) {
   const [anchorRect, setAnchorRect] = useState<AnchorRect | null>(null);
@@ -58,8 +60,10 @@ export function CustomPopover({
 
   if (!visible) return null;
 
-  const top = (anchorRect?.y ?? 88) + (anchorRect?.height ?? 0) + 10;
-  const screenWidth = Dimensions.get('window').width;
+  const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+  const verticalStyle = openUpward
+    ? { bottom: screenHeight - (anchorRect?.y ?? screenHeight - 100) + 10 }
+    : { top: (anchorRect?.y ?? 88) + (anchorRect?.height ?? 0) + 10 };
   const horizontalStyle =
     align === 'right'
       ? { right: Math.max(16, screenWidth - ((anchorRect?.x ?? 0) + (anchorRect?.width ?? 0))) }
@@ -73,13 +77,13 @@ export function CustomPopover({
           style={[
             styles.card,
             {
-              top,
               width,
               maxHeight,
               backgroundColor: theme.surface,
               borderColor: theme.border,
               shadowColor: '#000',
             },
+            verticalStyle,
             horizontalStyle,
           ]}
         >

@@ -3,23 +3,25 @@ import {
   KeyboardAvoidingView, Platform, ActivityIndicator,
   Modal, ScrollView, useColorScheme,
 } from 'react-native';
-import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
+import { useState, useRef, useCallback, useMemo } from 'react';
+import { useEffect } from 'react';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { BlurView } from 'expo-blur';
 import { useOpenClawStore } from '../../../../../stores/openclaw.store';
 import type { ChatAttachment } from '../../../../../stores/openclaw.store';
 import { openclawApi } from '../../../../../services/openclaw.api';
 import { approvalsApi } from '../../../../../services/openclaw-extras.api';
 import type { AllowlistEntry } from '../../../../../services/openclaw-extras.api';
 import { useTheme } from '../../../../../hooks/useTheme';
+import { useThemeStore } from '../../../../../stores/theme.store';
 import { useChatEngine } from '../../../../../hooks/useChatEngine';
 import { Spacing } from '../../../../../theme';
 import type { Theme } from '../../../../../theme';
 import { AgentAvatar } from '../index';
-import { ContextUsageBadge } from '../../../../../components/ContextUsageBadge';
 import { ContextWarningBanner } from '../../../../../components/ContextWarningBanner';
 import { SessionPickerSheet } from '../../../../../components/SessionPickerSheet';
-import { CustomPopover, PopoverOption, PopoverSection } from '../../../../../components/ui';
+import { CustomPopover, PopoverOption, PopoverSection, ProgressRing } from '../../../../../components/ui';
 import { ChatView, ChatComposer } from '../../../../../components/chat';
 import type { ChatViewHandle } from '../../../../../components/chat';
 
@@ -50,6 +52,7 @@ const ASK_OPTIONS = ['off', 'on-miss', 'always'];
 export default function AgentChatScreen() {
   const { name } = useLocalSearchParams<{ name: string }>();
   const theme = useTheme();
+  const isDark = useThemeStore((s) => s.isDark);
   const colorScheme = (useColorScheme() ?? 'dark') as 'light' | 'dark';
   const s = styles(theme);
   const insets = useSafeAreaInsets();
@@ -69,7 +72,6 @@ export default function AgentChatScreen() {
   // Model picker state
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [showComposerMenu, setShowComposerMenu] = useState(false);
-  const [modelPickerAnchor, setModelPickerAnchor] = useState<'header' | 'composer'>('header');
   const [currentModel, setCurrentModel] = useState('');
   const [fallbackModels, setFallbackModels] = useState<string[]>([]);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
@@ -96,7 +98,6 @@ export default function AgentChatScreen() {
   const [savingPermissions, setSavingPermissions] = useState(false);
 
   const chatViewRef = useRef<ChatViewHandle>(null);
-  const headerModelAnchorRef = useRef<any>(null);
   const composerMenuAnchorRef = useRef<any>(null);
   const modelAnchorRef = useRef<any>(null);
 
@@ -127,9 +128,8 @@ export default function AgentChatScreen() {
     [availableModels, availableModelDetails, modelTier],
   );
 
-  const openModelPicker = useCallback((anchor: 'header' | 'composer' = 'header') => {
+  const openModelPicker = useCallback(() => {
     setModelTier(currentModelMeta ? (currentModelMeta.reasoning ? 'deep' : 'fast') : 'all');
-    setModelPickerAnchor(anchor);
     setShowComposerMenu(false);
     setShowModelPicker(true);
   }, [currentModelMeta]);
@@ -300,6 +300,12 @@ export default function AgentChatScreen() {
     setTimeout(() => chatViewRef.current?.scrollToBottom(true), 100);
   }, [input, isStreaming, pendingAttachments, send, slashActions]);
 
+  // Compute usage ring progress
+  const usagePct = currentSession && currentSession.contextWindow > 0
+    ? currentSession.usage.contextUsedTokens / currentSession.contextWindow
+    : 0;
+  const ringColor = usagePct >= 0.9 ? theme.error : usagePct >= 0.7 ? theme.warning : theme.success;
+
   const composerFooter = (
     <>
       <TouchableOpacity
@@ -318,7 +324,7 @@ export default function AgentChatScreen() {
       </TouchableOpacity>
       <TouchableOpacity
         ref={modelAnchorRef}
-        onPress={() => { setShowComposerMenu(false); openModelPicker('composer'); }}
+        onPress={() => { setShowComposerMenu(false); openModelPicker(); }}
         style={[s.footerPill, s.footerModelPill]}
         hitSlop={6}
         activeOpacity={0.7}
@@ -329,8 +335,23 @@ export default function AgentChatScreen() {
         </Text>
         <Text style={s.footerPillChevron}>▾</Text>
       </TouchableOpacity>
+      {currentSession && currentSession.contextWindow > 0 && (
+        <TouchableOpacity onPress={openSessionPicker} hitSlop={6} activeOpacity={0.7}>
+          <ProgressRing
+            progress={usagePct}
+            size={28}
+            strokeWidth={3}
+            color={ringColor}
+          />
+        </TouchableOpacity>
+      )}
     </>
   );
+
+  // Floating header height for content offset
+  const headerHeight = insets.top + 64;
+  const blurTint = isDark ? 'dark' : 'light';
+  const tintOverlay = isDark ? 'rgba(10,10,12,0.6)' : 'rgba(255,255,255,0.72)';
 
   return (
     <KeyboardAvoidingView
@@ -338,44 +359,52 @@ export default function AgentChatScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={20}
     >
-      <View style={[s.handleWrap, { paddingTop: insets.top + 10 }]}><View style={s.handle} /></View>
+      {/* Messages */}
+      <ChatView
+        ref={chatViewRef}
+        messages={messages}
+        agentName={name}
+        isLoading={loadingHistory}
+        theme={theme}
+        colorScheme={colorScheme}
+        attachmentCount={pendingAttachments.length}
+        onScrollNearTop={loadOlder}
+        contentTopPadding={headerHeight}
+        avatarSlot={(size) => <AgentAvatar name={name} size={size} />}
+        emptyStateContent={
+          <View style={s.emptyWrap}>
+            <AgentAvatar name={name} size={56} />
+            <Text style={s.emptyTitle}>Chat with {name}</Text>
+            <Text style={s.emptySubtitle}>Send a message to start the conversation.</Text>
+          </View>
+        }
+      />
 
-      {/* Header */}
-      <View style={s.header}>
-        <TouchableOpacity onPress={() => router.push(`/(auth)/(drawer)/agents/${name}` as any)} activeOpacity={0.8} hitSlop={8}>
-          <AgentAvatar name={name} size={40} />
-        </TouchableOpacity>
-        <View style={s.headerInfo}>
-          <Text style={s.agentTitle}>{name}</Text>
-          <TouchableOpacity ref={headerModelAnchorRef} onPress={() => openModelPicker('header')} activeOpacity={0.7} style={s.modelRow}>
-            <Text style={s.modelText}>
-              {currentModel ? currentModel.split('/').pop() : agent?.model ?? '...'}
-              {currentModelMeta ? ` · ${currentModelMeta.reasoning ? 'Deep' : 'Fast'}` : ''}
-            </Text>
-            <Text style={s.modelArrow}>▾</Text>
+      {/* Floating glassmorphism header */}
+      <View style={[s.floatingHeader, { paddingTop: insets.top }]} pointerEvents="box-none">
+        {Platform.OS === 'ios' ? (
+          <BlurView intensity={60} tint={blurTint} style={StyleSheet.absoluteFill} />
+        ) : null}
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: tintOverlay }]} />
+        <View style={s.headerBar} pointerEvents="box-none">
+          <TouchableOpacity
+            onPress={() => router.push(`/(auth)/(drawer)/agents/${name}` as any)}
+            activeOpacity={0.8}
+            hitSlop={8}
+            style={s.headerLeft}
+          >
+            <AgentAvatar name={name} size={32} />
+            <Text style={s.agentTitle} numberOfLines={1}>{name}</Text>
           </TouchableOpacity>
-          {fallbackModels.length > 0 && (
-            <Text style={s.fallbackText}>Fallbacks: {fallbackModels.map((m) => m.split('/').pop()).join(', ')}</Text>
-          )}
+          <View style={s.headerRight}>
+            <TouchableOpacity onPress={openPermissions} style={s.headerBtn} hitSlop={10} activeOpacity={0.6}>
+              <Text style={s.headerIcon}>⚙</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => router.back()} style={s.headerBtn} hitSlop={10} activeOpacity={0.6}>
+              <Text style={s.headerIcon}>✕</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-        {currentSession && currentSession.contextWindow > 0 && (
-          <ContextUsageBadge
-            used={currentSession.usage.contextUsedTokens}
-            contextWindow={currentSession.contextWindow}
-            compactionCount={currentSession.compactionCount}
-            theme={theme}
-            onPress={openSessionPicker}
-          />
-        )}
-        <TouchableOpacity onPress={openSessionPicker} style={s.closeBtn} hitSlop={10} activeOpacity={0.6}>
-          <Text style={s.closeIcon}>☰</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={openPermissions} style={s.closeBtn} hitSlop={10} activeOpacity={0.6}>
-          <Text style={s.closeIcon}>⚙</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => router.back()} style={s.closeBtn} hitSlop={10} activeOpacity={0.6}>
-          <Text style={s.closeIcon}>✕</Text>
-        </TouchableOpacity>
       </View>
 
       {compactionToast && (
@@ -384,15 +413,16 @@ export default function AgentChatScreen() {
         </View>
       )}
 
-      {/* Model picker popover */}
+      {/* Model picker popover — opens upward from composer button */}
       <CustomPopover
         visible={showModelPicker}
-        anchorRef={modelPickerAnchor === 'composer' ? modelAnchorRef : headerModelAnchorRef}
+        anchorRef={modelAnchorRef}
         onClose={() => setShowModelPicker(false)}
         theme={theme}
         width={290}
         maxHeight={440}
         align="right"
+        openUpward
       >
         <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <PopoverSection title="Intelligence" theme={theme}>
@@ -547,26 +577,6 @@ export default function AgentChatScreen() {
         onDelete={handleDeleteSession}
       />
 
-      {/* Messages */}
-      <ChatView
-        ref={chatViewRef}
-        messages={messages}
-        agentName={name}
-        isLoading={loadingHistory}
-        theme={theme}
-        colorScheme={colorScheme}
-        attachmentCount={pendingAttachments.length}
-        onScrollNearTop={loadOlder}
-        avatarSlot={(size) => <AgentAvatar name={name} size={size} />}
-        emptyStateContent={
-          <View style={s.emptyWrap}>
-            <AgentAvatar name={name} size={56} />
-            <Text style={s.emptyTitle}>Chat with {name}</Text>
-            <Text style={s.emptySubtitle}>Send a message to start the conversation.</Text>
-          </View>
-        }
-      />
-
       {/* Slash command menu */}
       {slashMatches.length > 0 && (
         <View style={[s.slashMenu, { bottom: insets.bottom + 78 + (pendingAttachments.length > 0 ? 40 : 0) }]}>
@@ -582,7 +592,7 @@ export default function AgentChatScreen() {
         </View>
       )}
 
-      {/* Composer menu popover */}
+      {/* Composer menu popover — opens upward from + button */}
       <CustomPopover
         visible={showComposerMenu}
         anchorRef={composerMenuAnchorRef}
@@ -591,6 +601,7 @@ export default function AgentChatScreen() {
         width={258}
         maxHeight={340}
         align="left"
+        openUpward
       >
         <PopoverSection theme={theme}>
           <PopoverOption theme={theme} label="Add photos & files" icon="📎" subtitle="Attach workspace context" onPress={() => { void openFilePicker(); }} />
@@ -651,24 +662,25 @@ export default function AgentChatScreen() {
 }
 
 const styles = (t: Theme) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: t.background, borderTopLeftRadius: 20, borderTopRightRadius: 20, overflow: 'hidden' },
+  container: { flex: 1, backgroundColor: t.background },
 
-  handleWrap: { alignItems: 'center', paddingTop: 10, paddingBottom: 4 },
-  handle: { width: 36, height: 4, borderRadius: 2, backgroundColor: t.border },
-
-  header: {
-    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
-    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: t.border,
+  floatingHeader: {
+    position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20, overflow: 'hidden',
   },
-  headerInfo: { flex: 1 },
-  agentTitle: { color: t.text.primary, fontSize: 16, fontWeight: '700' },
-  modelRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
-  modelText: { color: t.accent, fontSize: 11, fontWeight: '600' },
-  modelArrow: { color: t.accent, fontSize: 8 },
-  fallbackText: { color: t.text.secondary, fontSize: 9, marginTop: 1, opacity: 0.7 },
-  closeBtn: { padding: Spacing.xs },
-  closeIcon: { color: t.text.secondary, fontSize: 16 },
+  headerBar: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: Spacing.md, paddingBottom: Spacing.sm + 2,
+    minHeight: 52,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.08)',
+  },
+  headerLeft: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+  },
+  agentTitle: { color: t.text.primary, fontSize: 16, fontWeight: '700', flex: 1 },
+  headerRight: { flexDirection: 'row', alignItems: 'center' },
+  headerBtn: { padding: Spacing.xs },
+  headerIcon: { color: t.text.secondary, fontSize: 18 },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
   modalContent: { backgroundColor: t.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: Spacing.lg, maxHeight: '65%' },
