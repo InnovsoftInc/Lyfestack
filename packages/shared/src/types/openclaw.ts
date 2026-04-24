@@ -101,3 +101,37 @@ export interface SessionActionResult {
   session?: OpenClawSessionSummary;
   error?: string;
 }
+
+// ── Threads (Phase 2) ──────────────────────────────────────────────────────
+// A thread is LyfeStack's canonical visible chat history, one per agent.
+// It is decoupled from OpenClaw sessions: the thread outlives session
+// rollover / compaction so the user sees one continuous conversation even
+// when the backend runtime container (session) has been rotated.
+
+export type ThreadRole = 'user' | 'agent';
+
+export interface ThreadMessage {
+  id: string;
+  role: ThreadRole;
+  content: string;
+  timestamp: string;
+  sessionKey?: string;
+  isError?: boolean;
+  errorType?: string;
+}
+
+export interface OpenClawThread {
+  threadId: string;
+  agentName: string;
+  title: string;
+  activeSessionKey: string | null;
+  sessionChain: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OpenClawThreadDetail extends OpenClawThread {
+  messages: ThreadMessage[];
+  total: number;
+  activeSession?: OpenClawSessionSummary | null;
+}

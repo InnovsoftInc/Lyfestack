@@ -111,6 +111,109 @@ router.delete('/sessions/:agentId/:sessionId', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// Threads — Phase 2 LyfeStack-native visible history per agent.
+import {
+  listThreads,
+  getThread,
+  getOrCreateThread,
+  appendMessage as appendThreadMessage,
+  rolloverThread,
+  resetThread,
+  deleteThread,
+} from './threads.service';
+
+router.get('/threads', async (_req, res, next) => {
+  try { res.json({ data: await listThreads() }); } catch (err) { next(err); }
+});
+
+router.get('/threads/:agentName', async (req, res, next) => {
+  try {
+    const agentName = req.params.agentName;
+    if (!agentName) { res.status(400).json({ error: 'agentName is required' }); return; }
+    const opts: { limit?: number; beforeId?: string; afterId?: string } = {};
+    if (req.query.limit !== undefined) opts.limit = Number(req.query.limit);
+    if (typeof req.query.beforeId === 'string' && req.query.beforeId) opts.beforeId = req.query.beforeId;
+    if (typeof req.query.afterId === 'string' && req.query.afterId) opts.afterId = req.query.afterId;
+    const ensure = req.query.ensure === '1' || req.query.ensure === 'true';
+    if (ensure) await getOrCreateThread(agentName);
+    const detail = await getThread(agentName, opts);
+    if (!detail) { res.status(404).json({ error: 'Thread not found' }); return; }
+    res.json({ data: detail });
+  } catch (err: any) {
+    if (err?.message?.startsWith('invalid agent name')) { res.status(400).json({ error: err.message }); return; }
+    next(err);
+  }
+});
+
+router.post('/threads/:agentName', async (req, res, next) => {
+  try {
+    const agentName = req.params.agentName;
+    if (!agentName) { res.status(400).json({ error: 'agentName is required' }); return; }
+    const thread = await getOrCreateThread(agentName);
+    res.status(201).json({ data: thread });
+  } catch (err: any) {
+    if (err?.message?.startsWith('invalid agent name')) { res.status(400).json({ error: err.message }); return; }
+    next(err);
+  }
+});
+
+router.post('/threads/:agentName/messages', async (req, res, next) => {
+  try {
+    const agentName = req.params.agentName;
+    if (!agentName) { res.status(400).json({ error: 'agentName is required' }); return; }
+    const { role, content, sessionKey, isError, errorType } = req.body ?? {};
+    if (role !== 'user' && role !== 'agent') { res.status(400).json({ error: "role must be 'user' or 'agent'" }); return; }
+    if (typeof content !== 'string') { res.status(400).json({ error: 'content must be a string' }); return; }
+    const message = await appendThreadMessage(agentName, {
+      role,
+      content,
+      ...(typeof sessionKey === 'string' && sessionKey ? { sessionKey } : {}),
+      ...(isError ? { isError: true } : {}),
+      ...(typeof errorType === 'string' && errorType ? { errorType } : {}),
+    });
+    res.status(201).json({ data: message });
+  } catch (err: any) {
+    if (err?.message?.startsWith('invalid agent name')) { res.status(400).json({ error: err.message }); return; }
+    next(err);
+  }
+});
+
+router.post('/threads/:agentName/rollover', async (req, res, next) => {
+  try {
+    const agentName = req.params.agentName;
+    if (!agentName) { res.status(400).json({ error: 'agentName is required' }); return; }
+    const result = await rolloverThread(agentName);
+    res.json({ data: result });
+  } catch (err: any) {
+    if (err?.message?.startsWith('invalid agent name')) { res.status(400).json({ error: err.message }); return; }
+    next(err);
+  }
+});
+
+router.post('/threads/:agentName/reset', async (req, res, next) => {
+  try {
+    const agentName = req.params.agentName;
+    if (!agentName) { res.status(400).json({ error: 'agentName is required' }); return; }
+    await resetThread(agentName);
+    res.json({ data: { ok: true } });
+  } catch (err: any) {
+    if (err?.message?.startsWith('invalid agent name')) { res.status(400).json({ error: err.message }); return; }
+    next(err);
+  }
+});
+
+router.delete('/threads/:agentName', async (req, res, next) => {
+  try {
+    const agentName = req.params.agentName;
+    if (!agentName) { res.status(400).json({ error: 'agentName is required' }); return; }
+    await deleteThread(agentName);
+    res.json({ data: { ok: true } });
+  } catch (err: any) {
+    if (err?.message?.startsWith('invalid agent name')) { res.status(400).json({ error: err.message }); return; }
+    next(err);
+  }
+});
+
 // Usage tracking
 import { getUsageSummary, getUsageHistory, getUsageByAgent, getUsageByModel, getBudgetStatus } from './usage-tracker';
 

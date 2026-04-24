@@ -57,7 +57,7 @@ export default function AgentChatScreen() {
 
   const {
     messages, isStreaming, loadingHistory, compactionToast, warningDismissedRef,
-    send, abort, loadSession, loadOlder, sessions: agentSessions, currentSession,
+    send, abort, loadSession, loadOlder, rolloverThread, sessions: agentSessions, currentSession,
     newSession, deleteSession, loadAgentSessions,
   } = useChatEngine(name);
 
@@ -169,13 +169,13 @@ export default function AgentChatScreen() {
     chatViewRef.current?.scrollToBottom(false);
   }, [loadSession, currentSession]);
 
+  // "New session" is now a thread rollover: the visible thread stays, the
+  // backend runtime session is replaced. Preserves continuous history.
   const handleNewSession = useCallback(async () => {
-    const created = await newSession(name);
-    if (!created) return;
     setShowSessionPicker(false);
-    await loadSession(created.key);
+    await rolloverThread();
     chatViewRef.current?.scrollToBottom(false);
-  }, [name, newSession, loadSession]);
+  }, [rolloverThread]);
 
   const handleDeleteSession = useCallback(async (key: string) => {
     const [agentId, sessionId] = key.split('/');
@@ -271,11 +271,11 @@ export default function AgentChatScreen() {
   }, []);
 
   const slashActions = useMemo<SlashAction[]>(() => ([
-    { key: 'new', label: 'New session', hint: 'Start a fresh chat session', run: handleNewSession },
-    { key: 'sessions', label: 'Sessions', hint: 'Open session history', run: openSessionPicker },
+    { key: 'new', label: 'New session', hint: 'Roll over to a fresh backend session (thread stays)', run: handleNewSession },
     { key: 'model', label: 'Model', hint: 'Change model and intelligence', run: openModelPicker },
     { key: 'permissions', label: 'Permissions', hint: 'Edit approvals and allowlist', run: openPermissions },
     { key: 'files', label: 'Files', hint: 'Attach a workspace file', run: openFilePicker },
+    { key: 'sessions', label: 'Sessions', hint: 'Advanced: inspect backend sessions', run: openSessionPicker },
   ]), [handleNewSession, openSessionPicker, openModelPicker, openPermissions, openFilePicker]);
 
   const slashQuery = input.startsWith('/') ? input.slice(1).trim().toLowerCase() : '';
@@ -618,7 +618,7 @@ export default function AgentChatScreen() {
         <PopoverSection theme={theme}>
           <PopoverOption theme={theme} label="Add photos & files" icon="📎" subtitle="Attach workspace context" onPress={() => { void openFilePicker(); }} />
           <PopoverOption theme={theme} label="Plan mode" icon="🪄" subtitle="Structured prompts and shortcuts" value="Soon" onPress={() => setShowComposerMenu(false)} />
-          <PopoverOption theme={theme} label="Sessions" icon="☰" subtitle="Switch or start a new thread" onPress={() => { void openSessionPicker(); }} />
+          <PopoverOption theme={theme} label="Sessions" icon="☰" subtitle="Advanced · inspect backend sessions" onPress={() => { void openSessionPicker(); }} />
           <PopoverOption theme={theme} label="Permissions" icon="⚙" subtitle="Adjust approvals and allowlist" onPress={() => { void openPermissions(); }} />
         </PopoverSection>
       </CustomPopover>

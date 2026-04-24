@@ -10,6 +10,12 @@ import {
   markError,
   subscribe,
 } from './stream-buffer';
+import {
+  appendMessage as appendThreadMessage,
+  ensureActiveSession,
+  getOrCreateThread,
+} from './threads.service';
+import { logger } from '../../utils/logger';
 
 const service = new OpenClawService();
 
@@ -107,8 +113,40 @@ export const sendMessage = async (req: Request, res: Response, next: NextFunctio
     if (!name) { res.status(400).json({ error: 'Agent name required' }); return; }
     const message = req.body?.message;
     if (typeof message !== 'string' || !message.trim()) { res.status(400).json({ error: 'message is required' }); return; }
+
+    // Phase 2: make sure the thread exists and has an active session before we
+    // hand the message to the CLI. Persist both sides of the exchange.
+    const thread = await getOrCreateThread(name).catch((err) => {
+      logger.warn({ err, agent: name }, 'getOrCreateThread failed; continuing without thread');
+      return null;
+    });
+    let sessionKey: string | null = thread?.activeSessionKey ?? null;
+    try {
+      const ensure = await ensureActiveSession(name);
+      sessionKey = ensure.sessionKey;
+    } catch (err) {
+      logger.warn({ err, agent: name }, 'ensureActiveSession failed');
+    }
+
+    if (thread) {
+      await appendThreadMessage(name, {
+        role: 'user',
+        content: message,
+        ...(sessionKey ? { sessionKey } : {}),
+      }).catch((err) => logger.warn({ err, agent: name }, 'append user message failed'));
+    }
+
     const response = await service.sendMessage(name, message);
-    res.json({ data: { response } });
+
+    if (thread) {
+      await appendThreadMessage(name, {
+        role: 'agent',
+        content: response,
+        ...(sessionKey ? { sessionKey } : {}),
+      }).catch((err) => logger.warn({ err, agent: name }, 'append agent message failed'));
+    }
+
+    res.json({ data: { response, threadId: thread?.threadId, sessionKey } });
   } catch (err) { next(err); }
 };
 
@@ -123,9 +161,46 @@ export const streamMessage = async (req: Request, res: Response, next: NextFunct
       typeof req.body?.messageId === 'string' && req.body.messageId.length > 0
         ? (req.body.messageId as string)
         : randomUUID();
-    const sessionId = typeof req.body?.sessionId === 'string' ? (req.body.sessionId as string) : undefined;
+    const explicitSessionId = typeof req.body?.sessionId === 'string' ? (req.body.sessionId as string) : undefined;
 
-    const buf = createBuffer(messageId, name, sessionId);
+    // Phase 2: make sure a thread exists and has a healthy active session.
+    // Auto-rollover happens here (before the CLI is spawned) so the visible
+    // thread stays continuous even when the runtime session rotates.
+    const thread = await getOrCreateThread(name).catch((err) => {
+      logger.warn({ err, agent: name }, 'getOrCreateThread failed; continuing without thread');
+      return null;
+    });
+    let activeSessionKey: string | null = thread?.activeSessionKey ?? null;
+    let rolledOver = false;
+    let previousSessionKey: string | null = null;
+    try {
+      const ensure = await ensureActiveSession(name);
+      activeSessionKey = ensure.sessionKey;
+      rolledOver = ensure.rolledOver;
+      previousSessionKey = ensure.previousSessionKey;
+    } catch (err) {
+      logger.warn({ err, agent: name }, 'ensureActiveSession failed; streaming without rollover guard');
+    }
+
+    // Persist the user message to the thread before we start the CLI. This
+    // way, even if the stream is interrupted, the visible history survives.
+    let userMessageId: string | undefined;
+    if (thread) {
+      try {
+        const persisted = await appendThreadMessage(name, {
+          role: 'user',
+          content: message,
+          ...(activeSessionKey ? { sessionKey: activeSessionKey } : {}),
+        });
+        userMessageId = persisted.id;
+      } catch (err) {
+        logger.warn({ err, agent: name }, 'append user message failed');
+      }
+    }
+
+    const sessionIdForBuf =
+      explicitSessionId ?? (activeSessionKey?.split('/').slice(1).join('/') || undefined);
+    const buf = createBuffer(messageId, name, sessionIdForBuf);
 
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -133,7 +208,20 @@ export const streamMessage = async (req: Request, res: Response, next: NextFunct
       Connection: 'keep-alive',
       'X-Accel-Buffering': 'no',
     });
-    writeSse(res, { type: 'init', messageId });
+    writeSse(res, {
+      type: 'init',
+      messageId,
+      threadId: thread?.threadId,
+      activeSessionKey,
+      userMessageId,
+    });
+    if (rolledOver && previousSessionKey && previousSessionKey !== activeSessionKey) {
+      writeSse(res, {
+        type: 'rollover',
+        previousSessionKey,
+        activeSessionKey,
+      });
+    }
 
     let clientGone = false;
     req.on('close', () => { clientGone = true; });
@@ -147,13 +235,29 @@ export const streamMessage = async (req: Request, res: Response, next: NextFunct
       },
       (response) => {
         markDone(buf.messageId, response);
+        // Fire-and-forget thread persistence — don't hold the stream response.
+        if (thread) {
+          void appendThreadMessage(name, {
+            role: 'agent',
+            content: response,
+            ...(activeSessionKey ? { sessionKey: activeSessionKey } : {}),
+          }).catch((err) => logger.warn({ err, agent: name }, 'append agent message failed'));
+        }
         if (!clientGone) {
-          writeSse(res, { done: true, response });
+          writeSse(res, { done: true, response, threadId: thread?.threadId, activeSessionKey });
           res.end();
         }
       },
       (err) => {
         markError(buf.messageId, err.message);
+        if (thread) {
+          void appendThreadMessage(name, {
+            role: 'agent',
+            content: err.message,
+            isError: true,
+            ...(activeSessionKey ? { sessionKey: activeSessionKey } : {}),
+          }).catch((persistErr) => logger.warn({ err: persistErr, agent: name }, 'append error message failed'));
+        }
         if (!clientGone) {
           writeSse(res, { error: err.message });
           res.end();

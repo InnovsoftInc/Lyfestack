@@ -137,13 +137,27 @@ function formatToolLabel(name: string): string {
     .replace(/^\w/, (c) => c.toUpperCase());
 }
 
+export interface StreamInitInfo {
+  messageId: string;
+  resumed: boolean;
+  threadId?: string;
+  activeSessionKey?: string | null;
+  userMessageId?: string;
+}
+
+export interface StreamRolloverInfo {
+  previousSessionKey: string | null;
+  activeSessionKey: string | null;
+}
+
 export interface StreamCallbacks {
   onChunk: (chunk: string) => void;
-  onDone: (response: string) => void;
+  onDone: (response: string, info?: { threadId?: string; activeSessionKey?: string | null }) => void;
   onError: (err: Error) => void;
   onToolActivity?: (tool: string | null) => void;
-  onInit?: (info: { messageId: string; resumed: boolean }) => void;
+  onInit?: (info: StreamInitInfo) => void;
   onCursor?: (cursor: number) => void;
+  onRollover?: (info: StreamRolloverInfo) => void;
 }
 
 export interface StreamOptions extends StreamCallbacks {
@@ -156,7 +170,7 @@ export async function streamAgentMessage(
   message: string,
   opts: StreamOptions,
 ): Promise<void> {
-  const { signal, messageId, onChunk, onDone, onError, onToolActivity, onInit, onCursor } = opts;
+  const { signal, messageId, onChunk, onDone, onError, onToolActivity, onInit, onCursor, onRollover } = opts;
   if (signal?.aborted) return;
 
   try {
@@ -203,7 +217,20 @@ export async function streamAgentMessage(
               return;
             }
             if (payload.type === 'init') {
-              onInit?.({ messageId: payload.messageId, resumed: Boolean(payload.resumed) });
+              onInit?.({
+                messageId: payload.messageId,
+                resumed: Boolean(payload.resumed),
+                threadId: payload.threadId,
+                activeSessionKey: payload.activeSessionKey ?? null,
+                userMessageId: payload.userMessageId,
+              });
+              continue;
+            }
+            if (payload.type === 'rollover') {
+              onRollover?.({
+                previousSessionKey: payload.previousSessionKey ?? null,
+                activeSessionKey: payload.activeSessionKey ?? null,
+              });
               continue;
             }
             if (payload.type === 'tool_use') {
@@ -226,7 +253,10 @@ export async function streamAgentMessage(
             } else if (payload.done) {
               clearToolTimer();
               clearCurrentTool();
-              onDone(payload.response ?? accumulatedResponse);
+              onDone(payload.response ?? accumulatedResponse, {
+                threadId: payload.threadId,
+                activeSessionKey: payload.activeSessionKey ?? null,
+              });
               safeResolve();
             }
           } catch { /* malformed JSON line — skip */ }
@@ -336,7 +366,12 @@ export async function resumeAgentStream(
               return;
             }
             if (payload.type === 'init') {
-              onInit?.({ messageId: payload.messageId, resumed: true });
+              onInit?.({
+                messageId: payload.messageId,
+                resumed: true,
+                threadId: payload.threadId,
+                activeSessionKey: payload.activeSessionKey ?? null,
+              });
               continue;
             }
             if (payload.type === 'tool_use') {
@@ -351,7 +386,10 @@ export async function resumeAgentStream(
               if (typeof payload.cursor === 'number') onCursor?.(payload.cursor);
             } else if (payload.done) {
               clearCurrentTool();
-              onDone(payload.response ?? accumulatedResponse);
+              onDone(payload.response ?? accumulatedResponse, {
+                threadId: payload.threadId,
+                activeSessionKey: payload.activeSessionKey ?? null,
+              });
               safeResolve();
             }
           } catch { /* malformed JSON line — skip */ }
@@ -458,6 +496,37 @@ export const openclawApi = {
       method: 'PATCH',
       body: JSON.stringify({ key }),
     }),
+
+  // Threads — Phase 2 canonical visible chat history per agent.
+  listThreads: () => request('/threads'),
+  getThread: (
+    agentName: string,
+    opts?: { limit?: number; beforeId?: string; afterId?: string; ensure?: boolean },
+  ) => {
+    const qs: string[] = [];
+    if (opts?.limit !== undefined) qs.push(`limit=${opts.limit}`);
+    if (opts?.beforeId) qs.push(`beforeId=${encodeURIComponent(opts.beforeId)}`);
+    if (opts?.afterId) qs.push(`afterId=${encodeURIComponent(opts.afterId)}`);
+    if (opts?.ensure) qs.push('ensure=1');
+    const suffix = qs.length ? `?${qs.join('&')}` : '';
+    return request(`/threads/${encodeURIComponent(agentName)}${suffix}`);
+  },
+  ensureThread: (agentName: string) =>
+    request(`/threads/${encodeURIComponent(agentName)}`, { method: 'POST' }),
+  appendThreadMessage: (
+    agentName: string,
+    body: { role: 'user' | 'agent'; content: string; sessionKey?: string; isError?: boolean; errorType?: string },
+  ) =>
+    request(`/threads/${encodeURIComponent(agentName)}/messages`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  rolloverThread: (agentName: string) =>
+    request(`/threads/${encodeURIComponent(agentName)}/rollover`, { method: 'POST' }),
+  resetThread: (agentName: string) =>
+    request(`/threads/${encodeURIComponent(agentName)}/reset`, { method: 'POST' }),
+  deleteThread: (agentName: string) =>
+    request(`/threads/${encodeURIComponent(agentName)}`, { method: 'DELETE' }),
 
   // Sessions
   listSessions: (opts?: { agentId?: string; limit?: number }) => {

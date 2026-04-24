@@ -1,7 +1,7 @@
 import {
   View, FlatList, TouchableOpacity, Text, ActivityIndicator, StyleSheet,
 } from 'react-native';
-import { useRef, useCallback, useState, forwardRef, useImperativeHandle } from 'react';
+import { useRef, useCallback, useState, forwardRef, useImperativeHandle, useEffect } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Theme } from '../../theme';
 import { Spacing } from '../../theme';
@@ -32,14 +32,32 @@ export const ChatView = forwardRef<ChatViewHandle, ChatViewProps>(({
 }, ref) => {
   const listRef = useRef<FlatList>(null);
   const pinnedRef = useRef(true);
+  const scrollRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [pinnedToBottom, setPinnedToBottom] = useState(true);
   const insets = useSafeAreaInsets();
+
+  const clearScrollRetry = useCallback(() => {
+    if (scrollRetryTimeoutRef.current) {
+      clearTimeout(scrollRetryTimeoutRef.current);
+      scrollRetryTimeoutRef.current = null;
+    }
+  }, []);
 
   const scrollToBottom = useCallback((animated = false) => {
     pinnedRef.current = true;
     setPinnedToBottom(true);
-    requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated }));
-  }, []);
+
+    const run = (attemptsLeft: number) => {
+      requestAnimationFrame(() => {
+        listRef.current?.scrollToEnd({ animated });
+        if (attemptsLeft <= 1) return;
+        clearScrollRetry();
+        scrollRetryTimeoutRef.current = setTimeout(() => run(attemptsLeft - 1), 80);
+      });
+    };
+
+    run(4);
+  }, [clearScrollRetry]);
 
   const pinToBottom = useCallback(() => {
     pinnedRef.current = true;
@@ -47,6 +65,10 @@ export const ChatView = forwardRef<ChatViewHandle, ChatViewProps>(({
   }, []);
 
   useImperativeHandle(ref, () => ({ scrollToBottom, pinToBottom }), [scrollToBottom, pinToBottom]);
+
+  useEffect(() => () => {
+    clearScrollRetry();
+  }, [clearScrollRetry]);
 
   const handleScroll = useCallback((e: any) => {
     const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
@@ -92,18 +114,26 @@ export const ChatView = forwardRef<ChatViewHandle, ChatViewProps>(({
         <TouchableOpacity
           style={{
             position: 'absolute',
-            right: Spacing.md,
-            bottom: insets.bottom + 90 + (attachmentCount > 0 ? 40 : 0),
-            width: 40, height: 40, borderRadius: 20,
+            alignSelf: 'center',
+            bottom: insets.bottom + 132 + (attachmentCount > 0 ? 40 : 0),
+            width: 40,
+            height: 40,
+            borderRadius: 20,
             backgroundColor: theme.surface,
-            borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border,
-            alignItems: 'center', justifyContent: 'center',
-            shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 6,
-            shadowOffset: { width: 0, height: 2 }, elevation: 3,
+            borderWidth: StyleSheet.hairlineWidth,
+            borderColor: theme.border,
+            alignItems: 'center',
+            justifyContent: 'center',
+            shadowColor: '#000',
+            shadowOpacity: 0.2,
+            shadowRadius: 6,
+            shadowOffset: { width: 0, height: 2 },
+            elevation: 3,
+            zIndex: 15,
           }}
           onPress={() => scrollToBottom(true)}
           activeOpacity={0.8}
-          hitSlop={6}
+          hitSlop={10}
         >
           <Text style={{ color: theme.text.primary, fontSize: 18, fontWeight: '700' }}>↓</Text>
         </TouchableOpacity>

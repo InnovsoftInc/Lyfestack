@@ -87,6 +87,7 @@ export interface CurrentSession {
 
 export interface ActiveStream {
   agentName: string;
+  threadId: string | null;
   sessionKey: string | null;
   messageId: string;
   agentMsgId: string;
@@ -94,12 +95,44 @@ export interface ActiveStream {
   startedAt: number;
 }
 
+export interface ActiveThread {
+  agentName: string;
+  threadId: string | null;
+  activeSessionKey: string | null;
+  messages: ChatMessage[];
+  lastMessageId?: string;
+  total?: number;
+}
+
+export interface ThreadMessage {
+  id: string;
+  role: 'user' | 'agent';
+  content: string;
+  timestamp: string;
+  sessionKey?: string;
+  isError?: boolean;
+  errorType?: string;
+}
+
+export interface ThreadDetail {
+  threadId: string;
+  agentName: string;
+  title: string;
+  activeSessionKey: string | null;
+  sessionChain: string[];
+  createdAt: string;
+  updatedAt: string;
+  messages: ThreadMessage[];
+  total: number;
+  activeSession?: SessionSummary | null;
+}
+
 interface OpenClawStore {
   connectionStatus: 'disconnected' | 'connecting' | 'connected';
   connectionUrl: string | null;
   connectionError: string | null;
   agents: Agent[];
-  activeChat: { agentName: string; sessionKey: string | null; messages: ChatMessage[] } | null;
+  activeChat: ActiveThread | null;
   currentSession: CurrentSession | null;
   agentSessions: SessionSummary[];
   streamAbort: AbortController | null;
@@ -117,14 +150,19 @@ interface OpenClawStore {
   hasResumableStream: (agentName: string) => boolean;
   openChat: (agentName: string) => void;
   closeChat: () => void;
-  loadChatHistory: (agentName: string, sessionKey: string, messages: ChatMessage[]) => void;
-  appendChatMessages: (agentName: string, sessionKey: string, messages: ChatMessage[]) => void;
-  prependChatMessages: (agentName: string, sessionKey: string, messages: ChatMessage[]) => void;
+  loadThread: (agentName: string, opts?: { limit?: number }) => Promise<ThreadDetail | null>;
+  syncThreadTail: (agentName: string) => Promise<void>;
+  loadOlderThreadMessages: (agentName: string) => Promise<boolean>;
+  rolloverThread: (agentName: string) => Promise<string | null>;
+  resetThread: (agentName: string) => Promise<boolean>;
+  appendChatMessages: (agentName: string, messages: ChatMessage[]) => void;
+  prependChatMessages: (agentName: string, messages: ChatMessage[]) => void;
   setCurrentSession: (session: CurrentSession | null) => void;
   updateSessionUsage: (patch: Partial<Pick<CurrentSession, 'usage' | 'compactionCount' | 'model' | 'contextWindow'>>) => void;
   loadAgentSessions: (agentId: string) => Promise<SessionSummary[]>;
   newSession: (agentId: string) => Promise<SessionSummary | null>;
   deleteSession: (agentId: string, sessionId: string) => Promise<boolean>;
+  switchActiveSession: (agentName: string, session: SessionSummary | CurrentSession | null) => void;
   startHeartbeat: () => void;
   stopHeartbeat: () => void;
 }
@@ -198,6 +236,28 @@ function mergeIncomingMessages(existing: ChatMessage[], incoming: ChatMessage[])
   return changed ? next : existing;
 }
 
+function scheduleThreadUsageRefresh(agentName: string, getState: typeof useOpenClawStore.getState) {
+  const refresh = () => {
+    const store = getState();
+    void store.syncThreadTail(agentName);
+    void store.loadAgentSessions(agentName);
+  };
+
+  refresh();
+  setTimeout(refresh, 180);
+  setTimeout(refresh, 600);
+}
+
+function isTransientStreamDisconnect(message: string | undefined | null): boolean {
+  const value = String(message ?? '').toLowerCase();
+  return (
+    value.includes('network request failed')
+    || value.includes('request timed out')
+    || value.includes('network error')
+    || value.includes('stream failed')
+  );
+}
+
 export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
   connectionStatus: 'disconnected',
   connectionUrl: null,
@@ -256,7 +316,7 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
   fetchAgents: async () => {
     try {
       log('fetchAgents()');
-      const res = await openclawApi.listAgents();
+      const res: any = await openclawApi.listAgents();
       const agents = res.data ?? [];
       log('fetchAgents() got agents', { count: agents.length });
       set({ agents });
@@ -289,11 +349,16 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
     set((s) => ({
       activeChat: s.activeChat
         ? { ...s.activeChat, messages: [...s.activeChat.messages, userMsg] }
-        : { agentName, sessionKey: s.currentSession?.key ?? null, messages: [userMsg] },
+        : {
+            agentName,
+            threadId: null,
+            activeSessionKey: s.currentSession?.key ?? null,
+            messages: [userMsg],
+          },
     }));
     try {
       log('sendMessage()', { agentName });
-      const res = await openclawApi.sendMessage(agentName, message);
+      const res: any = await openclawApi.sendMessage(agentName, message);
       const agentMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'agent',
@@ -302,7 +367,12 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
       };
       set((s) => ({
         activeChat: s.activeChat
-          ? { ...s.activeChat, messages: [...s.activeChat.messages, agentMsg] }
+          ? {
+              ...s.activeChat,
+              threadId: res.data?.threadId ?? s.activeChat.threadId,
+              activeSessionKey: res.data?.sessionKey ?? s.activeChat.activeSessionKey,
+              messages: [...s.activeChat.messages, agentMsg],
+            }
           : null,
       }));
     } catch (err: any) {
@@ -345,7 +415,12 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
     set((s) => ({
       activeChat: s.activeChat
         ? { ...s.activeChat, messages: [...s.activeChat.messages, userMsg] }
-        : { agentName, sessionKey: s.currentSession?.key ?? null, messages: [userMsg] },
+        : {
+            agentName,
+            threadId: null,
+            activeSessionKey: s.currentSession?.key ?? null,
+            messages: [userMsg],
+          },
     }));
 
     const agentMsgId = (Date.now() + 1).toString();
@@ -363,7 +438,8 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
         : null,
       activeStream: {
         agentName,
-        sessionKey: s.activeChat?.sessionKey ?? null,
+        threadId: s.activeChat?.threadId ?? null,
+        sessionKey: s.activeChat?.activeSessionKey ?? null,
         messageId: clientMessageId,
         agentMsgId,
         cursor: 0,
@@ -380,9 +456,36 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
       messageId: clientMessageId,
       signal: abort.signal,
       onInit: (info) => {
-        if (info.messageId && info.messageId !== clientMessageId) {
-          set((s) => (s.activeStream ? { activeStream: { ...s.activeStream, messageId: info.messageId } } : s));
-        }
+        set((s) => {
+          const nextStream = s.activeStream
+            ? {
+                ...s.activeStream,
+                ...(info.messageId && info.messageId !== s.activeStream.messageId ? { messageId: info.messageId } : {}),
+                ...(info.threadId ? { threadId: info.threadId } : {}),
+                ...(info.activeSessionKey ? { sessionKey: info.activeSessionKey } : {}),
+              }
+            : s.activeStream;
+          const nextChat =
+            s.activeChat && s.activeChat.agentName === agentName
+              ? {
+                  ...s.activeChat,
+                  ...(info.threadId ? { threadId: info.threadId } : {}),
+                  ...(info.activeSessionKey ? { activeSessionKey: info.activeSessionKey } : {}),
+                }
+              : s.activeChat;
+          return { activeStream: nextStream, activeChat: nextChat };
+        });
+      },
+      onRollover: (info) => {
+        set((s) => {
+          if (!s.activeChat || s.activeChat.agentName !== agentName) return s;
+          return {
+            activeChat: {
+              ...s.activeChat,
+              activeSessionKey: info.activeSessionKey ?? s.activeChat.activeSessionKey,
+            },
+          };
+        });
       },
       onCursor: (cursor) => {
         set((s) => (s.activeStream ? { activeStream: { ...s.activeStream, cursor } } : s));
@@ -400,7 +503,7 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
           };
         });
       },
-      onDone: (response) => {
+      onDone: (response, info) => {
         set((s) => {
           if (!s.activeChat) return { streamAbort: null, activeStream: null };
           return {
@@ -408,6 +511,8 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
             activeStream: null,
             activeChat: {
               ...s.activeChat,
+              ...(info?.threadId ? { threadId: info.threadId } : {}),
+              ...(info?.activeSessionKey ? { activeSessionKey: info.activeSessionKey } : {}),
               messages: s.activeChat.messages.map((m) =>
                 m.id === agentMsgId
                   ? {
@@ -422,11 +527,34 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
             },
           };
         });
+        scheduleThreadUsageRefresh(agentName, get);
       },
       onError: (err) => {
         if (abort.signal.aborted) return;
         log('sendMessageStream() error', err.message);
         const rawMsg = err.message ?? 'Stream failed';
+        if (isTransientStreamDisconnect(rawMsg)) {
+          set((s) => {
+            if (!s.activeChat) return { streamAbort: null };
+            return {
+              streamAbort: null,
+              activeChat: {
+                ...s.activeChat,
+                messages: s.activeChat.messages.map((m) =>
+                  m.id === agentMsgId
+                    ? {
+                        ...m,
+                        streaming: true,
+                        toolActivity: null,
+                        toolHistory: (m.toolHistory ?? []).filter((tool) => !TRANSIENT_TOOL_LABELS.has(tool)),
+                      }
+                    : m,
+                ),
+              },
+            };
+          });
+          return;
+        }
         set((s) => {
           if (!s.activeChat) return { streamAbort: null, activeStream: null };
           return {
@@ -606,11 +734,34 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
             },
           };
         });
+        scheduleThreadUsageRefresh(activeStream.agentName, get);
       },
       onError: (err) => {
         const rawMsg = err.message ?? 'Stream resume failed';
         const evicted = err instanceof StreamEvictedError;
         log('resumeActiveStream() error', { rawMsg, evicted });
+        if (!evicted && isTransientStreamDisconnect(rawMsg)) {
+          set((s) => {
+            if (!s.activeChat) return { resumeAbort: null };
+            return {
+              resumeAbort: null,
+              activeChat: {
+                ...s.activeChat,
+                messages: s.activeChat.messages.map((m) =>
+                  m.id === agentMsgId
+                    ? {
+                        ...m,
+                        streaming: true,
+                        toolActivity: null,
+                        toolHistory: (m.toolHistory ?? []).filter((tool) => !TRANSIENT_TOOL_LABELS.has(tool)),
+                      }
+                    : m,
+                ),
+              },
+            };
+          });
+          return;
+        }
         set((s) => {
           if (!s.activeChat) return { resumeAbort: null, activeStream: null };
           return {
@@ -699,42 +850,203 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
     const current = get().activeChat;
     if (current?.agentName === agentName) return;
     log('openChat()', { agentName });
-    set({ activeChat: { agentName, sessionKey: null, messages: [] }, currentSession: null, agentSessions: [] });
+    set({
+      activeChat: { agentName, threadId: null, activeSessionKey: null, messages: [] },
+      currentSession: null,
+      agentSessions: [],
+    });
   },
 
   closeChat: () => set({ activeChat: null, currentSession: null, agentSessions: [] }),
 
-  loadChatHistory: (agentName, sessionKey, messages) => {
-    const current = get().activeChat;
-    if (!current || current.agentName !== agentName) return;
-    if (current.sessionKey && current.sessionKey !== sessionKey) return;
-    if (current.messages.length === 0) {
-      set({ activeChat: { agentName, sessionKey, messages } });
-    } else if (!current.sessionKey) {
-      set({ activeChat: { ...current, sessionKey } });
-    }
-  },
-
-  appendChatMessages: (agentName, sessionKey, messages) => {
+  appendChatMessages: (agentName, messages) => {
     const { activeChat } = get();
     if (!activeChat || activeChat.agentName !== agentName) return;
-    if (activeChat.sessionKey && activeChat.sessionKey !== sessionKey) return;
     if (!messages.length) return;
     const merged = mergeIncomingMessages(activeChat.messages, messages);
     if (merged === activeChat.messages) return;
-    set({ activeChat: { ...activeChat, sessionKey: activeChat.sessionKey ?? sessionKey, messages: merged } });
+    const last = merged[merged.length - 1];
+    set({
+      activeChat: {
+        ...activeChat,
+        messages: merged,
+        ...(last ? { lastMessageId: last.id } : {}),
+      },
+    });
   },
 
-  prependChatMessages: (agentName, sessionKey, messages) => {
+  prependChatMessages: (agentName, messages) => {
     const { activeChat } = get();
     if (!activeChat || activeChat.agentName !== agentName) return;
-    if (activeChat.sessionKey && activeChat.sessionKey !== sessionKey) return;
     if (!messages.length) return;
     const existing = new Set(activeChat.messages.map((m) => m.id));
     const existingContent = new Set(activeChat.messages.map(messageContentKey));
     const fresh = messages.filter((m) => !existing.has(m.id) && !existingContent.has(messageContentKey(m)));
     if (!fresh.length) return;
-    set({ activeChat: { ...activeChat, sessionKey: activeChat.sessionKey ?? sessionKey, messages: [...fresh, ...activeChat.messages] } });
+    set({ activeChat: { ...activeChat, messages: [...fresh, ...activeChat.messages] } });
+  },
+
+  loadThread: async (agentName, opts) => {
+    try {
+      const res: any = await openclawApi.getThread(agentName, { ensure: true, limit: opts?.limit ?? 50 });
+      const detail: ThreadDetail = res.data;
+      if (!detail) return null;
+      const mapped: ChatMessage[] = (detail.messages ?? []).map((m) => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        timestamp: m.timestamp,
+        ...(m.isError ? { isError: true } : {}),
+        ...(m.errorType ? { errorType: m.errorType as ChatErrorType } : {}),
+      }));
+      const last = mapped[mapped.length - 1];
+      set((s) => {
+        const next: ActiveThread = {
+          agentName,
+          threadId: detail.threadId,
+          activeSessionKey: detail.activeSessionKey,
+          messages: mapped,
+          total: detail.total,
+          ...(last ? { lastMessageId: last.id } : {}),
+        };
+        const session = detail.activeSession;
+        return {
+          activeChat: s.activeChat?.agentName === agentName ? next : s.activeChat,
+          currentSession: session
+            ? {
+                key: session.key,
+                agentId: session.agentId,
+                sessionId: session.sessionId,
+                model: session.model,
+                contextWindow: session.contextWindow,
+                usage: session.usage,
+                compactionCount: session.compactionCount,
+              }
+            : s.currentSession,
+        };
+      });
+      return detail;
+    } catch (err: any) {
+      log('loadThread() error', err?.message);
+      return null;
+    }
+  },
+
+  syncThreadTail: async (agentName) => {
+    const { activeChat } = get();
+    if (!activeChat || activeChat.agentName !== agentName) return;
+    const afterId = activeChat.lastMessageId;
+    try {
+      const res: any = await openclawApi.getThread(agentName, {
+        ...(afterId ? { afterId } : { limit: 50 }),
+      });
+      const detail: ThreadDetail | undefined = res.data;
+      if (!detail) return;
+      const mapped: ChatMessage[] = (detail.messages ?? []).map((m) => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        timestamp: m.timestamp,
+        ...(m.isError ? { isError: true } : {}),
+        ...(m.errorType ? { errorType: m.errorType as ChatErrorType } : {}),
+      }));
+      if (mapped.length) {
+        get().appendChatMessages(agentName, mapped);
+      }
+      set((s) => {
+        const session = detail.activeSession;
+        const nextChat = s.activeChat?.agentName === agentName
+          ? {
+              ...s.activeChat,
+              ...(detail.threadId ? { threadId: detail.threadId } : {}),
+              ...(detail.activeSessionKey !== undefined ? { activeSessionKey: detail.activeSessionKey } : {}),
+              total: detail.total,
+            }
+          : s.activeChat;
+        return {
+          activeChat: nextChat,
+          currentSession: session
+            ? {
+                key: session.key,
+                agentId: session.agentId,
+                sessionId: session.sessionId,
+                model: session.model,
+                contextWindow: session.contextWindow,
+                usage: session.usage,
+                compactionCount: session.compactionCount,
+              }
+            : s.currentSession,
+        };
+      });
+    } catch (err: any) {
+      log('syncThreadTail() error', err?.message);
+    }
+  },
+
+  loadOlderThreadMessages: async (agentName) => {
+    const { activeChat } = get();
+    if (!activeChat || activeChat.agentName !== agentName) return false;
+    const oldest = activeChat.messages[0];
+    if (!oldest) return false;
+    try {
+      const res: any = await openclawApi.getThread(agentName, { beforeId: oldest.id, limit: 50 });
+      const detail: ThreadDetail | undefined = res.data;
+      if (!detail || !detail.messages?.length) return false;
+      const mapped: ChatMessage[] = detail.messages.map((m) => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        timestamp: m.timestamp,
+        ...(m.isError ? { isError: true } : {}),
+        ...(m.errorType ? { errorType: m.errorType as ChatErrorType } : {}),
+      }));
+      get().prependChatMessages(agentName, mapped);
+      return true;
+    } catch (err: any) {
+      log('loadOlderThreadMessages() error', err?.message);
+      return false;
+    }
+  },
+
+  rolloverThread: async (agentName) => {
+    try {
+      const res: any = await openclawApi.rolloverThread(agentName);
+      const sessionKey: string | null = res.data?.sessionKey ?? null;
+      set((s) => ({
+        activeChat: s.activeChat?.agentName === agentName
+          ? { ...s.activeChat, activeSessionKey: sessionKey }
+          : s.activeChat,
+      }));
+      return sessionKey;
+    } catch (err: any) {
+      log('rolloverThread() error', err?.message);
+      return null;
+    }
+  },
+
+  resetThread: async (agentName) => {
+    try {
+      await openclawApi.resetThread(agentName);
+      set((s) => {
+        if (s.activeChat?.agentName !== agentName) return { currentSession: null };
+        const { lastMessageId: _lastMessageId, ...rest } = s.activeChat;
+        void _lastMessageId;
+        return {
+          activeChat: {
+            ...rest,
+            threadId: null,
+            activeSessionKey: null,
+            messages: [],
+            total: 0,
+          },
+          currentSession: null,
+        };
+      });
+      return true;
+    } catch (err: any) {
+      log('resetThread() error', err?.message);
+      return false;
+    }
   },
 
   setCurrentSession: (session) => set({ currentSession: session }),
@@ -779,16 +1091,35 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
       set((s) => ({
         agentSessions: s.agentSessions.filter((sess) => sess.key !== key),
       }));
-      const { activeChat, currentSession } = get();
+      const { currentSession } = get();
       if (currentSession?.key === key) set({ currentSession: null });
-      if (activeChat?.sessionKey === key) {
-        set({ activeChat: { agentName: activeChat.agentName, sessionKey: null, messages: [] } });
-      }
       return true;
     } catch (err: any) {
       log('deleteSession() error', err?.message);
       return false;
     }
+  },
+
+  switchActiveSession: (agentName, session) => {
+    set((s) => {
+      const activeChat = s.activeChat?.agentName === agentName
+        ? { ...s.activeChat, activeSessionKey: session?.key ?? null }
+        : s.activeChat;
+      return {
+        activeChat,
+        currentSession: session
+          ? {
+              key: session.key,
+              agentId: session.agentId,
+              sessionId: session.sessionId,
+              model: session.model,
+              contextWindow: session.contextWindow,
+              usage: session.usage,
+              compactionCount: session.compactionCount,
+            }
+          : null,
+      };
+    });
   },
 
   startHeartbeat: () => {

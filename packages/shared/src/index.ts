@@ -14,6 +14,10 @@ export type {
   OpenClawWildCard,
   OpenClawWildCardField,
   OpenClawWildCardTone,
+  OpenClawThread,
+  OpenClawThreadDetail,
+  ThreadMessage,
+  ThreadRole,
 } from './types/openclaw';
 export type { Goal, GoalTemplate, GoalMilestone } from './types/goal';
 export type { Task } from './types/task';
