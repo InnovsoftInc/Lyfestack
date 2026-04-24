@@ -3,11 +3,9 @@ import {
   KeyboardAvoidingView, Platform, ActivityIndicator,
   Modal, ScrollView, useColorScheme,
 } from 'react-native';
-import { useState, useRef, useCallback, useMemo } from 'react';
-import { useEffect } from 'react';
+import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { BlurView } from 'expo-blur';
 import { useOpenClawStore } from '../../../../../stores/openclaw.store';
 import type { ChatAttachment } from '../../../../../stores/openclaw.store';
 import { openclawApi } from '../../../../../services/openclaw.api';
@@ -21,7 +19,7 @@ import type { Theme } from '../../../../../theme';
 import { AgentAvatar } from '../index';
 import { ContextWarningBanner } from '../../../../../components/ContextWarningBanner';
 import { SessionPickerSheet } from '../../../../../components/SessionPickerSheet';
-import { CustomPopover, PopoverOption, PopoverSection, ProgressRing } from '../../../../../components/ui';
+import { CustomPopover, PopoverOption, PopoverSection, ProgressRing, LiquidGlassButton } from '../../../../../components/ui';
 import { ChatView, ChatComposer } from '../../../../../components/chat';
 import type { ChatViewHandle } from '../../../../../components/chat';
 
@@ -68,6 +66,7 @@ export default function AgentChatScreen() {
 
   const [input, setInput] = useState('');
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
+  const [isConnected, setIsConnected] = useState<boolean | null>(null);
 
   // Model picker state
   const [showModelPicker, setShowModelPicker] = useState(false);
@@ -105,7 +104,8 @@ export default function AgentChatScreen() {
     openclawApi.getAgent(name).then((res: any) => {
       setCurrentModel(res.data?.model ?? '');
       setFallbackModels(res.data?.fallbackModels ?? []);
-    }).catch(() => {});
+      setIsConnected(true);
+    }).catch(() => { setIsConnected(false); });
     openclawApi.getConfig().then((res: any) => {
       const models: string[] = res.data?.availableModels ?? [];
       if (models.length) setAvailableModels(models);
@@ -349,9 +349,9 @@ export default function AgentChatScreen() {
   );
 
   // Floating header height for content offset
-  const headerHeight = insets.top + 64;
-  const blurTint = isDark ? 'dark' : 'light';
-  const tintOverlay = isDark ? 'rgba(10,10,12,0.6)' : 'rgba(255,255,255,0.72)';
+  const headerHeight = insets.top + 68;
+  const statusOnline = isConnected === true;
+  const statusLabel = isConnected === null ? '' : isConnected ? 'Online' : 'Offline';
 
   return (
     <KeyboardAvoidingView
@@ -380,29 +380,41 @@ export default function AgentChatScreen() {
         }
       />
 
-      {/* Floating glassmorphism header */}
+      {/* Floating transparent header — no background */}
       <View style={[s.floatingHeader, { paddingTop: insets.top }]} pointerEvents="box-none">
-        {Platform.OS === 'ios' ? (
-          <BlurView intensity={60} tint={blurTint} style={StyleSheet.absoluteFill} />
-        ) : null}
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: tintOverlay }]} />
         <View style={s.headerBar} pointerEvents="box-none">
-          <TouchableOpacity
-            onPress={() => router.push(`/(auth)/(drawer)/agents/${name}` as any)}
-            activeOpacity={0.8}
-            hitSlop={8}
-            style={s.headerLeft}
-          >
-            <AgentAvatar name={name} size={32} />
+          {/* Left: sessions/menu glass button */}
+          <View pointerEvents="auto">
+            <LiquidGlassButton
+              icon="☰"
+              isDark={isDark}
+              onPress={openSessionPicker}
+              size={38}
+            />
+          </View>
+
+          {/* Center: agent name + status */}
+          <View style={s.headerCenter} pointerEvents="none">
             <Text style={s.agentTitle} numberOfLines={1}>{name}</Text>
-          </TouchableOpacity>
-          <View style={s.headerRight}>
-            <TouchableOpacity onPress={openPermissions} style={s.headerBtn} hitSlop={10} activeOpacity={0.6}>
-              <Text style={s.headerIcon}>⚙</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => router.back()} style={s.headerBtn} hitSlop={10} activeOpacity={0.6}>
-              <Text style={s.headerIcon}>✕</Text>
-            </TouchableOpacity>
+            {statusLabel ? (
+              <View style={s.statusRow}>
+                <View style={[s.statusDot, { backgroundColor: statusOnline ? theme.success : theme.error }]} />
+                <Text style={[s.statusText, { color: statusOnline ? theme.success : theme.error }]}>
+                  {statusLabel}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+
+          {/* Right: close glass button */}
+          <View pointerEvents="auto">
+            <LiquidGlassButton
+              icon="✕"
+              isDark={isDark}
+              onPress={() => router.back()}
+              size={38}
+              iconSize={14}
+            />
           </View>
         </View>
       </View>
@@ -665,22 +677,20 @@ const styles = (t: Theme) => StyleSheet.create({
   container: { flex: 1, backgroundColor: t.background },
 
   floatingHeader: {
-    position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20, overflow: 'hidden',
+    position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20,
   },
   headerBar: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: Spacing.md, paddingBottom: Spacing.sm + 2,
-    minHeight: 52,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(255,255,255,0.08)',
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: Spacing.md, paddingBottom: Spacing.sm + 4,
+    minHeight: 56,
   },
-  headerLeft: {
-    flex: 1, flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+  headerCenter: {
+    flex: 1, alignItems: 'center', gap: 3,
   },
-  agentTitle: { color: t.text.primary, fontSize: 16, fontWeight: '700', flex: 1 },
-  headerRight: { flexDirection: 'row', alignItems: 'center' },
-  headerBtn: { padding: Spacing.xs },
-  headerIcon: { color: t.text.secondary, fontSize: 18 },
+  agentTitle: { color: t.text.primary, fontSize: 17, fontWeight: '700' },
+  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  statusDot: { width: 6, height: 6, borderRadius: 3 },
+  statusText: { fontSize: 11, fontWeight: '600' },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
   modalContent: { backgroundColor: t.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: Spacing.lg, maxHeight: '65%' },
