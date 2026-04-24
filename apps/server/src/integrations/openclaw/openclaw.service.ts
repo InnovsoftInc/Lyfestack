@@ -31,6 +31,12 @@ export interface OpenClawConfig {
   };
   codingTool: string;
   availableModels: string[];
+  availableModelDetails: Array<{
+    id: string;
+    reasoning: boolean;
+    contextWindow: number;
+    maxTokens: number;
+  }>;
 }
 
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] };
@@ -184,56 +190,53 @@ export class OpenClawService {
     const startTime = Date.now();
     const bin = await this.resolveOpenclawBin();
 
-    const child = spawn(bin, ['agent', '--agent', agentName, '-m', message, '--output-format', 'stream-json'], {
-      env: { ...process.env },
+    // Strip ANSI escape codes from CLI output
+    const stripAnsi = (text: string): string =>
+      text.replace(/\x1B\[[0-9;]*[A-Za-z]/g, '').replace(/\x1B\][^\x07]*\x07/g, '');
+
+    const child = spawn(bin, ['agent', '--agent', agentName, '-m', message], {
+      env: { ...process.env, NO_COLOR: '1', TERM: 'dumb' },
     });
 
     let full = '';
     let stderrBuffer = '';
+    let done = false;
+
+    // Timeout: if CLI hangs for 10 minutes, kill it
+    const timeout = setTimeout(() => {
+      if (!done) {
+        child.kill('SIGTERM');
+        onError(new Error(`Agent ${agentName} timed out after 10 minutes`));
+        done = true;
+      }
+    }, 600_000);
 
     child.stdout.on('data', (data: Buffer) => {
-      const text = data.toString();
-      // Try to parse stream-json events (one JSON per line)
-      const lines = text.split('\n');
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        try {
-          const event = JSON.parse(trimmed);
-          if (event.type === 'content_block_start' && event.content_block?.type === 'tool_use') {
-            onToolUse?.(event.content_block.name ?? 'tool');
-          } else if (event.type === 'tool_use') {
-            onToolUse?.(event.name ?? 'tool');
-          } else if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
-            const chunk = event.delta.text ?? '';
-            full += chunk;
-            onChunk(chunk);
-          } else if (event.type === 'text') {
-            full += (event.text ?? '');
-            onChunk(event.text ?? '');
-          }
-        } catch {
-          // Not JSON — treat as raw text chunk
-          full += text;
-          onChunk(text);
-          break; // Only process the raw text once, not per-line
-        }
-      }
+      if (done) return;
+      const raw = data.toString();
+      const clean = stripAnsi(raw);
+      if (!clean.trim()) return; // Skip empty/whitespace-only chunks
+      full += clean;
+      onChunk(clean);
     });
 
     child.stderr.on('data', (data: Buffer) => {
-      const text = data.toString();
+      if (done) return;
+      const text = stripAnsi(data.toString());
       stderrBuffer += text;
       logger.debug({ agent: agentName }, `stderr: ${text.trim()}`);
       // Parse stderr for tool usage patterns
-      // Common patterns: "⚡ Tool call read", "Tool: Read", "Using tool: bash"
-      const toolMatch = text.match(/(?:tool[:\s]+|⚡\s*(?:Tool call|Tool output)\s+)(\w+)/i);
+      // Common patterns: "Tool call read", "Tool output read", "Using tool: bash"
+      const toolMatch = text.match(/(?:tool[:\s]+|Tool call\s+|Tool output\s+)(\w+)/i);
       if (toolMatch?.[1] && onToolUse) {
         onToolUse(toolMatch[1]);
       }
     });
 
     child.on('close', (code) => {
+      clearTimeout(timeout);
+      if (done) return;
+      done = true;
       if (full.length > 0) {
         const response = full.trim();
         this.getAgent(agentName)
@@ -254,6 +257,9 @@ export class OpenClawService {
     });
 
     child.on('error', (err) => {
+      clearTimeout(timeout);
+      if (done) return;
+      done = true;
       logger.error({ agent: agentName, err: err.message }, 'OpenClaw stream failed');
       onError(err);
     });
@@ -535,16 +541,35 @@ export class OpenClawService {
     const cfg = await readOpenclawJson();
 
     const modelSet = new Set<string>();
+    const modelDetails = new Map<string, { id: string; reasoning: boolean; contextWindow: number; maxTokens: number }>();
     const providers: Record<string, any> = cfg?.models?.providers ?? {};
     for (const [providerName, providerCfg] of Object.entries(providers)) {
       const models: Array<{ id?: string }> = (providerCfg as any)?.models ?? [];
       for (const model of models) {
-        if (model?.id) modelSet.add(`${providerName}/${model.id}`);
+        if (model?.id) {
+          const id = `${providerName}/${model.id}`;
+          modelSet.add(id);
+          modelDetails.set(id, {
+            id,
+            reasoning: Boolean((model as any)?.reasoning),
+            contextWindow: Number((model as any)?.contextWindow ?? 0),
+            maxTokens: Number((model as any)?.maxTokens ?? 0),
+          });
+        }
       }
     }
     const agentModels: Record<string, unknown> = cfg?.agents?.defaults?.models ?? {};
     for (const key of Object.keys(agentModels)) {
       modelSet.add(key);
+      if (!modelDetails.has(key)) {
+        const meta = agentModels[key] as Record<string, unknown> | undefined;
+        modelDetails.set(key, {
+          id: key,
+          reasoning: Boolean(meta?.reasoning),
+          contextWindow: Number(meta?.contextWindow ?? 0),
+          maxTokens: Number(meta?.maxTokens ?? 0),
+        });
+      }
     }
 
     return {
@@ -559,6 +584,7 @@ export class OpenClawService {
       },
       codingTool: cfg?.commands?.native ?? 'auto',
       availableModels: Array.from(modelSet),
+      availableModelDetails: Array.from(modelDetails.values()),
     };
   }
 

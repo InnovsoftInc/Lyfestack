@@ -1,6 +1,7 @@
 import {
-  Modal, View, Text, TouchableOpacity, FlatList, StyleSheet, ActivityIndicator, Alert,
+  Modal, View, Text, TouchableOpacity, FlatList, StyleSheet, ActivityIndicator, Alert, ScrollView,
 } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Spacing } from '../theme';
 import type { Theme } from '../theme';
 import type { SessionSummary } from '../stores/openclaw.store';
@@ -12,6 +13,7 @@ interface Props {
   loading?: boolean;
   busyKey?: string | null;
   theme: Theme;
+  initialAgentId?: string | null;
   onClose: () => void;
   onSelect: (key: string) => void;
   onNew: () => void;
@@ -36,8 +38,38 @@ function formatRelative(iso: string): string {
 }
 
 export function SessionPickerSheet({
-  visible, sessions, activeKey, loading, busyKey, theme, onClose, onSelect, onNew, onDelete,
+  visible, sessions, activeKey, loading, busyKey, theme, initialAgentId, onClose, onSelect, onNew, onDelete,
 }: Props) {
+  const listRef = useRef<FlatList<SessionSummary>>(null);
+  const agentIds = useMemo(
+    () => Array.from(new Set(sessions.map((session) => session.agentId))).sort((a, b) => a.localeCompare(b)),
+    [sessions],
+  );
+  const activeAgentId = activeKey?.split('/')[0] ?? null;
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(initialAgentId ?? activeAgentId);
+  const filteredSessions = useMemo(
+    () => (!selectedAgentId ? sessions : sessions.filter((session) => session.agentId === selectedAgentId)),
+    [selectedAgentId, sessions],
+  );
+
+  useEffect(() => {
+    if (!visible) return;
+    const nextAgentId = initialAgentId ?? activeAgentId ?? agentIds[0] ?? null;
+    setSelectedAgentId(nextAgentId);
+  }, [visible, initialAgentId, activeAgentId, agentIds]);
+
+  useEffect(() => {
+    if (!visible || loading || filteredSessions.length === 0) return;
+    requestAnimationFrame(() => {
+      const activeIndex = activeKey ? filteredSessions.findIndex((session) => session.key === activeKey) : -1;
+      if (activeIndex >= 0) {
+        listRef.current?.scrollToIndex({ index: activeIndex, animated: false, viewPosition: 0.5 });
+        return;
+      }
+      listRef.current?.scrollToOffset({ offset: 0, animated: false });
+    });
+  }, [visible, loading, filteredSessions, activeKey]);
+
   const handleDelete = (session: SessionSummary) => {
     Alert.alert(
       'Delete session?',
@@ -60,17 +92,47 @@ export function SessionPickerSheet({
             </TouchableOpacity>
           </View>
 
+          {agentIds.length > 0 && (
+            <View style={styles.filterWrap}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterContent}>
+                {agentIds.map((agentId) => {
+                  const isActive = agentId === selectedAgentId;
+                  return (
+                    <TouchableOpacity
+                      key={agentId}
+                      onPress={() => setSelectedAgentId(agentId)}
+                      activeOpacity={0.7}
+                      style={[
+                        styles.filterChip,
+                        {
+                          backgroundColor: isActive ? theme.accent + '18' : theme.background,
+                          borderColor: isActive ? theme.accent + '55' : theme.border,
+                        },
+                      ]}
+                    >
+                      <Text style={{ color: isActive ? theme.accent : theme.text.secondary, fontSize: 12, fontWeight: '600' }}>
+                        {agentId}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          )}
+
           {loading ? (
             <View style={{ paddingVertical: Spacing.lg, alignItems: 'center' }}>
               <ActivityIndicator color={theme.accent} />
             </View>
-          ) : sessions.length === 0 ? (
+          ) : filteredSessions.length === 0 ? (
             <Text style={[styles.empty, { color: theme.text.secondary }]}>No sessions yet. Tap + New to start one.</Text>
           ) : (
             <FlatList
-              data={sessions}
+              ref={listRef}
+              data={filteredSessions}
               keyExtractor={(item) => item.key}
               style={{ maxHeight: 380 }}
+              onScrollToIndexFailed={() => listRef.current?.scrollToEnd({ animated: false })}
               renderItem={({ item }) => {
                 const pct = item.contextWindow > 0
                   ? Math.max(0, Math.min(100, (item.usage.contextUsedTokens / item.contextWindow) * 100))
@@ -135,6 +197,11 @@ const styles = StyleSheet.create({
   title: { fontSize: 18, fontWeight: '700' },
   newBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10 },
   newBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  filterWrap: { marginBottom: Spacing.md },
+  filterContent: { gap: 8, paddingRight: 4 },
+  filterChip: {
+    paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, borderWidth: 1,
+  },
   empty: { textAlign: 'center', paddingVertical: Spacing.lg, fontSize: 13 },
   row: {
     flexDirection: 'row', alignItems: 'center', gap: 8,

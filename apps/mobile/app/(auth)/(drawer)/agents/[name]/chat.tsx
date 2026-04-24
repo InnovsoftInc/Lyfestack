@@ -3,7 +3,7 @@ import {
   FlatList, KeyboardAvoidingView, Platform, ActivityIndicator,
   Modal, ScrollView, useColorScheme,
 } from 'react-native';
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MarkedBase, { Renderer as MarkedRenderer } from 'react-native-marked';
@@ -32,6 +32,8 @@ function CopyButton({ content, theme, variant = 'agent' }: { content: string; th
 import { useOpenClawStore } from '../../../../../stores/openclaw.store';
 import type { ChatErrorType, ChatAttachment, ChatMessage, SessionSummary, CurrentSession } from '../../../../../stores/openclaw.store';
 import { openclawApi } from '../../../../../services/openclaw.api';
+import { approvalsApi } from '../../../../../services/openclaw-extras.api';
+import type { AllowlistEntry } from '../../../../../services/openclaw-extras.api';
 import { useTheme } from '../../../../../hooks/useTheme';
 import { Spacing, BorderRadius } from '../../../../../theme';
 import type { Theme } from '../../../../../theme';
@@ -63,6 +65,30 @@ const ERROR_META: Record<ChatErrorType, { icon: string; title: string; body: str
     body: '',
   },
 };
+
+type ModelDetail = {
+  id: string;
+  reasoning?: boolean;
+  contextWindow?: number;
+};
+
+type ModelTier = 'all' | 'fast' | 'deep';
+
+type ApprovalDefaults = {
+  security: string;
+  ask: string;
+  askFallback: string;
+};
+
+type SlashAction = {
+  key: string;
+  label: string;
+  hint: string;
+  run: () => Promise<void> | void;
+};
+
+const SECURITY_OPTIONS = ['deny', 'allowlist', 'full'];
+const ASK_OPTIONS = ['off', 'on-miss', 'always'];
 
 function ErrorBadge({ type, rawMessage, theme }: { type: ChatErrorType; rawMessage: string; theme: Theme }) {
   const meta = ERROR_META[type];
@@ -113,7 +139,7 @@ function ToolPill({ label, active, theme }: { label: string; active?: boolean; t
   );
 }
 
-function ToolActivityList({ tools, currentTool, theme }: { tools: string[]; currentTool?: string | null; theme: Theme }) {
+function ToolActivityList({ tools, currentTool, theme }: { tools: string[]; currentTool?: string | null | undefined; theme: Theme }) {
   if (!tools.length && !currentTool) return null;
   // Dedupe while preserving order
   const seen = new Set<string>();
@@ -237,6 +263,8 @@ export default function AgentChatScreen() {
   const [currentModel, setCurrentModel] = useState('');
   const [fallbackModels, setFallbackModels] = useState<string[]>([]);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [availableModelDetails, setAvailableModelDetails] = useState<ModelDetail[]>([]);
+  const [modelTier, setModelTier] = useState<ModelTier>('all');
   const [changingModel, setChangingModel] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [showFilePicker, setShowFilePicker] = useState(false);
@@ -248,6 +276,12 @@ export default function AgentChatScreen() {
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [deletingKey, setDeletingKey] = useState<string | null>(null);
   const [compactionToast, setCompactionToast] = useState(false);
+  const [showPermissionsModal, setShowPermissionsModal] = useState(false);
+  const [permissionsLoading, setPermissionsLoading] = useState(false);
+  const [approvalDefaults, setApprovalDefaults] = useState<ApprovalDefaults>({ security: 'full', ask: 'off', askFallback: 'full' });
+  const [allowlistEntries, setAllowlistEntries] = useState<AllowlistEntry[]>([]);
+  const [allowlistInput, setAllowlistInput] = useState('');
+  const [savingPermissions, setSavingPermissions] = useState(false);
   const listRef = useRef<FlatList>(null);
   const pinnedRef = useRef(true);
   const sessionRef = useRef<{ key: string; oldestIndex: number; newestIndex: number; total: number; compactionCount: number } | null>(null);
@@ -255,6 +289,12 @@ export default function AgentChatScreen() {
   const warningDismissedRef = useRef<{ soft: boolean; hard: boolean }>({ soft: false, hard: false });
 
   const PAGE_SIZE = 50;
+
+  const jumpToLatest = useCallback((animated = false) => {
+    pinnedRef.current = true;
+    setPinnedToBottom(true);
+    requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated }));
+  }, []);
 
   const mapMessage = (m: any): ChatMessage => ({
     id: `msg-${m.index}-${m.role}`,
@@ -265,6 +305,23 @@ export default function AgentChatScreen() {
   const insets = useSafeAreaInsets();
   const agent = agents.find((a) => a.name === name);
   const isStreaming = !!streamAbort;
+  const currentModelMeta = useMemo(
+    () => availableModelDetails.find((detail) => detail.id === currentModel),
+    [availableModelDetails, currentModel],
+  );
+  const filteredModels = useMemo(
+    () => availableModels.filter((model) => {
+      if (modelTier === 'all') return true;
+      const detail = availableModelDetails.find((entry) => entry.id === model);
+      return modelTier === 'deep' ? Boolean(detail?.reasoning) : !detail?.reasoning;
+    }),
+    [availableModels, availableModelDetails, modelTier],
+  );
+
+  const openModelPicker = useCallback(() => {
+    setModelTier(currentModelMeta ? (currentModelMeta.reasoning ? 'deep' : 'fast') : 'all');
+    setShowModelPicker(true);
+  }, [currentModelMeta]);
 
   const loadSession = useCallback(async (key: string, opts: { silent?: boolean } = {}) => {
     if (!opts.silent) setLoadingHistory(true);
@@ -296,9 +353,10 @@ export default function AgentChatScreen() {
       useOpenClawStore.setState({
         activeChat: { agentName: name, sessionKey: key, messages },
       });
+      jumpToLatest(false);
     } catch { /* ignore — next poll will retry */ }
     finally { if (!opts.silent) setLoadingHistory(false); }
-  }, [name]);
+  }, [jumpToLatest, name]);
 
   useEffect(() => {
     openChat(name);
@@ -309,6 +367,8 @@ export default function AgentChatScreen() {
     openclawApi.getConfig().then((res: any) => {
       const models: string[] = res.data?.availableModels ?? [];
       if (models.length) setAvailableModels(models);
+      const details: ModelDetail[] = res.data?.availableModelDetails ?? [];
+      if (details.length) setAvailableModelDetails(details);
     }).catch(() => {});
 
     let cancelled = false;
@@ -440,14 +500,81 @@ export default function AgentChatScreen() {
     }
   }, [deleteSession, newSession, loadSession, name]);
 
-  const handleModelChange = async (model: string) => {
+  const handleModelChange = async (model: string, opts: { close?: boolean } = {}) => {
     setChangingModel(true);
     try {
       await openclawApi.updateAgent(name, { model });
       setCurrentModel(model);
-      setShowModelPicker(false);
+      if (opts.close !== false) setShowModelPicker(false);
     } catch {} finally { setChangingModel(false); }
   };
+
+  const applyModelTier = useCallback(async (tier: ModelTier) => {
+    setModelTier(tier);
+    if (tier === 'all') return;
+    const currentProvider = currentModel.split('/')[0] ?? '';
+    const candidates = availableModelDetails.filter((detail) =>
+      (tier === 'deep' ? Boolean(detail.reasoning) : !detail.reasoning));
+    const preferred = candidates.find((detail) => detail.id.startsWith(`${currentProvider}/`)) ?? candidates[0];
+    if (preferred?.id && preferred.id !== currentModel) {
+      await handleModelChange(preferred.id, { close: false });
+    }
+  }, [availableModelDetails, currentModel]);
+
+  const openPermissions = useCallback(async () => {
+    setShowPermissionsModal(true);
+    setPermissionsLoading(true);
+    try {
+      const [config, allowlist] = await Promise.all([
+        approvalsApi.getConfig(),
+        approvalsApi.listAllowlist(name),
+      ]);
+      setApprovalDefaults(config.defaults);
+      setAllowlistEntries(allowlist[name] ?? []);
+    } catch { /* ignore */ } finally {
+      setPermissionsLoading(false);
+    }
+  }, [name]);
+
+  const updateApprovalSetting = useCallback(async (field: keyof ApprovalDefaults, value: string) => {
+    const prev = approvalDefaults;
+    const next = { ...prev, [field]: value };
+    setApprovalDefaults(next);
+    setSavingPermissions(true);
+    try {
+      await approvalsApi.setDefaults({ [field]: value });
+    } catch {
+      setApprovalDefaults(prev);
+    } finally {
+      setSavingPermissions(false);
+    }
+  }, [approvalDefaults]);
+
+  const addAllowlistEntry = useCallback(async () => {
+    const pattern = allowlistInput.trim();
+    if (!pattern) return;
+    setSavingPermissions(true);
+    try {
+      const entry = await approvalsApi.addEntry(name, pattern, 'mobile');
+      setAllowlistEntries((prev) => [entry, ...prev.filter((item) => item.id !== entry.id)]);
+      setAllowlistInput('');
+    } catch { /* ignore */ } finally {
+      setSavingPermissions(false);
+    }
+  }, [allowlistInput, name]);
+
+  const removeAllowlistEntry = useCallback(async (id: string) => {
+    const prev = allowlistEntries;
+    setAllowlistEntries((entries) => entries.filter((entry) => entry.id !== id));
+    setSavingPermissions(true);
+    try {
+      await approvalsApi.removeEntry(name, id);
+    } catch {
+      setAllowlistEntries(prev);
+    } finally {
+      setSavingPermissions(false);
+    }
+  }, [allowlistEntries, name]);
 
   const openFilePicker = useCallback(async () => {
     setLoadingFiles(true);
@@ -477,8 +604,30 @@ export default function AgentChatScreen() {
     setPendingAttachments((prev) => prev.filter((a) => a.id !== id));
   }, []);
 
+  const slashActions = useMemo<SlashAction[]>(() => ([
+    { key: 'new', label: 'New session', hint: 'Start a fresh chat session', run: handleNewSession },
+    { key: 'sessions', label: 'Sessions', hint: 'Open session history', run: openSessionPicker },
+    { key: 'model', label: 'Model', hint: 'Change model and intelligence', run: openModelPicker },
+    { key: 'permissions', label: 'Permissions', hint: 'Edit approvals and allowlist', run: openPermissions },
+    { key: 'files', label: 'Files', hint: 'Attach a workspace file', run: openFilePicker },
+  ]), [handleNewSession, openSessionPicker, openModelPicker, openPermissions, openFilePicker]);
+
+  const slashQuery = input.startsWith('/') ? input.slice(1).trim().toLowerCase() : '';
+  const slashMatches = input.startsWith('/')
+    ? slashActions.filter((action) => action.key.includes(slashQuery) || action.label.toLowerCase().includes(slashQuery))
+    : [];
+
   const handleSend = useCallback(async () => {
-    if (!input.trim() || isStreaming) return;
+    const trimmed = input.trim();
+    if (!trimmed || isStreaming) return;
+    if (trimmed.startsWith('/')) {
+      const command = slashActions.find((action) => `/${action.key}` === trimmed.toLowerCase());
+      if (command) {
+        setInput('');
+        await command.run();
+      }
+      return;
+    }
     const msg = input;
     const attachments = [...pendingAttachments];
     setInput('');
@@ -486,14 +635,12 @@ export default function AgentChatScreen() {
     pinnedRef.current = true;
     setPinnedToBottom(true);
     await sendMessageStream(name, msg, attachments);
-    setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
-  }, [input, isStreaming, pendingAttachments, name, sendMessageStream]);
+    setTimeout(() => jumpToLatest(true), 100);
+  }, [input, isStreaming, pendingAttachments, name, sendMessageStream, jumpToLatest, slashActions]);
 
   const scrollToBottom = useCallback(() => {
-    pinnedRef.current = true;
-    setPinnedToBottom(true);
-    listRef.current?.scrollToEnd({ animated: true });
-  }, []);
+    jumpToLatest(true);
+  }, [jumpToLatest]);
 
   const handleScroll = useCallback((e: any) => {
     const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
@@ -523,8 +670,11 @@ export default function AgentChatScreen() {
         </TouchableOpacity>
         <View style={s.headerInfo}>
           <Text style={s.agentTitle}>{name}</Text>
-          <TouchableOpacity onPress={() => setShowModelPicker(true)} activeOpacity={0.7} style={s.modelRow}>
-            <Text style={s.modelText}>{currentModel ? currentModel.split('/').pop() : agent?.model ?? '...'}</Text>
+          <TouchableOpacity onPress={openModelPicker} activeOpacity={0.7} style={s.modelRow}>
+            <Text style={s.modelText}>
+              {currentModel ? currentModel.split('/').pop() : agent?.model ?? '...'}
+              {currentModelMeta ? ` · ${currentModelMeta.reasoning ? 'Deep' : 'Fast'}` : ''}
+            </Text>
             <Text style={s.modelArrow}>▾</Text>
           </TouchableOpacity>
           {fallbackModels.length > 0 && (
@@ -543,6 +693,9 @@ export default function AgentChatScreen() {
         <TouchableOpacity onPress={openSessionPicker} style={s.closeBtn} hitSlop={10} activeOpacity={0.6}>
           <Text style={s.closeIcon}>☰</Text>
         </TouchableOpacity>
+        <TouchableOpacity onPress={openPermissions} style={s.closeBtn} hitSlop={10} activeOpacity={0.6}>
+          <Text style={s.closeIcon}>⚙</Text>
+        </TouchableOpacity>
         <TouchableOpacity onPress={() => router.back()} style={s.closeBtn} hitSlop={10} activeOpacity={0.6}>
           <Text style={s.closeIcon}>✕</Text>
         </TouchableOpacity>
@@ -559,21 +712,142 @@ export default function AgentChatScreen() {
         <View style={s.modalOverlay}>
           <View style={s.modalContent}>
             <Text style={s.modalTitle}>Select Model</Text>
-            <ScrollView style={s.modelList}>
-              {availableModels.length === 0 && (
-                <Text style={{ color: theme.text.secondary, fontSize: 14, textAlign: 'center', paddingVertical: Spacing.md }}>
-                  Loading models...
-                </Text>
-              )}
-              {availableModels.map((model) => (
-                <TouchableOpacity key={model} style={[s.modelOption, currentModel === model && s.modelOptionActive]} onPress={() => handleModelChange(model)} disabled={changingModel} activeOpacity={0.7}>
-                  <Text style={[s.modelOptionText, currentModel === model && s.modelOptionTextActive]}>{model}</Text>
-                  {currentModel === model && <Text style={s.modelCheck}>✓</Text>}
+            <View style={s.tierRow}>
+              {([
+                { key: 'fast', label: 'Fast' },
+                { key: 'deep', label: 'Deep' },
+                { key: 'all', label: 'All' },
+              ] as const).map((tier) => (
+                <TouchableOpacity
+                  key={tier.key}
+                  style={[s.tierChip, modelTier === tier.key && s.tierChipActive]}
+                  onPress={() => { void applyModelTier(tier.key); }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[s.tierChipText, modelTier === tier.key && s.tierChipTextActive]}>{tier.label}</Text>
                 </TouchableOpacity>
               ))}
+            </View>
+            <ScrollView style={s.modelList}>
+              {filteredModels.length === 0 && (
+                <Text style={{ color: theme.text.secondary, fontSize: 14, textAlign: 'center', paddingVertical: Spacing.md }}>
+                  {availableModels.length === 0 ? 'Loading models...' : 'No models match this intelligence tier.'}
+                </Text>
+              )}
+              {filteredModels.map((model) => {
+                const meta = availableModelDetails.find((entry) => entry.id === model);
+                return (
+                  <TouchableOpacity key={model} style={[s.modelOption, currentModel === model && s.modelOptionActive]} onPress={() => handleModelChange(model)} disabled={changingModel} activeOpacity={0.7}>
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <Text style={[s.modelOptionText, currentModel === model && s.modelOptionTextActive]}>{model}</Text>
+                      <Text style={{ color: currentModel === model ? '#fffccf' : theme.text.secondary, fontSize: 11 }}>
+                        {meta?.reasoning ? 'Deep reasoning' : 'Fast response'}
+                        {meta?.contextWindow ? ` · ${(meta.contextWindow / 1000).toFixed(meta.contextWindow >= 100000 ? 0 : 1)}k ctx` : ''}
+                      </Text>
+                    </View>
+                    {currentModel === model && <Text style={s.modelCheck}>✓</Text>}
+                  </TouchableOpacity>
+                );
+              })}
             </ScrollView>
             <TouchableOpacity style={s.modalClose} onPress={() => setShowModelPicker(false)}>
               <Text style={s.modalCloseText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={showPermissionsModal} transparent animationType="slide" onRequestClose={() => setShowPermissionsModal(false)}>
+        <View style={s.modalOverlay}>
+          <View style={s.modalContent}>
+            <Text style={s.modalTitle}>Permissions</Text>
+            {permissionsLoading ? (
+              <ActivityIndicator color={theme.accent} style={{ marginVertical: Spacing.lg }} />
+            ) : (
+              <ScrollView style={s.modelList} keyboardShouldPersistTaps="handled">
+                <View style={s.permissionCard}>
+                  <Text style={s.permissionTitle}>Global approval defaults</Text>
+                  <Text style={s.permissionHint}>These settings affect how commands are approved across agents.</Text>
+
+                  <Text style={s.permissionLabel}>Security</Text>
+                  <View style={s.permissionChips}>
+                    {SECURITY_OPTIONS.map((option) => (
+                      <TouchableOpacity
+                        key={option}
+                        style={[s.permissionChip, approvalDefaults.security === option && s.permissionChipActive]}
+                        onPress={() => { void updateApprovalSetting('security', option); }}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[s.permissionChipText, approvalDefaults.security === option && s.permissionChipTextActive]}>{option}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+
+                  <Text style={s.permissionLabel}>Ask</Text>
+                  <View style={s.permissionChips}>
+                    {ASK_OPTIONS.map((option) => (
+                      <TouchableOpacity
+                        key={option}
+                        style={[s.permissionChip, approvalDefaults.ask === option && s.permissionChipActive]}
+                        onPress={() => { void updateApprovalSetting('ask', option); }}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[s.permissionChipText, approvalDefaults.ask === option && s.permissionChipTextActive]}>{option}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+
+                  <Text style={s.permissionLabel}>Fallback</Text>
+                  <View style={s.permissionChips}>
+                    {SECURITY_OPTIONS.map((option) => (
+                      <TouchableOpacity
+                        key={option}
+                        style={[s.permissionChip, approvalDefaults.askFallback === option && s.permissionChipActive]}
+                        onPress={() => { void updateApprovalSetting('askFallback', option); }}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[s.permissionChipText, approvalDefaults.askFallback === option && s.permissionChipTextActive]}>{option}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+
+                <View style={s.permissionCard}>
+                  <Text style={s.permissionTitle}>{name} allowlist</Text>
+                  <Text style={s.permissionHint}>Store command patterns this agent can run without another approval.</Text>
+                  <View style={s.allowlistComposer}>
+                    <TextInput
+                      style={s.allowlistInput}
+                      value={allowlistInput}
+                      onChangeText={setAllowlistInput}
+                      placeholder="/bin/ls"
+                      placeholderTextColor={theme.text.secondary}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
+                    <TouchableOpacity style={s.allowlistAddBtn} onPress={() => { void addAllowlistEntry(); }} activeOpacity={0.8} disabled={!allowlistInput.trim() || savingPermissions}>
+                      <Text style={s.allowlistAddText}>Add</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {allowlistEntries.length === 0 ? (
+                    <Text style={s.permissionHint}>No saved command patterns for this agent yet.</Text>
+                  ) : allowlistEntries.map((entry) => (
+                    <View key={entry.id} style={s.allowlistRow}>
+                      <View style={{ flex: 1, gap: 2 }}>
+                        <Text style={s.allowlistPattern} numberOfLines={1}>{entry.pattern}</Text>
+                        {entry.lastUsedCommand ? <Text style={s.allowlistMeta} numberOfLines={1}>{entry.lastUsedCommand}</Text> : null}
+                      </View>
+                      <TouchableOpacity onPress={() => { void removeAllowlistEntry(entry.id); }} hitSlop={8}>
+                        <Text style={{ color: theme.error, fontSize: 16 }}>✕</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              </ScrollView>
+            )}
+            <TouchableOpacity style={s.modalClose} onPress={() => setShowPermissionsModal(false)}>
+              <Text style={s.modalCloseText}>{savingPermissions ? 'Saving…' : 'Close'}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -628,6 +902,7 @@ export default function AgentChatScreen() {
         loading={loadingSessions}
         busyKey={deletingKey}
         theme={theme}
+        initialAgentId={name}
         onClose={() => setShowSessionPicker(false)}
         onSelect={handleSelectSession}
         onNew={handleNewSession}
@@ -714,6 +989,27 @@ export default function AgentChatScreen() {
       )}
 
       {/* Input bar */}
+      {slashMatches.length > 0 && (
+        <View style={[s.slashMenu, { bottom: insets.bottom + 78 + (pendingAttachments.length > 0 ? 40 : 0) }]}>
+          {slashMatches.map((action) => (
+            <TouchableOpacity
+              key={action.key}
+              style={s.slashRow}
+              onPress={() => {
+                setInput('');
+                void action.run();
+              }}
+              activeOpacity={0.75}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={s.slashTitle}>/{action.key}</Text>
+                <Text style={s.slashHint}>{action.hint}</Text>
+              </View>
+              <Text style={s.slashLabel}>{action.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
       <View style={[s.inputBar, { paddingBottom: insets.bottom + Spacing.sm + 2 }]}>
         <TouchableOpacity onPress={openFilePicker} style={s.attachBtn} hitSlop={6} activeOpacity={0.7}>
           <Text style={s.attachIcon}>📎</Text>
@@ -722,7 +1018,7 @@ export default function AgentChatScreen() {
           style={s.input}
           value={input}
           onChangeText={setInput}
-          placeholder={`Message ${name}...`}
+          placeholder={`Message ${name} or type / for shortcuts...`}
           placeholderTextColor={theme.text.secondary}
           multiline
           editable={!isStreaming}
@@ -772,6 +1068,14 @@ const styles = (t: Theme) => StyleSheet.create({
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
   modalContent: { backgroundColor: t.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: Spacing.lg, maxHeight: '65%' },
   modalTitle: { color: t.text.primary, fontSize: 18, fontWeight: '700', marginBottom: Spacing.md },
+  tierRow: { flexDirection: 'row', gap: 8, marginBottom: Spacing.md },
+  tierChip: {
+    paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: t.border, backgroundColor: t.background,
+  },
+  tierChipActive: { backgroundColor: t.accent + '1f', borderColor: t.accent + '66' },
+  tierChipText: { color: t.text.secondary, fontSize: 12, fontWeight: '600' },
+  tierChipTextActive: { color: t.accent },
   modelList: { maxHeight: 380 },
   modelOption: { paddingVertical: 14, paddingHorizontal: Spacing.md, borderRadius: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   modelOptionActive: { backgroundColor: t.accent + '15' },
@@ -780,6 +1084,39 @@ const styles = (t: Theme) => StyleSheet.create({
   modelCheck: { color: t.accent, fontSize: 16, fontWeight: '700' },
   modalClose: { marginTop: Spacing.md, paddingVertical: 14, alignItems: 'center', borderRadius: 12, borderWidth: 1, borderColor: t.border },
   modalCloseText: { color: t.text.secondary, fontSize: 15, fontWeight: '600' },
+  permissionCard: {
+    backgroundColor: t.background,
+    borderRadius: 14,
+    padding: Spacing.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: t.border,
+    gap: 10,
+    marginBottom: Spacing.md,
+  },
+  permissionTitle: { color: t.text.primary, fontSize: 14, fontWeight: '700' },
+  permissionHint: { color: t.text.secondary, fontSize: 12, lineHeight: 17 },
+  permissionLabel: { color: t.text.secondary, fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 4 },
+  permissionChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  permissionChip: {
+    paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: t.border, backgroundColor: t.surface,
+  },
+  permissionChipActive: { backgroundColor: t.accent + '1f', borderColor: t.accent + '66' },
+  permissionChipText: { color: t.text.secondary, fontSize: 12, fontWeight: '600' },
+  permissionChipTextActive: { color: t.accent },
+  allowlistComposer: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  allowlistInput: {
+    flex: 1, backgroundColor: t.surface, color: t.text.primary, borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: t.border,
+  },
+  allowlistAddBtn: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, backgroundColor: t.accent },
+  allowlistAddText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  allowlistRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.border,
+  },
+  allowlistPattern: { color: t.text.primary, fontSize: 13, fontWeight: '600' },
+  allowlistMeta: { color: t.text.secondary, fontSize: 11 },
 
   fileOption: { paddingVertical: 12, paddingHorizontal: Spacing.md, borderRadius: 10, flexDirection: 'row', alignItems: 'center', gap: 8 },
   fileOptionName: { color: t.text.primary, fontSize: 14, fontWeight: '600' },
@@ -820,6 +1157,29 @@ const styles = (t: Theme) => StyleSheet.create({
     elevation: 3,
   },
   scrollFabIcon: { color: t.text.primary, fontSize: 18, fontWeight: '700' },
+  slashMenu: {
+    position: 'absolute',
+    left: Spacing.md,
+    right: Spacing.md,
+    backgroundColor: t.surface,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: t.border,
+    overflow: 'hidden',
+    zIndex: 20,
+  },
+  slashRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 11,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: t.border,
+  },
+  slashTitle: { color: t.text.primary, fontSize: 13, fontWeight: '700' },
+  slashHint: { color: t.text.secondary, fontSize: 11, marginTop: 2 },
+  slashLabel: { color: t.accent, fontSize: 12, fontWeight: '600' },
 
   inputBar: {
     flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.sm,
