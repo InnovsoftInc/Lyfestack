@@ -41,6 +41,7 @@ import { AgentAvatar } from '../index';
 import { ContextUsageBadge } from '../../../../../components/ContextUsageBadge';
 import { ContextWarningBanner } from '../../../../../components/ContextWarningBanner';
 import { SessionPickerSheet } from '../../../../../components/SessionPickerSheet';
+import { CustomPopover, PopoverOption, PopoverSection } from '../../../../../components/ui';
 
 
 const ERROR_META: Record<ChatErrorType, { icon: string; title: string; body: string }> = {
@@ -128,6 +129,18 @@ function AttachmentChip({ attachment, onRemove, theme }: { attachment: ChatAttac
 const TIMESTAMP_RE = /^\[(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s+\w+\]\s*/;
 function stripTimestamp(text: string): string {
   return text.replace(TIMESTAMP_RE, '');
+}
+
+function buildServerMessageId(message: any): string {
+  if (message.id) return `msg-${message.id}`;
+  if (typeof message.index === 'number') return `msg-${message.index}-${message.role}`;
+  const normalized = `${message.role}:${stripTimestamp(String(message.content ?? '')).trim().slice(0, 80)}`;
+  const base = `${message.timestamp ?? 'na'}:${normalized}`;
+  let hash = 0;
+  for (let i = 0; i < base.length; i += 1) {
+    hash = ((hash << 5) - hash + base.charCodeAt(i)) | 0;
+  }
+  return `msg-fallback-${Math.abs(hash)}`;
 }
 
 function ToolPill({ label, active, theme }: { label: string; active?: boolean; theme: Theme }) {
@@ -260,6 +273,8 @@ export default function AgentChatScreen() {
   } = useOpenClawStore();
   const [input, setInput] = useState('');
   const [showModelPicker, setShowModelPicker] = useState(false);
+  const [showComposerMenu, setShowComposerMenu] = useState(false);
+  const [modelPickerAnchor, setModelPickerAnchor] = useState<'header' | 'composer'>('header');
   const [currentModel, setCurrentModel] = useState('');
   const [fallbackModels, setFallbackModels] = useState<string[]>([]);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
@@ -283,6 +298,9 @@ export default function AgentChatScreen() {
   const [allowlistInput, setAllowlistInput] = useState('');
   const [savingPermissions, setSavingPermissions] = useState(false);
   const listRef = useRef<FlatList>(null);
+  const headerModelAnchorRef = useRef<any>(null);
+  const composerMenuAnchorRef = useRef<any>(null);
+  const modelAnchorRef = useRef<any>(null);
   const pinnedRef = useRef(true);
   const sessionRef = useRef<{ key: string; oldestIndex: number; newestIndex: number; total: number; compactionCount: number } | null>(null);
   const loadingOlderRef = useRef(false);
@@ -297,7 +315,7 @@ export default function AgentChatScreen() {
   }, []);
 
   const mapMessage = (m: any): ChatMessage => ({
-    id: `msg-${m.index}-${m.role}`,
+    id: buildServerMessageId(m),
     role: m.role === 'user' ? 'user' : 'agent',
     content: m.content,
     timestamp: m.timestamp ?? new Date().toISOString(),
@@ -318,8 +336,10 @@ export default function AgentChatScreen() {
     [availableModels, availableModelDetails, modelTier],
   );
 
-  const openModelPicker = useCallback(() => {
+  const openModelPicker = useCallback((anchor: 'header' | 'composer' = 'header') => {
     setModelTier(currentModelMeta ? (currentModelMeta.reasoning ? 'deep' : 'fast') : 'all');
+    setModelPickerAnchor(anchor);
+    setShowComposerMenu(false);
     setShowModelPicker(true);
   }, [currentModelMeta]);
 
@@ -471,6 +491,7 @@ export default function AgentChatScreen() {
   }, [name]);
 
   const openSessionPicker = useCallback(async () => {
+    setShowComposerMenu(false);
     setShowSessionPicker(true);
     setLoadingSessions(true);
     try { await loadAgentSessions(name); } finally { setLoadingSessions(false); }
@@ -534,6 +555,7 @@ export default function AgentChatScreen() {
   }, [availableModelDetails, currentModel]);
 
   const openPermissions = useCallback(async () => {
+    setShowComposerMenu(false);
     setShowPermissionsModal(true);
     setPermissionsLoading(true);
     try {
@@ -589,6 +611,7 @@ export default function AgentChatScreen() {
   }, [allowlistEntries, name]);
 
   const openFilePicker = useCallback(async () => {
+    setShowComposerMenu(false);
     setLoadingFiles(true);
     setShowFilePicker(true);
     try {
@@ -682,7 +705,7 @@ export default function AgentChatScreen() {
         </TouchableOpacity>
         <View style={s.headerInfo}>
           <Text style={s.agentTitle}>{name}</Text>
-          <TouchableOpacity onPress={openModelPicker} activeOpacity={0.7} style={s.modelRow}>
+          <TouchableOpacity ref={headerModelAnchorRef} onPress={() => openModelPicker('header')} activeOpacity={0.7} style={s.modelRow}>
             <Text style={s.modelText}>
               {currentModel ? currentModel.split('/').pop() : agent?.model ?? '...'}
               {currentModelMeta ? ` · ${currentModelMeta.reasoning ? 'Deep' : 'Fast'}` : ''}
@@ -719,62 +742,62 @@ export default function AgentChatScreen() {
         </View>
       )}
 
-      {/* Model Picker Modal */}
-      <Modal visible={showModelPicker} transparent animationType="slide">
-        <View style={s.modalOverlay}>
-          <View style={s.modalContent}>
-            <Text style={s.modalTitle}>Select Model</Text>
-            <View style={s.tierRow}>
-              {([
-                { key: 'fast', label: 'Fast' },
-                { key: 'deep', label: 'Deep' },
-                { key: 'all', label: 'All' },
-              ] as const).map((tier) => (
-                <TouchableOpacity
-                  key={tier.key}
-                  style={[s.tierChip, modelTier === tier.key && s.tierChipActive]}
-                  onPress={() => { void applyModelTier(tier.key); }}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[s.tierChipText, modelTier === tier.key && s.tierChipTextActive]}>{tier.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            <ScrollView style={s.modelList}>
-              {filteredModels.length === 0 && (
-                availableModels.length === 0 ? (
-                  <View style={{ alignItems: 'center', paddingVertical: Spacing.md, gap: 8 }}>
-                    <ActivityIndicator size="small" color={theme.accent} />
-                    <Text style={{ color: theme.text.secondary, fontSize: 14 }}>Loading models...</Text>
-                  </View>
-                ) : (
-                  <Text style={{ color: theme.text.secondary, fontSize: 14, textAlign: 'center', paddingVertical: Spacing.md }}>
-                    No models match this intelligence tier.
-                  </Text>
-                )
-              )}
-              {filteredModels.map((model) => {
-                const meta = availableModelDetails.find((entry) => entry.id === model);
-                return (
-                  <TouchableOpacity key={model} style={[s.modelOption, currentModel === model && s.modelOptionActive]} onPress={() => handleModelChange(model)} disabled={changingModel} activeOpacity={0.7}>
-                    <View style={{ flex: 1, gap: 2 }}>
-                      <Text style={[s.modelOptionText, currentModel === model && s.modelOptionTextActive]}>{model}</Text>
-                      <Text style={{ color: currentModel === model ? '#fffccf' : theme.text.secondary, fontSize: 11 }}>
-                        {meta?.reasoning ? 'Deep reasoning' : 'Fast response'}
-                        {meta?.contextWindow ? ` · ${(meta.contextWindow / 1000).toFixed(meta.contextWindow >= 100000 ? 0 : 1)}k ctx` : ''}
-                      </Text>
-                    </View>
-                    {currentModel === model && <Text style={s.modelCheck}>✓</Text>}
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-            <TouchableOpacity style={s.modalClose} onPress={() => setShowModelPicker(false)}>
-              <Text style={s.modalCloseText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+      <CustomPopover
+        visible={showModelPicker}
+        anchorRef={modelPickerAnchor === 'composer' ? modelAnchorRef : headerModelAnchorRef}
+        onClose={() => setShowModelPicker(false)}
+        theme={theme}
+        width={290}
+        maxHeight={440}
+        align="right"
+      >
+        <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <PopoverSection title="Intelligence" theme={theme}>
+            {([
+              { key: 'fast', label: 'Low', subtitle: 'Quick replies' },
+              { key: 'all', label: 'Medium', subtitle: 'Balanced default' },
+              { key: 'deep', label: 'High', subtitle: 'Reasoning first' },
+            ] as const).map((tier) => (
+              <PopoverOption
+                key={tier.key}
+                theme={theme}
+                label={tier.label}
+                subtitle={tier.subtitle}
+                active={modelTier === tier.key}
+                compact
+                onPress={() => { void applyModelTier(tier.key); }}
+              />
+            ))}
+          </PopoverSection>
+          <PopoverSection title="Models" theme={theme}>
+            {filteredModels.length === 0 ? (
+              availableModels.length === 0 ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: Spacing.sm, paddingBottom: Spacing.sm }}>
+                  <ActivityIndicator size="small" color={theme.text.secondary} />
+                  <Text style={{ color: theme.text.secondary, fontSize: 13 }}>Loading models...</Text>
+                </View>
+              ) : (
+                <Text style={{ color: theme.text.secondary, fontSize: 13, paddingHorizontal: Spacing.sm, paddingBottom: Spacing.sm }}>
+                  No models match this tier yet.
+                </Text>
+              )
+            ) : filteredModels.map((model) => {
+              const meta = availableModelDetails.find((entry) => entry.id === model);
+              return (
+                <PopoverOption
+                  key={model}
+                  theme={theme}
+                  label={model.split('/').pop() ?? model}
+                  subtitle={`${meta?.reasoning ? 'Deep reasoning' : 'Fast response'}${meta?.contextWindow ? ` · ${(meta.contextWindow / 1000).toFixed(meta.contextWindow >= 100000 ? 0 : 1)}k ctx` : ''}`}
+                  {...(model.includes('/') ? { value: model.split('/')[0] ?? '' } : {})}
+                  active={currentModel === model}
+                  onPress={() => { void handleModelChange(model); }}
+                />
+              );
+            })}
+          </PopoverSection>
+        </ScrollView>
+      </CustomPopover>
 
       <Modal visible={showPermissionsModal} transparent animationType="slide" onRequestClose={() => setShowPermissionsModal(false)}>
         <View style={s.modalOverlay}>
@@ -998,15 +1021,6 @@ export default function AgentChatScreen() {
         </TouchableOpacity>
       )}
 
-      {/* Pending attachments row */}
-      {pendingAttachments.length > 0 && (
-        <View style={s.attachmentsRow}>
-          {pendingAttachments.map((a) => (
-            <AttachmentChip key={a.id} attachment={a} onRemove={() => removeAttachment(a.id)} theme={theme} />
-          ))}
-        </View>
-      )}
-
       {/* Input bar */}
       {slashMatches.length > 0 && (
         <View style={[s.slashMenu, { bottom: insets.bottom + 78 + (pendingAttachments.length > 0 ? 40 : 0) }]}>
@@ -1029,36 +1043,102 @@ export default function AgentChatScreen() {
           ))}
         </View>
       )}
+      <CustomPopover
+        visible={showComposerMenu}
+        anchorRef={composerMenuAnchorRef}
+        onClose={() => setShowComposerMenu(false)}
+        theme={theme}
+        width={258}
+        maxHeight={340}
+        align="left"
+      >
+        <PopoverSection theme={theme}>
+          <PopoverOption theme={theme} label="Add photos & files" icon="📎" subtitle="Attach workspace context" onPress={() => { void openFilePicker(); }} />
+          <PopoverOption
+            theme={theme}
+            label="Plan mode"
+            icon="🪄"
+            subtitle="Structured prompts and shortcuts"
+            value="Soon"
+            onPress={() => setShowComposerMenu(false)}
+          />
+          <PopoverOption theme={theme} label="Sessions" icon="☰" subtitle="Switch or start a new thread" onPress={() => { void openSessionPicker(); }} />
+          <PopoverOption theme={theme} label="Permissions" icon="⚙" subtitle="Adjust approvals and allowlist" onPress={() => { void openPermissions(); }} />
+        </PopoverSection>
+      </CustomPopover>
       <View style={[s.inputBar, { paddingBottom: insets.bottom + Spacing.sm + 2 }]}>
-        <TouchableOpacity onPress={openFilePicker} style={s.attachBtn} hitSlop={6} activeOpacity={0.7}>
-          <Text style={s.attachIcon}>📎</Text>
-        </TouchableOpacity>
-        <TextInput
-          style={s.input}
-          value={input}
-          onChangeText={setInput}
-          placeholder={`Message ${name} or type / for shortcuts...`}
-          placeholderTextColor={theme.text.secondary}
-          multiline
-          editable={!isStreaming}
-          returnKeyType="send"
-          onSubmitEditing={handleSend}
-          blurOnSubmit={false}
-        />
-        {isStreaming ? (
-          <TouchableOpacity style={s.stopBtn} onPress={abortStream} activeOpacity={0.8}>
-            <Text style={s.stopIcon}>■</Text>
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity
-            style={[s.sendBtn, !input.trim() && s.sendBtnOff]}
-            onPress={handleSend}
-            disabled={!input.trim()}
-            activeOpacity={0.8}
-          >
-            <Text style={s.sendIcon}>↑</Text>
-          </TouchableOpacity>
-        )}
+        <View style={s.composerShell}>
+          {pendingAttachments.length > 0 && (
+            <View style={s.composerAttachments}>
+              {pendingAttachments.map((a) => (
+                <AttachmentChip key={a.id} attachment={a} onRemove={() => removeAttachment(a.id)} theme={theme} />
+              ))}
+            </View>
+          )}
+          <View style={s.composerMainRow}>
+            <TextInput
+              style={s.input}
+              value={input}
+              onChangeText={setInput}
+              placeholder={`Message ${name} or type / for shortcuts...`}
+              placeholderTextColor={theme.text.secondary}
+              multiline
+              editable={!isStreaming}
+              returnKeyType="send"
+              onSubmitEditing={handleSend}
+              blurOnSubmit={false}
+            />
+            {isStreaming ? (
+              <TouchableOpacity style={s.stopBtn} onPress={abortStream} activeOpacity={0.8}>
+                <Text style={s.stopIcon}>■</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={[s.sendBtn, !input.trim() && s.sendBtnOff]}
+                onPress={handleSend}
+                disabled={!input.trim()}
+                activeOpacity={0.8}
+              >
+                <Text style={s.sendIcon}>↑</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          <View style={s.composerFooter}>
+            <TouchableOpacity
+              ref={composerMenuAnchorRef}
+              onPress={() => {
+                setShowModelPicker(false);
+                setShowComposerMenu((visible) => !visible);
+              }}
+              style={s.footerPill}
+              hitSlop={6}
+              activeOpacity={0.7}
+            >
+              <Text style={s.footerPillIcon}>＋</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={openPermissions} style={[s.footerPill, s.footerWidePill]} hitSlop={6} activeOpacity={0.7}>
+              <Text style={s.footerPillIcon}>☝︎</Text>
+              <Text style={s.footerPillText}>Default permissions</Text>
+              <Text style={s.footerPillChevron}>▾</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              ref={modelAnchorRef}
+              onPress={() => {
+                setShowComposerMenu(false);
+                openModelPicker('composer');
+              }}
+              style={[s.footerPill, s.footerModelPill]}
+              hitSlop={6}
+              activeOpacity={0.7}
+            >
+              <Text style={s.footerPillText}>
+                {currentModel ? currentModel.split('/').pop() : 'Model'}
+                {currentModelMeta ? ` ${currentModelMeta.reasoning ? 'High' : 'Medium'}` : ''}
+              </Text>
+              <Text style={s.footerPillChevron}>▾</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </View>
     </KeyboardAvoidingView>
   );
@@ -1152,12 +1232,6 @@ const styles = (t: Theme) => StyleSheet.create({
   emptyTitle: { color: t.text.primary, fontSize: 18, fontWeight: '600', marginTop: Spacing.sm },
   emptySubtitle: { color: t.text.secondary, fontSize: 14, textAlign: 'center', lineHeight: 20 },
 
-  attachmentsRow: {
-    flexDirection: 'row', flexWrap: 'wrap', gap: 6,
-    paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs,
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.border,
-  },
-
   scrollFab: {
     position: 'absolute',
     right: Spacing.md,
@@ -1203,19 +1277,82 @@ const styles = (t: Theme) => StyleSheet.create({
   inputBar: {
     flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.sm,
     paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm + 2,
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.border,
-    backgroundColor: t.surface,
+    backgroundColor: t.background,
   },
-  attachBtn: { paddingBottom: 6 },
-  attachIcon: { fontSize: 22 },
+  composerShell: {
+    flex: 1,
+    backgroundColor: t.surface,
+    borderRadius: 28,
+    paddingHorizontal: Spacing.sm,
+    paddingTop: Spacing.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: t.border,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 6,
+  },
+  composerAttachments: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    paddingBottom: Spacing.xs,
+  },
+  composerMainRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: Spacing.sm,
+  },
+  composerFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingTop: Spacing.xs,
+    paddingBottom: Spacing.sm,
+  },
+  footerPill: {
+    minHeight: 32,
+    paddingHorizontal: 10,
+    borderRadius: 16,
+    backgroundColor: t.background,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: t.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  footerWidePill: {
+    flex: 1,
+  },
+  footerModelPill: {
+    maxWidth: '42%',
+  },
+  footerPillIcon: {
+    color: t.text.secondary,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  footerPillText: {
+    color: t.text.secondary,
+    fontSize: 13,
+    fontWeight: '500',
+    flexShrink: 1,
+  },
+  footerPillChevron: {
+    color: t.text.secondary,
+    fontSize: 10,
+  },
   input: {
     flex: 1,
-    backgroundColor: t.background,
+    minHeight: 54,
+    backgroundColor: 'transparent',
     borderRadius: 22,
-    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm + 2,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.sm + 2,
     color: t.text.primary, fontSize: 15,
     maxHeight: 110,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: t.border,
+    textAlignVertical: 'top',
   },
   sendBtn: {
     width: 38, height: 38, borderRadius: 19,

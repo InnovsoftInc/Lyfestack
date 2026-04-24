@@ -143,6 +143,7 @@ function log(msg: string, data?: unknown) {
 
 const TIMESTAMP_PREFIX_RE = /^\[(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s+\w+\]\s*/;
 const RETRY_PREFIX_RE = /^\[Retry after the previous model attempt failed or timed out\]\s*/i;
+const TRANSIENT_TOOL_LABELS = new Set(['using tools...']);
 
 function normalizeMessageContent(content: string): string {
   return content
@@ -153,6 +154,48 @@ function normalizeMessageContent(content: string): string {
 
 function messageContentKey(message: ChatMessage): string {
   return `${message.role}::${normalizeMessageContent(message.content).slice(0, 160)}`;
+}
+
+function isSameServerMessage(left: ChatMessage, right: ChatMessage): boolean {
+  return messageContentKey(left) === messageContentKey(right);
+}
+
+function mergeIncomingMessages(existing: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
+  const next = [...existing];
+  let changed = false;
+
+  for (const message of incoming) {
+    const exactIndex = next.findIndex((item) => item.id === message.id);
+    if (exactIndex >= 0) {
+      next[exactIndex] = { ...next[exactIndex], ...message };
+      changed = true;
+      continue;
+    }
+
+    const localEchoIndex = next.findIndex((item) => {
+      if (item.role !== message.role) return false;
+      if (item.isError || message.isError) return false;
+      if (item.attachments?.length) return false;
+      return isSameServerMessage(item, message);
+    });
+
+    if (localEchoIndex >= 0) {
+      next[localEchoIndex] = {
+        ...next[localEchoIndex],
+        ...message,
+        id: message.id,
+        streaming: false,
+        toolActivity: null,
+      };
+      changed = true;
+      continue;
+    }
+
+    next.push(message);
+    changed = true;
+  }
+
+  return changed ? next : existing;
 }
 
 export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
@@ -372,7 +415,7 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
                       content: response || m.content,
                       streaming: false,
                       toolActivity: null,
-                      toolHistory: m.toolHistory ?? [],
+                      toolHistory: (m.toolHistory ?? []).filter((tool) => !TRANSIENT_TOOL_LABELS.has(tool)),
                     }
                   : m,
               ),
@@ -393,7 +436,15 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
               ...s.activeChat,
               messages: s.activeChat.messages.map((m) =>
                 m.id === agentMsgId
-                  ? { ...m, content: rawMsg, streaming: false, isError: true, errorType: classifyError(rawMsg), toolActivity: null }
+                  ? {
+                      ...m,
+                      content: rawMsg,
+                      streaming: false,
+                      isError: true,
+                      errorType: classifyError(rawMsg),
+                      toolActivity: null,
+                      toolHistory: (m.toolHistory ?? []).filter((tool) => !TRANSIENT_TOOL_LABELS.has(tool)),
+                    }
                   : m,
               ),
             },
@@ -422,7 +473,7 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
                   ? {
                       ...m,
                       toolActivity: toolName,
-                      toolHistory: toolName && !(m.toolHistory ?? []).includes(toolName)
+                      toolHistory: toolName && !TRANSIENT_TOOL_LABELS.has(toolName) && !(m.toolHistory ?? []).includes(toolName)
                         ? [...(m.toolHistory ?? []), toolName]
                         : (m.toolHistory ?? []),
                     }
@@ -451,7 +502,14 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
           activeChat: {
             ...s.activeChat,
             messages: s.activeChat.messages.map((m) =>
-              m.id === agentMsgId ? { ...m, streaming: false, toolActivity: null } : m,
+              m.id === agentMsgId
+                ? {
+                    ...m,
+                    streaming: false,
+                    toolActivity: null,
+                    toolHistory: (m.toolHistory ?? []).filter((tool) => !TRANSIENT_TOOL_LABELS.has(tool)),
+                  }
+                : m,
             ),
           },
         };
@@ -536,7 +594,13 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
               ...s.activeChat,
               messages: s.activeChat.messages.map((m) =>
                 m.id === agentMsgId
-                  ? { ...m, content: response || m.content, streaming: false, toolActivity: null, toolHistory: m.toolHistory ?? [] }
+                  ? {
+                      ...m,
+                      content: response || m.content,
+                      streaming: false,
+                      toolActivity: null,
+                      toolHistory: (m.toolHistory ?? []).filter((tool) => !TRANSIENT_TOOL_LABELS.has(tool)),
+                    }
                   : m,
               ),
             },
@@ -563,6 +627,7 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
                       errorType: classifyError(rawMsg),
                       toolActivity: null,
                       content: m.content || rawMsg,
+                      toolHistory: (m.toolHistory ?? []).filter((tool) => !TRANSIENT_TOOL_LABELS.has(tool)),
                     }
                   : m,
               ),
@@ -591,7 +656,7 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
                   ? {
                       ...m,
                       toolActivity: toolName,
-                      toolHistory: toolName && !(m.toolHistory ?? []).includes(toolName)
+                      toolHistory: toolName && !TRANSIENT_TOOL_LABELS.has(toolName) && !(m.toolHistory ?? []).includes(toolName)
                         ? [...(m.toolHistory ?? []), toolName]
                         : (m.toolHistory ?? []),
                     }
@@ -655,18 +720,9 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
     if (!activeChat || activeChat.agentName !== agentName) return;
     if (activeChat.sessionKey && activeChat.sessionKey !== sessionKey) return;
     if (!messages.length) return;
-    // Dedupe by ID and normalized content+role (local vs server IDs differ and server may prepend retry/timestamp metadata).
-    const existingIds = new Set(activeChat.messages.map((m) => m.id));
-    const existingContent = new Set(activeChat.messages.map(messageContentKey));
-    const fresh = messages.filter((m) => {
-      if (existingIds.has(m.id)) return false;
-      const contentKey = messageContentKey(m);
-      if (existingContent.has(contentKey)) return false;
-      existingContent.add(contentKey);
-      return true;
-    });
-    if (!fresh.length) return;
-    set({ activeChat: { ...activeChat, sessionKey: activeChat.sessionKey ?? sessionKey, messages: [...activeChat.messages, ...fresh] } });
+    const merged = mergeIncomingMessages(activeChat.messages, messages);
+    if (merged === activeChat.messages) return;
+    set({ activeChat: { ...activeChat, sessionKey: activeChat.sessionKey ?? sessionKey, messages: merged } });
   },
 
   prependChatMessages: (agentName, sessionKey, messages) => {
@@ -675,7 +731,8 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
     if (activeChat.sessionKey && activeChat.sessionKey !== sessionKey) return;
     if (!messages.length) return;
     const existing = new Set(activeChat.messages.map((m) => m.id));
-    const fresh = messages.filter((m) => !existing.has(m.id));
+    const existingContent = new Set(activeChat.messages.map(messageContentKey));
+    const fresh = messages.filter((m) => !existing.has(m.id) && !existingContent.has(messageContentKey(m)));
     if (!fresh.length) return;
     set({ activeChat: { ...activeChat, sessionKey: activeChat.sessionKey ?? sessionKey, messages: [...fresh, ...activeChat.messages] } });
   },
