@@ -332,6 +332,7 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
     set({ streamAbort: abort });
 
     log('sendMessageStream()', { agentName, messageId: clientMessageId });
+    try {
     await streamAgentMessage(agentName, fullMessage, {
       messageId: clientMessageId,
       signal: abort.signal,
@@ -380,6 +381,7 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
         });
       },
       onError: (err) => {
+        if (abort.signal.aborted) return;
         log('sendMessageStream() error', err.message);
         const rawMsg = err.message ?? 'Stream failed';
         set((s) => {
@@ -431,6 +433,11 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
         });
       },
     });
+    } catch (err: any) {
+      if (!abort.signal.aborted) {
+        log('sendMessageStream() uncaught throw', err?.message);
+      }
+    }
 
     // Safety net: if stream completed without onDone/onError, finalize the message
     const state = get();
@@ -500,6 +507,7 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
     const agentMsgId = activeStream.agentMsgId;
 
     log('resumeActiveStream() — opening resume SSE', { messageId: activeStream.messageId, cursor: activeStream.cursor });
+    try {
     await resumeAgentStream(activeStream.agentName, activeStream.messageId, activeStream.cursor, {
       signal: abort.signal,
       onCursor: (cursor) => {
@@ -594,8 +602,12 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
         });
       },
     });
-
-    set({ resumeAbort: null });
+    } catch (err: any) {
+      log('resumeActiveStream() uncaught throw', err?.message);
+    } finally {
+      // Ensure resumeAbort is always cleared even if resumeAgentStream throws.
+      if (get().resumeAbort) set({ resumeAbort: null });
+    }
   },
 
   abortStream: () => {
@@ -603,13 +615,14 @@ export const useOpenClawStore = create<OpenClawStore>((set, get) => ({
     if (streamAbort) {
       streamAbort.abort();
       set((s) => {
-        if (!s.activeChat) return { streamAbort: null };
+        if (!s.activeChat) return { streamAbort: null, activeStream: null };
         return {
           streamAbort: null,
+          activeStream: null,
           activeChat: {
             ...s.activeChat,
             messages: s.activeChat.messages.map((m) =>
-              m.streaming ? { ...m, streaming: false } : m,
+              m.streaming ? { ...m, streaming: false, toolActivity: null } : m,
             ),
           },
         };
