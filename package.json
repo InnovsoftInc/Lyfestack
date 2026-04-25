@@ -30,9 +30,10 @@
   },
   "packageManager": "npm@10.0.0",
   "dependencies": {
-    "react-native-svg": "15.8.0",
     "expo": "~54.0.33",
+    "expo-media-library": "^17.1.7",
     "react": "19.1.0",
-    "react-native": "0.81.5"
+    "react-native": "0.81.5",
+    "react-native-svg": "15.8.0"
   }
 }

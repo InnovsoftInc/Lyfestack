@@ -34,6 +34,15 @@ const SESSION_ROLLOVER_THRESHOLD = 0.82;
 
 export type ThreadRole = 'user' | 'agent';
 
+export interface ThreadAttachment {
+  id: string;
+  name: string;
+  type: 'text' | 'image' | 'file';
+  mimeType: string;
+  size: number;
+  uri?: string;
+}
+
 export interface ThreadMessage {
   id: string;
   role: ThreadRole;
@@ -42,6 +51,7 @@ export interface ThreadMessage {
   sessionKey?: string;
   isError?: boolean;
   errorType?: string;
+  attachments?: ThreadAttachment[];
 }
 
 export interface Thread {
@@ -154,6 +164,18 @@ async function readAllMessages(agentName: string): Promise<ThreadMessage[]> {
         if (entry.sessionKey) msg.sessionKey = String(entry.sessionKey);
         if (entry.isError) msg.isError = true;
         if (entry.errorType) msg.errorType = String(entry.errorType);
+        if (Array.isArray(entry.attachments)) {
+          msg.attachments = entry.attachments
+            .filter((attachment: any) => attachment && typeof attachment === 'object')
+            .map((attachment: any) => ({
+              id: String(attachment.id ?? crypto.randomUUID()),
+              name: String(attachment.name ?? 'attachment'),
+              type: attachment.type === 'image' ? 'image' : attachment.type === 'text' ? 'text' : 'file',
+              mimeType: String(attachment.mimeType ?? 'application/octet-stream'),
+              size: Number(attachment.size ?? 0) || 0,
+              ...(attachment.uri ? { uri: String(attachment.uri) } : {}),
+            }));
+        }
         out.push(msg);
       } catch {
         /* skip malformed line */
@@ -271,6 +293,16 @@ export async function appendMessage(
     ...(partial.sessionKey ? { sessionKey: partial.sessionKey } : {}),
     ...(partial.isError ? { isError: true } : {}),
     ...(partial.errorType ? { errorType: partial.errorType } : {}),
+    ...(partial.attachments?.length ? {
+      attachments: partial.attachments.map((attachment) => ({
+        id: attachment.id,
+        name: attachment.name,
+        type: attachment.type,
+        mimeType: attachment.mimeType,
+        size: attachment.size,
+        ...(attachment.uri ? { uri: attachment.uri } : {}),
+      })),
+    } : {}),
   };
   await appendMessageLine(agentName, message);
 

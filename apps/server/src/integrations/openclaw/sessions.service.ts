@@ -258,12 +258,16 @@ function buildUsageFromIndex(ie: IndexEntry | undefined): SessionUsage {
   if (!ie) return { ...EMPTY_USAGE };
   const inputTokens = ie.inputTokens ?? 0;
   const cacheReadTokens = ie.cacheReadTokens ?? 0;
+  const outputTokens = ie.outputTokens ?? 0;
+  const contextUsedTokens = typeof ie.contextTokens === 'number' && ie.contextTokens > 0
+    ? ie.contextTokens
+    : Math.max(inputTokens + cacheReadTokens, outputTokens);
   return {
     totalTokens: ie.totalTokens ?? 0,
     lastInputTokens: inputTokens,
-    lastOutputTokens: ie.outputTokens ?? 0,
+    lastOutputTokens: outputTokens,
     lastCacheReadTokens: cacheReadTokens,
-    contextUsedTokens: inputTokens + cacheReadTokens,
+    contextUsedTokens,
     totalTokensFresh: ie.totalTokensFresh ?? false,
   };
 }
@@ -274,9 +278,10 @@ export async function listSessions(opts: { agentId?: string; limit?: number } = 
   const models = await loadModelContextWindows();
   const all = await Promise.all(
     agents.map(async (agentId) => {
-      const [files, index] = await Promise.all([
+      const [files, index, configuredModel] = await Promise.all([
         listSessionFilesForAgent(agentId),
         readSessionsIndex(agentId),
+        readAgentConfiguredModel(agentId),
       ]);
       return Promise.all(
         files.map(async (f) => {
@@ -285,7 +290,10 @@ export async function listSessions(opts: { agentId?: string; limit?: number } = 
             ? ie.label.trim().slice(0, 80)
             : (await readFirstUserMessage(f.filePath).catch(() => '')).slice(0, 80) || '(empty)';
           const updatedAt = ie?.updatedAt ? new Date(ie.updatedAt).toISOString() : f.mtime.toISOString();
-          const model = ie?.model ?? '';
+          // Fall back to the agent's configured model so the usage ring
+          // contextWindow stays in sync with what the next turn will actually
+          // use, instead of the generic 128k default.
+          const model = ie?.model || configuredModel || '';
           const contextWindow = resolveContextWindowSync(model, models, ie?.contextTokens);
           return {
             key: `${agentId}/${f.sessionId}`,
@@ -315,9 +323,21 @@ function parseKey(key: string): { agentId: string; sessionId: string } | null {
   return { agentId, sessionId };
 }
 
+async function readAgentConfiguredModel(agentId: string): Promise<string> {
+  try {
+    const configPath = path.join(OPENCLAW_AGENTS_DIR, agentId, 'agent', 'config.json');
+    const raw = await fsp.readFile(configPath, 'utf-8');
+    const cfg = JSON.parse(raw);
+    const primary = cfg?.model?.primary;
+    return typeof primary === 'string' ? primary : '';
+  } catch {
+    return '';
+  }
+}
+
 export async function getSession(
   key: string,
-  opts: { limit?: number; beforeIndex?: number; afterIndex?: number } = {},
+  opts: { limit?: number; beforeIndex?: number; afterIndex?: number; fallbackModel?: string } = {},
 ): Promise<SessionDetail | null> {
   const parsed = parseKey(key);
   if (!parsed) return null;
@@ -383,7 +403,15 @@ export async function getSession(
     loadModelContextWindows(),
   ]);
   const ie = index.get(parsed.sessionId);
-  const model = ie?.model ?? lastModel ?? '';
+  // Resolution order: session index → last assistant message → caller fallback
+  // (usually the agent's configured primary model). This matters for the usage
+  // ring: a brand-new session has no recorded model, so without a fallback we
+  // would default to DEFAULT_CONTEXT_WINDOW (128k) regardless of the actual
+  // model the next turn will use.
+  const fallbackModel = opts.fallbackModel && opts.fallbackModel.trim()
+    ? opts.fallbackModel.trim()
+    : await readAgentConfiguredModel(parsed.agentId);
+  const model = ie?.model || lastModel || fallbackModel || '';
   const contextWindow = resolveContextWindowSync(model, models, ie?.contextTokens);
 
   const usage: SessionUsage = lastAssistantUsage
@@ -392,7 +420,11 @@ export async function getSession(
         lastInputTokens: lastAssistantUsage.input ?? 0,
         lastOutputTokens: lastAssistantUsage.output ?? 0,
         lastCacheReadTokens: lastAssistantUsage.cacheRead ?? 0,
-        contextUsedTokens: (lastAssistantUsage.input ?? 0) + (lastAssistantUsage.cacheRead ?? 0),
+        // Prefer the gateway-reported cumulative contextTokens from sessions.json
+        // when present; fall back to the last assistant usage otherwise.
+        contextUsedTokens: typeof ie?.contextTokens === 'number' && ie.contextTokens > 0
+          ? ie.contextTokens
+          : (lastAssistantUsage.input ?? 0) + (lastAssistantUsage.cacheRead ?? 0),
         totalTokensFresh: ie?.totalTokensFresh ?? true,
       }
     : buildUsageFromIndex(ie);
@@ -438,7 +470,10 @@ export async function createSession(agentId: string): Promise<SessionActionResul
     }
     return { ok: false, error: err?.message ?? 'failed to create session file' };
   }
-  const models = await loadModelContextWindows();
+  const [models, configuredModel] = await Promise.all([
+    loadModelContextWindows(),
+    readAgentConfiguredModel(agentId),
+  ]);
   const now = new Date();
   const summary: SessionSummary = {
     key: `${agentId}/${sessionId}`,
@@ -447,8 +482,8 @@ export async function createSession(agentId: string): Promise<SessionActionResul
     label: '(new session)',
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
-    model: '',
-    contextWindow: resolveContextWindowSync('', models),
+    model: configuredModel,
+    contextWindow: resolveContextWindowSync(configuredModel, models),
     usage: { ...EMPTY_USAGE },
     compactionCount: 0,
   };

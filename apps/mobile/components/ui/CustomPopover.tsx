@@ -1,7 +1,11 @@
-import { Modal, Pressable, StyleSheet, View, Text, Dimensions, type StyleProp, type ViewStyle } from 'react-native';
-import { useEffect, useState, type RefObject, type ReactNode } from 'react';
+import {
+  Modal, Pressable, StyleSheet, View, Text, Dimensions, Animated, Easing,
+  type LayoutChangeEvent, type StyleProp, type ViewStyle,
+} from 'react-native';
+import { useEffect, useRef, useState, type RefObject, type ReactNode } from 'react';
 import { BorderRadius, Spacing } from '../../theme';
 import type { Theme } from '../../theme';
+import { LiquidSurface } from './LiquidSurface';
 
 type AnchorRect = { x: number; y: number; width: number; height: number };
 
@@ -14,6 +18,8 @@ type PopoverProps = {
   maxHeight?: number;
   align?: 'left' | 'right';
   openUpward?: boolean;
+  reflection?: boolean;
+  blur?: boolean;
   children: ReactNode;
 };
 
@@ -21,7 +27,7 @@ type PopoverOptionProps = {
   theme: Theme;
   label: string;
   subtitle?: string;
-  icon?: string;
+  icon?: ReactNode;
   value?: string;
   active?: boolean;
   destructive?: boolean;
@@ -49,46 +55,110 @@ export function CustomPopover({
   maxHeight = 420,
   align = 'left',
   openUpward = false,
+  reflection = true,
+  blur = true,
   children,
 }: PopoverProps) {
   const [anchorRect, setAnchorRect] = useState<AnchorRect | null>(null);
+  const [cardHeight, setCardHeight] = useState(0);
+  const anim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    if (!visible) return;
+    if (!visible) {
+      setAnchorRect(null);
+      setCardHeight(0);
+      return;
+    }
     measureAnchor(anchorRef, setAnchorRect);
+
+    const retry = setTimeout(() => measureAnchor(anchorRef, setAnchorRect), 32);
+    return () => clearTimeout(retry);
   }, [visible, anchorRef]);
+
+  useEffect(() => {
+    Animated.timing(anim, {
+      toValue: visible ? 1 : 0,
+      duration: visible ? 180 : 120,
+      easing: visible ? Easing.out(Easing.cubic) : Easing.in(Easing.quad),
+      useNativeDriver: true,
+    }).start();
+  }, [anim, visible]);
 
   if (!visible) return null;
 
   const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
-  const verticalStyle = openUpward
-    ? { bottom: screenHeight - (anchorRect?.y ?? screenHeight - 100) + 10 }
-    : { top: (anchorRect?.y ?? 88) + (anchorRect?.height ?? 0) + 10 };
-  const horizontalStyle =
-    align === 'right'
-      ? { right: Math.max(16, screenWidth - ((anchorRect?.x ?? 0) + (anchorRect?.width ?? 0))) }
-      : { left: Math.max(16, anchorRect?.x ?? 16) };
+  const screenMargin = 16;
+  const gap = 10;
+  const resolvedWidth = Math.min(width, screenWidth - (screenMargin * 2));
+  const estimatedHeight = Math.min(cardHeight || maxHeight, screenHeight - (screenMargin * 2));
+  const anchorX = anchorRect?.x ?? screenMargin;
+  const anchorY = anchorRect?.y ?? 88;
+  const anchorWidth = anchorRect?.width ?? 0;
+  const anchorHeight = anchorRect?.height ?? 0;
+  const rawLeft = align === 'right'
+    ? anchorX + anchorWidth - resolvedWidth
+    : anchorX;
+  const left = Math.min(
+    Math.max(screenMargin, rawLeft),
+    Math.max(screenMargin, screenWidth - resolvedWidth - screenMargin),
+  );
+  const preferredTop = openUpward
+    ? anchorY - estimatedHeight - gap
+    : anchorY + anchorHeight + gap;
+  const top = Math.min(
+    Math.max(screenMargin, preferredTop),
+    Math.max(screenMargin, screenHeight - estimatedHeight - screenMargin),
+  );
+
+  const handleCardLayout = (event: LayoutChangeEvent) => {
+    const nextHeight = event.nativeEvent.layout.height;
+    if (Math.abs(nextHeight - cardHeight) > 1) {
+      setCardHeight(nextHeight);
+    }
+  };
 
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.overlay}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View
+        <Animated.View
           style={[
-            styles.card,
+            styles.cardWrap,
             {
-              width,
-              maxHeight,
-              backgroundColor: theme.surface,
-              borderColor: theme.border,
-              shadowColor: '#000',
+              left,
+              top,
+              opacity: anim,
+              transform: [
+                {
+                  translateY: anim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [openUpward ? 10 : -6, 0],
+                  }),
+                },
+                {
+                  scale: anim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.97, 1],
+                  }),
+                },
+              ],
             },
-            verticalStyle,
-            horizontalStyle,
           ]}
         >
-          {children}
-        </View>
+          <LiquidSurface
+            theme={theme}
+            borderRadius={BorderRadius.lg + 2}
+            intensity={58}
+            reflection={reflection}
+            blur={blur}
+            style={[styles.card, { width: resolvedWidth, maxHeight }]}
+            contentStyle={{ paddingVertical: 6 }}
+          >
+            <View onLayout={handleCardLayout}>
+              {children}
+            </View>
+          </LiquidSurface>
+        </Animated.View>
       </View>
     </Modal>
   );
@@ -117,7 +187,7 @@ export function PopoverOption({
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.option, compact && styles.optionCompact, pressed && styles.optionPressed]}>
       <View style={styles.optionLabelWrap}>
-        {icon ? <Text style={styles.optionIcon}>{icon}</Text> : null}
+        {icon ? <View style={styles.optionIcon}>{icon}</View> : null}
         <View style={{ flex: 1 }}>
           <Text style={[styles.optionLabel, { color: destructive ? theme.error : theme.text.primary }]}>{label}</Text>
           {subtitle ? <Text style={[styles.optionSubtitle, { color: theme.text.secondary }]}>{subtitle}</Text> : null}
@@ -132,17 +202,13 @@ export function PopoverOption({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(7,10,18,0.08)',
+    backgroundColor: 'rgba(7,10,18,0.12)',
+  },
+  cardWrap: {
+    position: 'absolute',
   },
   card: {
-    position: 'absolute',
-    borderRadius: BorderRadius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingVertical: 6,
-    shadowOpacity: 0.18,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 14,
+    borderRadius: BorderRadius.lg + 2,
   },
   section: {
     paddingHorizontal: 6,
@@ -171,7 +237,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   optionPressed: {
-    backgroundColor: 'rgba(127,127,127,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.08)',
   },
   optionLabelWrap: {
     flex: 1,
@@ -180,7 +246,10 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   optionIcon: {
-    fontSize: 16,
+    width: 18,
+    height: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   optionLabel: { fontSize: 14, fontWeight: '600' },
   optionSubtitle: {

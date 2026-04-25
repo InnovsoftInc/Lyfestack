@@ -1,4 +1,5 @@
 import { Drawer } from 'expo-router/drawer';
+import { router } from 'expo-router';
 import { View, Text, StyleSheet, TouchableOpacity, AppState, type AppStateStatus } from 'react-native';
 import { DrawerContentScrollView, DrawerItemList, type DrawerContentComponentProps } from '@react-navigation/drawer';
 import { useEffect, useRef } from 'react';
@@ -173,6 +174,12 @@ export default function DrawerLayout() {
       <Drawer.Screen
         name="agents"
         options={{ title: 'Agents', headerShown: false, drawerIcon: ({ focused }) => <Text style={{ fontSize: 18, opacity: focused ? 1 : 0.5 }}>🤖</Text> }}
+        listeners={{
+          drawerItemPress: (event) => {
+            event.preventDefault();
+            router.push('/(auth)/(drawer)/agents' as any);
+          },
+        }}
       />
       <Drawer.Screen
         name="goals/index"
@@ -207,6 +214,10 @@ export default function DrawerLayout() {
         options={{ title: 'Media', drawerIcon: ({ focused }) => <Text style={{ fontSize: 18, opacity: focused ? 1 : 0.5 }}>🖼️</Text> }}
       />
       <Drawer.Screen
+        name="automations"
+        options={{ title: 'Automations', drawerIcon: ({ focused }) => <Text style={{ fontSize: 18, opacity: focused ? 1 : 0.5 }}>⏰</Text> }}
+      />
+      <Drawer.Screen
         name="profile/index"
         options={{ title: 'Profile', headerShown: false, drawerIcon: ({ focused }) => <Text style={{ fontSize: 18, opacity: focused ? 1 : 0.5 }}>👤</Text> }}
       />
@@ -215,15 +226,12 @@ export default function DrawerLayout() {
         options={{ title: 'Settings', headerShown: false, drawerIcon: ({ focused }) => <Text style={{ fontSize: 18, opacity: focused ? 1 : 0.5 }}>⚙︎</Text> }}
       />
       <Drawer.Screen name="goals/[id]" options={{ drawerItemStyle: { display: 'none' } }} />
-      <Drawer.Screen name="automations/index" options={{ drawerItemStyle: { display: 'none' } }} />
-      <Drawer.Screen name="automations/create" options={{ drawerItemStyle: { display: 'none' } }} />
       <Drawer.Screen name="profile/integrations" options={{ drawerItemStyle: { display: 'none' } }} />
       <Drawer.Screen name="profile/openclaw-settings" options={{ drawerItemStyle: { display: 'none' } }} />
       <Drawer.Screen name="profile/openclaw-usage" options={{ drawerItemStyle: { display: 'none' } }} />
       <Drawer.Screen name="profile/openai-settings" options={{ drawerItemStyle: { display: 'none' } }} />
       <Drawer.Screen name="profile/skills" options={{ drawerItemStyle: { display: 'none' } }} />
       <Drawer.Screen name="media/[id]" options={{ drawerItemStyle: { display: 'none' } }} />
-      <Drawer.Screen name="automations/voice" options={{ drawerItemStyle: { display: 'none' } }} />
     </Drawer>
   );
 }

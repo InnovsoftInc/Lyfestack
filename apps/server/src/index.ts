@@ -28,6 +28,7 @@ import { getStatus as openclawStatus } from './integrations/openclaw/openclaw.co
 import { openaiRoutes } from './integrations/openai/openai.routes';
 import { createGoalRouter } from './routes/goal.routes';
 import { createGoalBuilderRouter } from './routes/goal-builder.routes';
+import { createTaskRouter } from './routes/task.routes';
 import { cronRunner } from './services/cron-runner.service';
 import { automationsService } from './automations/automations.service';
 import { createAuthMiddleware, requireAuth } from './middleware/auth.middleware';
@@ -42,7 +43,9 @@ const app = express();
 app.use(requestIdMiddleware);
 app.use(loggerMiddleware);
 app.use(cors());
-app.use(express.json());
+// OpenClaw chat attachments are shipped as base64 JSON; default 100KB limit
+// isn't enough. Cap at 25MB to cover typical phone photos/documents.
+app.use(express.json({ limit: '25mb' }));
 
 const authMiddleware = createAuthMiddleware(getSupabaseClient());
 
@@ -83,6 +86,9 @@ app.use('/api/goals', createGoalRouter());
 
 // Goal builder — AI-guided setup (OpenClaw back-and-forth)
 app.use('/api/goal-builder', createGoalBuilderRouter());
+
+// Tasks CRUD
+app.use('/api/tasks', authMiddleware, requireAuth, createTaskRouter());
 
 // Templates also available under /api/templates prefix
 app.get('/api/templates', getTemplates);
@@ -153,7 +159,7 @@ app.post('/api/plan-preview/stream', (req: Request, res: Response) => {
   ];
 
   let i = 0;
-  const interval = setInterval(() => {
+  const interval = setInterval(async () => {
     if (i < steps.length) {
       write('progress', steps[i]!);
       i++;
@@ -165,7 +171,7 @@ app.post('/api/plan-preview/stream', (req: Request, res: Response) => {
           res.end();
           return;
         }
-        const template = templateService.getById(templateId);
+        const template = await templateService.getById(templateId);
         const plan = planningEngine.generatePlan(template, answers, {
           userId: 'preview',
           trustTier: TrustTier.AUTONOMOUS,

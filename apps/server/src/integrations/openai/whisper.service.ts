@@ -1,6 +1,5 @@
-import { resolveModel } from './model-registry';
 import { openaiJson } from './openai-client';
-import { checkBudget } from '../openclaw/usage-tracker';
+import { AppError } from '../../errors/AppError';
 
 interface TranscriptionResponse {
   text: string;
@@ -15,14 +14,36 @@ export interface TranscriptResult {
   model: string;
 }
 
+const DEFAULT_TRANSCRIPTION_MODEL = 'whisper-1';
+
+class TranscriptionConfigError extends AppError {
+  constructor() {
+    super(
+      'Speech-to-text is not configured. Set OPENAI_API_KEY in the server environment.',
+      503,
+      'SPEECH_TO_TEXT_NOT_CONFIGURED',
+    );
+  }
+}
+
+function resolveTranscriptionConfig(): { apiKey: string; model: string } {
+  const apiKey = process.env['OPENAI_API_KEY'];
+  if (!apiKey) {
+    throw new TranscriptionConfigError();
+  }
+  return {
+    apiKey,
+    model: process.env['OPENAI_TRANSCRIPTION_MODEL'] ?? DEFAULT_TRANSCRIPTION_MODEL,
+  };
+}
+
 /**
  * Transcribe an audio buffer via Whisper. The buffer should contain a
  * complete file in a Whisper-supported format (m4a, mp3, mp4, webm, wav,
  * mpga, ogg, flac).
  */
 export async function transcribe(buffer: Buffer, opts: { filename?: string; language?: string } = {}): Promise<TranscriptResult> {
-  await checkBudget();
-  const resolved = await resolveModel('whisper');
+  const resolved = resolveTranscriptionConfig();
   const filename = opts.filename ?? 'audio.m4a';
   const mime =
     filename.endsWith('.mp3') ? 'audio/mpeg' :

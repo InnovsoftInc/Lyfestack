@@ -30,4 +30,13 @@ export const DarkTheme = {
   error: Colors.error,
 };
 
-export type Theme = typeof DarkTheme;
+export interface Theme {
+  background: string;
+  surface: string;
+  border: string;
+  text: { primary: string; secondary: string; inverse: string };
+  accent: string;
+  success: string;
+  warning: string;
+  error: string;
+}

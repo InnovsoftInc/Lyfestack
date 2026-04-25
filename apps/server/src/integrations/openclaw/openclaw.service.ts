@@ -1,12 +1,17 @@
 import { spawn } from 'child_process';
+import { randomUUID } from 'crypto';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { logger } from '../../utils/logger';
-import { usageTracker } from './usage-tracker';
+import { trackUsage } from './usage-tracker';
 import { OPENCLAW_HOME, OPENCLAW_JSON, readOpenclawJson as sharedRead, writeOpenclawJson as sharedWrite } from './openclaw-json';
 const OPENCLAW_CONFIG = OPENCLAW_HOME;
 const WORKSPACE = path.join(OPENCLAW_CONFIG, 'workspace');
 const SKILLS_DIR = path.join(OPENCLAW_CONFIG, 'skills');
+const CHAT_UPLOADS_DIR = path.join(OPENCLAW_CONFIG, 'chat-uploads');
+const DEFAULT_AGENT_MODEL = 'openai-codex/gpt-5.2-codex';
+const AGENT_TIMEOUT_MS = Number(process.env.OPENCLAW_AGENT_TIMEOUT_MS ?? 1_800_000);
+const AGENT_TIMEOUT_LABEL = `${Math.round(AGENT_TIMEOUT_MS / 60_000)} minutes`;
 
 // Core identity files every agent shares
 const SHARED_FILES = ['IDENTITY.md', 'SOUL.md', 'ROLES.md', 'USER.md', 'AGENTS.md'];
@@ -62,6 +67,7 @@ function maskKey(key: string): string {
 }
 
 export interface OpenClawAgent {
+  id: string;
   name: string;
   role: string;
   model: string;
@@ -69,6 +75,102 @@ export interface OpenClawAgent {
   systemPrompt?: string;
   tools: string[];
   status: 'active' | 'idle' | 'offline';
+}
+
+export interface MessageAttachmentInput {
+  id?: string;
+  name: string;
+  type: 'text' | 'image' | 'file';
+  mimeType: string;
+  size: number;
+  textContent?: string;
+  dataBase64?: string;
+}
+
+interface PreparedAttachment {
+  id: string;
+  name: string;
+  type: 'text' | 'image' | 'file';
+  mimeType: string;
+  size: number;
+  uri?: string;
+}
+
+function sanitizeFilename(name: string): string {
+  const trimmed = String(name || 'attachment').trim();
+  const safe = trimmed.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/-+/g, '-');
+  return safe.slice(0, 120) || 'attachment';
+}
+
+function isTextLikeAttachment(mimeType: string, name: string): boolean {
+  const lowerMime = mimeType.toLowerCase();
+  const lowerName = name.toLowerCase();
+  return lowerMime.startsWith('text/')
+    || lowerMime.includes('json')
+    || lowerMime.includes('xml')
+    || lowerMime.includes('yaml')
+    || lowerMime.includes('csv')
+    || lowerMime.includes('javascript')
+    || lowerMime.includes('typescript')
+    || /\.(txt|md|mdx|json|ya?ml|csv|ts|tsx|js|jsx|html|css|xml|log)$/i.test(lowerName);
+}
+
+async function prepareMessageWithAttachments(agentName: string, message: string, attachments: MessageAttachmentInput[] = []): Promise<{ prompt: string; attachments: PreparedAttachment[] }> {
+  if (!attachments.length) return { prompt: message, attachments: [] };
+
+  const dir = path.join(CHAT_UPLOADS_DIR, agentName, new Date().toISOString().slice(0, 10));
+  await fs.mkdir(dir, { recursive: true });
+
+  const saved: PreparedAttachment[] = [];
+  const promptSections: string[] = [];
+
+  for (const attachment of attachments) {
+    const id = String(attachment.id ?? `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+    const safeName = sanitizeFilename(attachment.name);
+    const filePath = path.join(dir, `${id}-${safeName}`);
+    const mimeType = String(attachment.mimeType ?? 'application/octet-stream');
+    const type = attachment.type === 'image' ? 'image' : attachment.type === 'text' ? 'text' : 'file';
+    const textLike = type === 'text' || isTextLikeAttachment(mimeType, safeName);
+
+    let buffer: Buffer | null = null;
+    if (typeof attachment.dataBase64 === 'string' && attachment.dataBase64.length > 0) {
+      buffer = Buffer.from(attachment.dataBase64, 'base64');
+    } else if (typeof attachment.textContent === 'string') {
+      buffer = Buffer.from(attachment.textContent, 'utf-8');
+    }
+
+    if (buffer) await fs.writeFile(filePath, buffer);
+    else await fs.writeFile(filePath, '');
+
+    saved.push({
+      id,
+      name: attachment.name,
+      type,
+      mimeType,
+      size: Number(attachment.size ?? buffer?.length ?? 0) || 0,
+      uri: filePath,
+    });
+
+    if (textLike) {
+      const textContent = typeof attachment.textContent === 'string'
+        ? attachment.textContent
+        : (buffer ? buffer.toString('utf-8') : '');
+      const trimmed = textContent.trim();
+      const excerpt = trimmed.length > 12_000 ? `${trimmed.slice(0, 12_000)}\n...[truncated]` : trimmed;
+      promptSections.push(`<context file="${attachment.name}" mimeType="${mimeType}" path="${filePath}">\n${excerpt}\n</context>`);
+    } else {
+      promptSections.push(`<attachment file="${attachment.name}" mimeType="${mimeType}" path="${filePath}" note="Binary attachment saved locally. Use tools if you need to inspect it." />`);
+    }
+  }
+
+  const prompt = [
+    '[Internal attachment context for the agent only. Do not quote, reveal, or reproduce this block in your reply. Use it only to understand the user\'s attached files.]',
+    ...promptSections,
+    '[End internal attachment context. Reply naturally to the user\'s message below.]',
+    message || 'Please review the attached file(s).',
+  ].filter(Boolean).join('\n\n');
+
+  return { prompt, attachments: saved };
 }
 
 async function readOpenclawJson(): Promise<any> {
@@ -79,11 +181,305 @@ async function writeOpenclawJson(data: any): Promise<void> {
   await sharedWrite(data);
 }
 
+export async function resolveOpenClawAgentId(input: string): Promise<string> {
+  const requested = input.trim();
+  if (!requested) return input;
+  try {
+    const config = await readOpenclawJson();
+    const list: Array<{ id: string; name?: string }> = config?.agents?.list ?? [];
+    const exactId = list.find((entry) => entry.id === requested);
+    if (exactId) return exactId.id;
+    const lower = requested.toLowerCase();
+    const match = list.find((entry) =>
+      entry.id.toLowerCase() === lower || (entry.name ?? '').toLowerCase() === lower,
+    );
+    return match?.id ?? requested;
+  } catch (err) {
+    logger.warn({ err, agent: input }, 'agent id resolution failed');
+    return requested;
+  }
+}
+
+
+type GatewayClientDeps = {
+  GatewayClient: new (opts: any) => {
+    start: () => void;
+    stop: () => void;
+    request: (method: string, params: Record<string, unknown>, opts?: { timeoutMs?: number | null }) => Promise<unknown>;
+    onEvent?: ((evt: { event: string; payload: any; seq: number }) => void) | undefined;
+  };
+  GATEWAY_CLIENT_NAMES: { GATEWAY_CLIENT: string };
+  GATEWAY_CLIENT_MODES: { BACKEND: string };
+  GATEWAY_CLIENT_CAPS: { TOOL_EVENTS: string };
+};
+
+let gatewayClientDepsPromise: Promise<GatewayClientDeps> | null = null;
+
+async function loadGatewayClientDeps(): Promise<GatewayClientDeps> {
+  if (!gatewayClientDepsPromise) {
+    gatewayClientDepsPromise = (async () => {
+      const [clientMod, msgMod] = await Promise.all([
+        eval('import("file:///opt/homebrew/lib/node_modules/openclaw/dist/client-BXqqdOmk.js")') as Promise<any>,
+        eval('import("file:///opt/homebrew/lib/node_modules/openclaw/dist/message-channel-CMzhST9r.js")') as Promise<any>,
+      ]);
+      return {
+        GatewayClient: clientMod.t,
+        GATEWAY_CLIENT_NAMES: msgMod.g,
+        GATEWAY_CLIENT_MODES: msgMod.h,
+        GATEWAY_CLIENT_CAPS: msgMod.p,
+      };
+    })();
+  }
+  return gatewayClientDepsPromise;
+}
+
+async function resolveGatewayWsUrl(): Promise<string> {
+  try {
+    const cfg = await readOpenclawJson();
+    const remoteUrl = typeof cfg?.gateway?.remote?.url === 'string' ? cfg.gateway.remote.url.trim() : '';
+    if (remoteUrl) return remoteUrl;
+    const portValue = Number(cfg?.gateway?.port ?? process.env.OPENCLAW_GATEWAY_PORT ?? 18789);
+    const port = Number.isFinite(portValue) ? portValue : 18789;
+    return `ws://127.0.0.1:${port}`;
+  } catch {
+    const portValue = Number(process.env.OPENCLAW_GATEWAY_PORT ?? 18789);
+    const port = Number.isFinite(portValue) ? portValue : 18789;
+    return `ws://127.0.0.1:${port}`;
+  }
+}
+
+function extractGatewayMessageText(message: unknown): string {
+  if (typeof message === 'string') return message;
+  if (!message || typeof message !== 'object') return '';
+  const entry = message as Record<string, unknown>;
+  if (typeof entry.text === 'string') return entry.text;
+  if (typeof entry.content === 'string') return entry.content;
+  if (!Array.isArray(entry.content)) return '';
+  return entry.content
+    .map((block) => {
+      if (!block || typeof block !== 'object') return '';
+      const item = block as Record<string, unknown>;
+      if (item.type !== 'text' || typeof item.text !== 'string') return '';
+      return item.text;
+    })
+    .filter(Boolean)
+    .join('');
+}
+
 export class OpenClawService {
+  private async requestGateway<T>(method: string, params: Record<string, unknown>): Promise<T> {
+    const { GatewayClient, GATEWAY_CLIENT_NAMES, GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_CAPS } = await loadGatewayClientDeps();
+    const gatewayUrl = await resolveGatewayWsUrl();
+
+    let readyResolved = false;
+    let readyResolve!: () => void;
+    let readyReject!: (err: Error) => void;
+    const readyPromise = new Promise<void>((resolve, reject) => {
+      readyResolve = () => {
+        if (readyResolved) return;
+        readyResolved = true;
+        resolve();
+      };
+      readyReject = (err: Error) => {
+        if (readyResolved) return;
+        readyResolved = true;
+        reject(err);
+      };
+    });
+
+    const client = new GatewayClient({
+      url: gatewayUrl,
+      clientName: GATEWAY_CLIENT_NAMES.GATEWAY_CLIENT,
+      clientDisplayName: 'lyfestack',
+      clientVersion: '0.0.1',
+      platform: process.platform,
+      mode: GATEWAY_CLIENT_MODES.BACKEND,
+      caps: [GATEWAY_CLIENT_CAPS.TOOL_EVENTS],
+      minProtocol: 3,
+      maxProtocol: 3,
+      onHelloOk: () => readyResolve(),
+      onConnectError: (err: Error) => {
+        readyReject(err);
+      },
+      onClose: (_code: number, reason: string) => {
+        if (!readyResolved) {
+          readyReject(new Error(reason || 'gateway closed'));
+        }
+      },
+      onEvent: () => {},
+    });
+
+    try {
+      client.start();
+      await readyPromise;
+      return await client.request(method, params) as T;
+    } finally {
+      client.stop();
+    }
+  }
+
+  private buildAgentArgs(agentName: string, message: string, sessionKey?: string | null): string[] {
+    const args = ['agent', '--agent', agentName];
+    if (sessionKey) args.push('--session-id', sessionKey);
+    args.push('-m', message);
+    return args;
+  }
+
+
+  private async sendMessageStreamGateway(
+    agentName: string,
+    message: string,
+    attachments: MessageAttachmentInput[] = [],
+    sessionKey: string | null | undefined,
+    onChunk: (chunk: string) => void,
+    onDone: (full: string) => void,
+    onError: (err: Error) => void,
+    onToolUse?: (toolName: string, phase?: 'use' | 'result') => void,
+  ): Promise<void> {
+    const startTime = Date.now();
+    const prepared = await prepareMessageWithAttachments(agentName, message, attachments);
+    const { GatewayClient, GATEWAY_CLIENT_NAMES, GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_CAPS } = await loadGatewayClientDeps();
+    const gatewayUrl = await resolveGatewayWsUrl();
+    const runId = randomUUID();
+    const expectedSessionKey = sessionKey ?? null;
+
+    let readyResolved = false;
+    let readyResolve!: () => void;
+    let readyReject!: (err: Error) => void;
+    const readyPromise = new Promise<void>((resolve, reject) => {
+      readyResolve = () => {
+        if (readyResolved) return;
+        readyResolved = true;
+        resolve();
+      };
+      readyReject = (err: Error) => {
+        if (readyResolved) return;
+        readyResolved = true;
+        reject(err);
+      };
+    });
+
+    let resolved = false;
+    let resolveFinal!: () => void;
+    let rejectFinal!: (err: Error) => void;
+    const finalPromise = new Promise<void>((resolve, reject) => {
+      resolveFinal = resolve;
+      rejectFinal = reject;
+    });
+
+    let accumulated = '';
+    const client = new GatewayClient({
+      url: gatewayUrl,
+      clientName: GATEWAY_CLIENT_NAMES.GATEWAY_CLIENT,
+      clientDisplayName: 'lyfestack',
+      clientVersion: '0.0.1',
+      platform: process.platform,
+      mode: GATEWAY_CLIENT_MODES.BACKEND,
+      caps: [GATEWAY_CLIENT_CAPS.TOOL_EVENTS],
+      minProtocol: 3,
+      maxProtocol: 3,
+      onHelloOk: () => readyResolve(),
+      onConnectError: (err: Error) => {
+        if (!readyResolved) {
+          readyReject(err);
+          return;
+        }
+        if (resolved) return;
+        resolved = true;
+        rejectFinal(err);
+      },
+      onClose: (_code: number, reason: string) => {
+        if (!readyResolved) {
+          readyReject(new Error(reason || 'gateway closed'));
+          return;
+        }
+        if (resolved) return;
+        resolved = true;
+        rejectFinal(new Error(reason || 'gateway closed'));
+      },
+      onEvent: (evt: { event: string; payload: any; seq: number }) => {
+        if (resolved) return;
+        if (evt.event === 'chat') {
+          const payload = evt.payload ?? {};
+          if (typeof payload.runId === 'string' && payload.runId !== runId) return;
+          const state = typeof payload.state === 'string' ? payload.state : '';
+          if (state === 'delta') {
+            const nextText = extractGatewayMessageText(payload.message);
+            if (nextText) {
+              let chunk = nextText;
+              if (nextText.startsWith(accumulated)) {
+                chunk = nextText.slice(accumulated.length);
+                accumulated = nextText;
+              } else {
+                accumulated += nextText;
+              }
+              if (chunk) onChunk(chunk);
+            }
+            return;
+          }
+          if (state === 'final') {
+            const finalText = extractGatewayMessageText(payload.message) || accumulated;
+            resolved = true;
+            onDone(finalText);
+            resolveFinal();
+            return;
+          }
+          if (state === 'aborted') {
+            resolved = true;
+            const err = new Error('agent aborted');
+            onError(err);
+            rejectFinal(err);
+            return;
+          }
+          if (state === 'error') {
+            const errMessage = typeof payload.errorMessage === 'string' ? payload.errorMessage : 'agent error';
+            const err = new Error(errMessage);
+            resolved = true;
+            onError(err);
+            rejectFinal(err);
+          }
+          return;
+        }
+
+        if (evt.event === 'agent') {
+          const payload = evt.payload ?? {};
+          if (typeof payload.runId === 'string' && payload.runId !== runId) return;
+          if (payload.stream !== 'tool') return;
+          const data = payload.data ?? {};
+          const phase = typeof data.phase === 'string' ? data.phase : '';
+          const toolCallId = typeof data.toolCallId === 'string' ? data.toolCallId : '';
+          const toolName = typeof data.name === 'string' ? data.name : 'tool';
+          if (!toolCallId) return;
+          if (phase === 'start') onToolUse?.(toolName, 'use');
+          else if (phase === 'result') onToolUse?.(toolName, 'result');
+          else if (phase === 'error') onToolUse?.(toolName, 'result');
+        }
+      },
+    });
+
+    try {
+      client.start();
+      await readyPromise;
+      await client.request('chat.send', {
+        sessionKey: expectedSessionKey ?? undefined,
+        message: prepared.prompt,
+        deliver: false,
+        timeoutMs: AGENT_TIMEOUT_MS,
+        idempotencyKey: runId,
+      });
+      await finalPromise;
+      this.getAgent(agentName)
+        .then((agent) => trackUsage(agentName, agent?.model ?? 'unknown', prepared.prompt, accumulated, Date.now() - startTime))
+        .catch(() => {});
+    } finally {
+      client.stop();
+    }
+  }
+
   async listAgents(): Promise<OpenClawAgent[]> {
     try {
       const config = await readOpenclawJson();
-      const list: Array<{ id: string; agentDir?: string }> = config?.agents?.list ?? [];
+      const list: Array<{ id: string; name?: string; agentDir?: string }> = config?.agents?.list ?? [];
       const agents: OpenClawAgent[] = [];
 
       for (const entry of list) {
@@ -93,15 +489,16 @@ export class OpenClawService {
           const raw = await fs.readFile(configPath, 'utf-8').catch(() => '{}');
           const agentConfig = JSON.parse(raw);
           agents.push({
-            name: entry.id,
+            id: entry.id,
+            name: entry.name ?? entry.id,
             role: agentConfig.role ?? entry.id,
-            model: agentConfig.model?.primary ?? 'openrouter/auto',
+            model: agentConfig.model?.primary ?? DEFAULT_AGENT_MODEL,
             systemPrompt: agentConfig.systemPrompt,
             tools: agentConfig.tools ?? [],
             status: 'idle',
           });
         } catch {
-          agents.push({ name: entry.id, role: entry.id, model: 'unknown', tools: [], status: 'offline' });
+          agents.push({ id: entry.id, name: entry.name ?? entry.id, role: entry.id, model: DEFAULT_AGENT_MODEL, tools: [], status: 'offline' });
         }
       }
       return agents;
@@ -109,6 +506,14 @@ export class OpenClawService {
       logger.error({ err }, 'Failed to list OpenClaw agents');
       return [];
     }
+  }
+
+  async listCommands(agentId?: string): Promise<{ commands: Array<Record<string, unknown>> }> {
+    return this.requestGateway('commands.list', {
+      ...(agentId ? { agentId } : {}),
+      includeArgs: true,
+      scope: 'text',
+    });
   }
 
   private async resolveOpenclawBin(): Promise<string> {
@@ -130,12 +535,13 @@ export class OpenClawService {
     return 'openclaw';
   }
 
-  async sendMessage(agentName: string, message: string): Promise<string> {
+  async sendMessage(agentName: string, message: string, attachments: MessageAttachmentInput[] = [], sessionKey?: string | null): Promise<string> {
     const startTime = Date.now();
     const bin = await this.resolveOpenclawBin();
+    const prepared = await prepareMessageWithAttachments(agentName, message, attachments);
 
     return new Promise<string>((resolve, reject) => {
-      const child = spawn(bin, ['agent', '--agent', agentName, '-m', message], {
+      const child = spawn(bin, this.buildAgentArgs(agentName, prepared.prompt, sessionKey), {
         env: { ...process.env },
       });
 
@@ -143,8 +549,8 @@ export class OpenClawService {
       let stderr = '';
       const timeout = setTimeout(() => {
         child.kill('SIGTERM');
-        reject(new Error(`Agent ${agentName} timed out after 10 minutes`));
-      }, 600_000);
+        reject(new Error(`Agent ${agentName} timed out after ${AGENT_TIMEOUT_LABEL}`));
+      }, AGENT_TIMEOUT_MS);
 
       child.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
       child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
@@ -161,13 +567,7 @@ export class OpenClawService {
           const response = stdout.trim();
           this.getAgent(agentName)
             .then((agent) =>
-              usageTracker.track({
-                agentName,
-                model: agent?.model ?? 'unknown',
-                message,
-                response,
-                duration: Date.now() - startTime,
-              })
+              trackUsage(agentName, agent?.model ?? 'unknown', prepared.prompt, response, Date.now() - startTime)
             )
             .catch(() => {});
           resolve(response);
@@ -182,34 +582,46 @@ export class OpenClawService {
   async sendMessageStream(
     agentName: string,
     message: string,
+    attachments: MessageAttachmentInput[] = [],
+    sessionKey: string | null | undefined,
     onChunk: (chunk: string) => void,
     onDone: (full: string) => void,
     onError: (err: Error) => void,
-    onToolUse?: (toolName: string) => void,
+    onToolUse?: (toolName: string, phase?: 'use' | 'result') => void,
   ): Promise<void> {
+    if (process.env.OPENCLAW_LYFESTACK_GATEWAY_STREAM !== '0') {
+      try {
+        await this.sendMessageStreamGateway(agentName, message, attachments, sessionKey, onChunk, onDone, onError, onToolUse);
+        return;
+      } catch (gatewayErr) {
+        logger.warn({ err: gatewayErr, agent: agentName }, 'OpenClaw gateway stream failed; falling back to CLI');
+      }
+    }
     const startTime = Date.now();
     const bin = await this.resolveOpenclawBin();
+    const prepared = await prepareMessageWithAttachments(agentName, message, attachments);
 
     // Strip ANSI escape codes from CLI output
     const stripAnsi = (text: string): string =>
       text.replace(/\x1B\[[0-9;]*[A-Za-z]/g, '').replace(/\x1B\][^\x07]*\x07/g, '');
 
-    const child = spawn(bin, ['agent', '--agent', agentName, '-m', message], {
+    const child = spawn(bin, this.buildAgentArgs(agentName, prepared.prompt, sessionKey), {
       env: { ...process.env, NO_COLOR: '1', TERM: 'dumb' },
     });
 
     let full = '';
     let stderrBuffer = '';
     let done = false;
+    let sawChunk = false;
 
-    // Timeout: if CLI hangs for 10 minutes, kill it
+    // Timeout: if CLI hangs too long, kill it. Long coding/tool runs can legitimately be slow.
     const timeout = setTimeout(() => {
       if (!done) {
         child.kill('SIGTERM');
-        onError(new Error(`Agent ${agentName} timed out after 10 minutes`));
+        onError(new Error(`Agent ${agentName} timed out after ${AGENT_TIMEOUT_LABEL}`));
         done = true;
       }
-    }, 600_000);
+    }, AGENT_TIMEOUT_MS);
 
     child.stdout.on('data', (data: Buffer) => {
       if (done) return;
@@ -217,6 +629,7 @@ export class OpenClawService {
       const clean = stripAnsi(raw);
       if (!clean.trim()) return; // Skip empty/whitespace-only chunks
       full += clean;
+      sawChunk = true;
       onChunk(clean);
     });
 
@@ -225,11 +638,21 @@ export class OpenClawService {
       const text = stripAnsi(data.toString());
       stderrBuffer += text;
       logger.debug({ agent: agentName }, `stderr: ${text.trim()}`);
-      // Parse stderr for tool usage patterns
-      // Common patterns: "Tool call read", "Tool output read", "Using tool: bash"
-      const toolMatch = text.match(/(?:tool[:\s]+|Tool call\s+|Tool output\s+)(\w+)/i);
-      if (toolMatch?.[1] && onToolUse) {
-        onToolUse(toolMatch[1]);
+      // Parse stderr for tool usage patterns.
+      // Common patterns: "Tool call read", "Tool output read", "Using tool: bash".
+      if (onToolUse) {
+        for (const line of text.split(/\r?\n/)) {
+          const toolOutput = line.match(/Tool output\s+([\w.-]+)/i);
+          if (toolOutput?.[1]) {
+            onToolUse(toolOutput[1], 'result');
+            continue;
+          }
+
+          const toolCall = line.match(/Tool call\s+([\w.-]+)/i)
+            ?? line.match(/Using tool:?\s+([\w.-]+)/i)
+            ?? line.match(/tool[:\s]+([\w.-]+)/i);
+          if (toolCall?.[1]) onToolUse(toolCall[1], 'use');
+        }
       }
     });
 
@@ -239,15 +662,10 @@ export class OpenClawService {
       done = true;
       if (full.length > 0) {
         const response = full.trim();
+        if (!sawChunk) onChunk(response);
         this.getAgent(agentName)
           .then((agent) =>
-            usageTracker.track({
-              agentName,
-              model: agent?.model ?? 'unknown',
-              message,
-              response,
-              duration: Date.now() - startTime,
-            })
+            trackUsage(agentName, agent?.model ?? 'unknown', prepared.prompt, response, Date.now() - startTime)
           )
           .catch(() => {});
         onDone(response);
@@ -268,10 +686,11 @@ export class OpenClawService {
   async createAgent(config: { name: string; role: string; model: string; systemPrompt: string }): Promise<void> {
     const agentDir = path.join(OPENCLAW_CONFIG, 'agents', config.name, 'agent');
     await fs.mkdir(agentDir, { recursive: true });
+    const model = config.model || DEFAULT_AGENT_MODEL;
 
     const agentConfig = {
       role: config.role,
-      model: { primary: config.model, fallbacks: [] },
+      model: { primary: model, fallbacks: [] },
       systemPrompt: config.systemPrompt,
       tools: [],
     };
@@ -310,7 +729,7 @@ export class OpenClawService {
   async getAgent(name: string): Promise<OpenClawAgent & { systemPrompt?: string; persona?: Record<string, unknown>; skills?: string[] } | null> {
     try {
       const config = await readOpenclawJson();
-      const list: Array<{ id: string; agentDir?: string }> = config?.agents?.list ?? [];
+      const list: Array<{ id: string; name?: string; agentDir?: string }> = config?.agents?.list ?? [];
       const entry = list.find((e) => e.id === name);
       if (!entry) return null;
       const agentDir = entry.agentDir ?? path.join(OPENCLAW_CONFIG, 'agents', name, 'agent');
@@ -320,9 +739,10 @@ export class OpenClawService {
         ? agentConfig.skills
         : (await this.listSkills()).map((s) => s.name);
       return {
-        name,
+        id: name,
+        name: entry.name ?? name,
         role: agentConfig.role ?? name,
-        model: agentConfig.model?.primary ?? 'openrouter/auto',
+        model: agentConfig.model?.primary ?? DEFAULT_AGENT_MODEL,
         fallbackModels: agentConfig.model?.fallbacks ?? [],
         systemPrompt: agentConfig.systemPrompt ?? '',
         persona: agentConfig.persona ?? {},
@@ -367,9 +787,9 @@ export class OpenClawService {
     logger.info({ agent: name, skills: skillNames }, 'Agent skills updated');
   }
 
-  async updateAgent(name: string, updates: { role?: string; model?: string; systemPrompt?: string; persona?: Record<string, unknown> }): Promise<void> {
+  async updateAgent(name: string, updates: { displayName?: string; role?: string; model?: string; systemPrompt?: string; persona?: Record<string, unknown> }): Promise<void> {
     const config = await readOpenclawJson();
-    const list: Array<{ id: string; agentDir?: string }> = config?.agents?.list ?? [];
+    const list: Array<{ id: string; name?: string; agentDir?: string }> = config?.agents?.list ?? [];
     const entry = list.find((e) => e.id === name);
     const agentDir = entry?.agentDir ?? path.join(OPENCLAW_CONFIG, 'agents', name, 'agent');
     const configPath = path.join(agentDir, 'config.json');
@@ -383,6 +803,10 @@ export class OpenClawService {
       ...(updates.persona !== undefined && { persona: updates.persona }),
     };
     await fs.writeFile(configPath, JSON.stringify(merged, null, 2));
+    if (updates.displayName !== undefined && entry) {
+      entry.name = updates.displayName.trim() || name;
+      await writeOpenclawJson(config);
+    }
     logger.info({ agent: name }, 'Agent updated');
   }
 
@@ -579,7 +1003,7 @@ export class OpenClawService {
         bind: cfg?.gateway?.bind ?? 'loopback',
       },
       agentDefaults: {
-        primaryModel: cfg?.agents?.defaults?.model?.primary ?? 'openrouter/auto',
+        primaryModel: cfg?.agents?.defaults?.model?.primary ?? DEFAULT_AGENT_MODEL,
         fallbackModels: cfg?.agents?.defaults?.model?.fallbacks ?? [],
       },
       codingTool: cfg?.commands?.native ?? 'auto',
@@ -623,8 +1047,8 @@ export class OpenClawService {
         name,
         provider: profile.provider ?? '',
         mode: profile.mode ?? '',
-        maskedKey: rawKey ? maskKey(rawKey) : undefined,
-        envVar,
+        ...(rawKey ? { maskedKey: maskKey(rawKey) } : {}),
+        ...(envVar !== undefined ? { envVar } : {}),
       } satisfies AuthProfileInfo;
     });
   }
@@ -663,7 +1087,7 @@ export class OpenClawService {
             fs.stat(skillPath),
           ]);
           const descMatch = content.match(/^description:\s*["']?(.*?)["']?\s*$/m);
-          const description = descMatch ? descMatch[1].replace(/^["']|["']$/g, '') : '';
+          const description = descMatch?.[1] ? descMatch[1].replace(/^["']|["']$/g, '') : '';
           skills.push({ name: entry.name, description, size: stat.size, modifiedAt: stat.mtime.toISOString() });
         } catch {
           skills.push({ name: entry.name, description: '', size: 0, modifiedAt: '' });

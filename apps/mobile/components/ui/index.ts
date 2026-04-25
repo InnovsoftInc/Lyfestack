@@ -6,3 +6,4 @@ export { NavBar } from './NavBar';
 export { GlassHeader, headerSpacerHeight } from './GlassHeader';
 export { CustomPopover, PopoverOption, PopoverSection } from './CustomPopover';
 export { LiquidGlassButton } from './LiquidGlassButton';
+export { LiquidSurface } from './LiquidSurface';

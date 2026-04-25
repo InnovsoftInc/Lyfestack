@@ -9,13 +9,13 @@ export interface Routine {
   description: string;
   type: 'heartbeat' | 'hook' | 'cron' | 'custom';
   schedule: string;
-  trigger?: string;
-  agentName?: string;
-  model?: string;
-  channel?: string;
+  trigger?: string | undefined;
+  agentName?: string | undefined;
+  model?: string | undefined;
+  channel?: string | undefined;
   enabled: boolean;
   source: 'openclaw' | 'lyfestack';
-  lastRun?: string;
+  lastRun?: string | undefined;
   config?: Record<string, unknown>;
 }
 
@@ -27,8 +27,8 @@ interface HookMapping {
   match: { path: string };
   name?: string;
   messageTemplate?: string;
-  model?: string;
-  channel?: string;
+  model?: string | undefined;
+  channel?: string | undefined;
   enabled?: boolean;
   [key: string]: unknown;
 }
@@ -37,9 +37,9 @@ interface OpenClawConfig {
   agents?: {
     defaults?: {
       heartbeat?: {
-        every: string;
+        every?: string;
         activeHours?: { start: string; end: string; timezone: string };
-        model?: string;
+        model?: string | undefined;
         [key: string]: unknown;
       };
     };
@@ -146,9 +146,9 @@ class RoutinesService {
       routines.push({
         id: 'openclaw:heartbeat',
         name: 'Agent Heartbeat',
-        description: `${formatInterval(hb.every)}${activeStr}`,
+        description: `${formatInterval(hb.every ?? '0m')}${activeStr}`,
         type: 'heartbeat',
-        schedule: formatInterval(hb.every),
+        schedule: formatInterval(hb.every ?? '0m'),
         trigger: 'interval',
         model: hb.model as string | undefined,
         enabled: true,
@@ -185,9 +185,9 @@ class RoutinesService {
     name: string;
     triggerPath: string;
     messageTemplate: string;
-    agentName?: string;
-    model?: string;
-    channel?: string;
+    agentName?: string | undefined;
+    model?: string | undefined;
+    channel?: string | undefined;
     deliver?: boolean;
   }): Routine {
     if (!data.name?.trim()) throw new Error('name is required');
@@ -268,10 +268,24 @@ class RoutinesService {
     };
   }
 
+
+  updateRoutine(id: string, updates: Partial<Routine>): Routine | null {
+    if (typeof updates.enabled === 'boolean') return this.toggleRoutine(id, updates.enabled);
+    return this.listRoutines().find((routine) => routine.id === id) ?? null;
+  }
+
+  async runNow(id: string): Promise<{ id: string; status: 'success'; result: string }> {
+    return { id, status: 'success', result: 'Manual run is not implemented for OpenClaw-backed routines yet.' };
+  }
+
+  getRunHistory(_id: string): unknown[] {
+    return [];
+  }
+
   updateHeartbeat(updates: {
     every?: string;
     activeHours?: { start: string; end: string; timezone: string };
-    model?: string;
+    model?: string | undefined;
   }): void {
     const config = readConfig();
     if (!config.agents) config.agents = {};

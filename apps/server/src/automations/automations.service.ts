@@ -17,16 +17,16 @@ export interface Routine {
   description: string;
   type: 'heartbeat' | 'hook' | 'cron' | 'custom';
   schedule: string;
-  trigger?: string;
-  agent?: string;
-  agentName?: string;
-  prompt?: string;
-  model?: string;
-  channel?: string;
+  trigger?: string | undefined;
+  agent?: string | undefined;
+  agentName?: string | undefined;
+  prompt?: string | undefined;
+  model?: string | undefined;
+  channel?: string | undefined;
   enabled: boolean;
   source: 'openclaw' | 'lyfestack';
-  lastRun?: string;
-  lastRunStatus?: 'success' | 'error' | 'running';
+  lastRun?: string | undefined;
+  lastRunStatus?: 'success' | 'error' | 'running' | undefined;
   config?: Record<string, unknown>;
 }
 
@@ -40,9 +40,9 @@ interface HookMapping {
   sessionKey?: string;
   messageTemplate?: string;
   deliver?: boolean;
-  channel?: string;
+  channel?: string | undefined;
   to?: string;
-  model?: string;
+  model?: string | undefined;
   enabled?: boolean;
   [key: string]: unknown;
 }
@@ -53,7 +53,7 @@ interface OpenClawConfig {
       heartbeat?: {
         every: string;
         activeHours?: { start: string; end: string; timezone: string };
-        model?: string;
+        model?: string | undefined;
         [key: string]: unknown;
       };
       [key: string]: unknown;
@@ -159,7 +159,7 @@ interface OpenClawCronJob {
   sessionTarget?: string;
   wakeMode?: string;
   payload?: { kind: string; message?: string };
-  delivery?: { mode?: string; channel?: string; to?: string };
+  delivery?: { mode?: string; channel?: string | undefined; to?: string };
   state?: Record<string, unknown>;
 }
 

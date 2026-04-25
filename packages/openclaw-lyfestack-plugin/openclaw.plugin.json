@@ -1,0 +1,21 @@
+{
+  "id": "lyfestack",
+  "kind": "channel",
+  "name": "LyfeStack",
+  "description": "LyfeStack channel plugin",
+  "channels": [
+    "lyfestack"
+  ],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "receiverUrl": {
+        "type": "string"
+      },
+      "webhookSecret": {
+        "type": "string"
+      }
+    }
+  }
+}

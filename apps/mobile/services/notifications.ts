@@ -11,6 +11,8 @@ export type ResponseHandler = (response: Notifications.NotificationResponse) => 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
     shouldPlaySound: true,
     shouldSetBadge: true,
   }),

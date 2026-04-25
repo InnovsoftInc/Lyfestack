@@ -102,6 +102,15 @@ export interface SessionActionResult {
   error?: string;
 }
 
+export interface OpenClawAttachment {
+  id: string;
+  name: string;
+  type: 'text' | 'image' | 'file';
+  mimeType: string;
+  size: number;
+  uri?: string;
+}
+
 // ── Threads (Phase 2) ──────────────────────────────────────────────────────
 // A thread is LyfeStack's canonical visible chat history, one per agent.
 // It is decoupled from OpenClaw sessions: the thread outlives session
@@ -118,6 +127,7 @@ export interface ThreadMessage {
   sessionKey?: string;
   isError?: boolean;
   errorType?: string;
+  attachments?: OpenClawAttachment[];
 }
 
 export interface OpenClawThread {

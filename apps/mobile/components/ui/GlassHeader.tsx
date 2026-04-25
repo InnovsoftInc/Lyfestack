@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Platform, StyleProp, ViewStyle } from 'react-native';
+import { DrawerToggleButton } from '@react-navigation/drawer';
 import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
@@ -40,7 +41,7 @@ export function GlassHeader({
   const tintOverlay = isDark ? 'rgba(10,10,12,0.55)' : 'rgba(255,255,255,0.7)';
   const borderColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
 
-  const leftGlyph = leftKind === 'back' ? '‹' : leftKind === 'menu' ? '☰' : null;
+  const leftGlyph = leftKind === 'back' ? '‹' : null;
 
   const content = (
     <View
@@ -51,7 +52,12 @@ export function GlassHeader({
       ]}
     >
       <View style={styles.side}>
-        {leftGlyph ? (
+        {leftKind === 'menu' ? (
+          <DrawerToggleButton
+            tintColor={theme.text.primary}
+            pressColor={isDark ? 'rgba(255,255,255,0.10)' : 'rgba(15,23,42,0.08)'}
+          />
+        ) : leftGlyph ? (
           <TouchableOpacity
             onPress={onLeftPress ?? (() => router.back())}
             hitSlop={12}
@@ -59,9 +65,9 @@ export function GlassHeader({
             style={styles.leftBtn}
           >
             <Text
-              style={[
-                leftKind === 'back' ? styles.backIcon : styles.menuIcon,
-                { color: leftKind === 'back' ? theme.accent : theme.text.primary },
+            style={[
+                styles.backIcon,
+                { color: theme.accent },
               ]}
             >
               {leftGlyph}
@@ -144,9 +150,6 @@ const styles = StyleSheet.create({
     fontSize: 32,
     lineHeight: 34,
     fontWeight: '300',
-  },
-  menuIcon: {
-    fontSize: 22,
   },
   center: {
     flex: 1,

@@ -28,7 +28,7 @@ export async function tryConnect(): Promise<string | null> {
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
-      const res = await fetch(`${envUrl}/api/openclaw/status`, { signal: controller.signal });
+      const res = await fetch(`${envUrl}/api/openclaw/status`, { signal: controller.signal as never });
       clearTimeout(timeout);
       if (res.ok) { cachedBase = envUrl; return envUrl; }
     } catch { /* env URL unreachable */ }
@@ -43,7 +43,7 @@ export async function tryConnect(): Promise<string | null> {
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
-      const res = await fetch(`${saved}/api/openclaw/status`, { signal: controller.signal });
+      const res = await fetch(`${saved}/api/openclaw/status`, { signal: controller.signal as never });
       clearTimeout(timeout);
       if (res.ok) { cachedBase = saved; return saved; }
     } catch { /* saved URL unreachable */ }
@@ -67,7 +67,7 @@ export async function autoDiscover(): Promise<string | null> {
             try {
               const controller = new AbortController();
               const timeout = setTimeout(() => controller.abort(), 2000);
-              const res = await fetch(`${url}/api/openclaw/status`, { signal: controller.signal });
+              const res = await fetch(`${url}/api/openclaw/status`, { signal: controller.signal as never });
               clearTimeout(timeout);
               if (res.ok) return url;
             } catch { /* next */ }
@@ -89,9 +89,9 @@ export async function autoDiscover(): Promise<string | null> {
   return null;
 }
 
-async function request(path: string, options?: RequestInit): Promise<unknown> {
+async function request<T = unknown>(path: string, options?: RequestInit): Promise<T> {
   const body = options?.body;
-  return authedRequest<unknown>(`/api/openclaw${path}`, {
+  return authedRequest<T>(`/api/openclaw${path}`, {
     ...(options?.method && { method: options.method }),
     ...(body !== undefined && body !== null && { body }),
     ...(options?.headers && { headers: options.headers as Record<string, string> }),
@@ -99,6 +99,20 @@ async function request(path: string, options?: RequestInit): Promise<unknown> {
 }
 
 // Map raw tool names to human-readable labels
+
+function appendStreamChunk(current: string, next: string): string {
+  if (!current) return next;
+  if (!next) return current;
+  if (/\n\s*$/.test(current) || /^\s/.test(next)) return current + next;
+  const left = current.at(-1) ?? '';
+  const right = next[0] ?? '';
+  const sentenceBoundary = /[.!?…]$/.test(left) && /[A-Z(\-•\d]/.test(right);
+  if (sentenceBoundary) return `${current}\n\n${next}`;
+  const leftWantsGap = /[A-Za-z0-9)\]}'’"]/.test(left);
+  const rightWantsGap = /[A-Za-z0-9([{'“"]/.test(right);
+  return leftWantsGap && rightWantsGap ? `${current} ${next}` : current + next;
+}
+
 function formatToolLabel(name: string): string {
   if (!name) return '';
   const lower = name.toLowerCase();
@@ -145,24 +159,27 @@ export interface StreamInitInfo {
   userMessageId?: string;
 }
 
-export interface StreamRolloverInfo {
-  previousSessionKey: string | null;
-  activeSessionKey: string | null;
-}
-
 export interface StreamCallbacks {
   onChunk: (chunk: string) => void;
-  onDone: (response: string, info?: { threadId?: string; activeSessionKey?: string | null }) => void;
+  onDone: (response: string, info?: { threadId?: string; activeSessionKey?: string | null; assistantMessageId?: string | null }) => void;
   onError: (err: Error) => void;
   onToolActivity?: (tool: string | null) => void;
   onInit?: (info: StreamInitInfo) => void;
   onCursor?: (cursor: number) => void;
-  onRollover?: (info: StreamRolloverInfo) => void;
 }
 
 export interface StreamOptions extends StreamCallbacks {
   messageId?: string;
   signal?: AbortSignal;
+  attachments?: Array<{
+    id?: string;
+    name: string;
+    type: 'text' | 'image' | 'file';
+    mimeType: string;
+    size: number;
+    textContent?: string;
+    dataBase64?: string;
+  }>;
 }
 
 export async function streamAgentMessage(
@@ -170,7 +187,7 @@ export async function streamAgentMessage(
   message: string,
   opts: StreamOptions,
 ): Promise<void> {
-  const { signal, messageId, onChunk, onDone, onError, onToolActivity, onInit, onCursor, onRollover } = opts;
+  const { signal, messageId, attachments, onChunk, onDone, onError, onToolActivity, onInit, onCursor } = opts;
   if (signal?.aborted) return;
 
   try {
@@ -190,10 +207,10 @@ export async function streamAgentMessage(
       let firstChunkReceived = false;
       let accumulatedResponse = '';
 
-      // Show "using tools..." if no text arrives within 3 s
+      // Show a human progress line if no text arrives within 3 s
       let toolTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
         toolTimer = null;
-        if (!firstChunkReceived) onToolActivity?.('using tools...');
+        if (!firstChunkReceived) onToolActivity?.('checking context');
       }, 3000);
 
       function clearToolTimer() {
@@ -213,10 +230,12 @@ export async function streamAgentMessage(
             const payload = JSON.parse(line.slice(6));
             if (payload.error) {
               clearToolTimer();
+              console.log('[OpenClaw SSE] error', payload.error);
               safeReject(new Error(payload.error));
               return;
             }
             if (payload.type === 'init') {
+              console.log('[OpenClaw SSE] init', payload);
               onInit?.({
                 messageId: payload.messageId,
                 resumed: Boolean(payload.resumed),
@@ -226,36 +245,32 @@ export async function streamAgentMessage(
               });
               continue;
             }
-            if (payload.type === 'rollover') {
-              onRollover?.({
-                previousSessionKey: payload.previousSessionKey ?? null,
-                activeSessionKey: payload.activeSessionKey ?? null,
-              });
-              continue;
-            }
             if (payload.type === 'tool_use') {
+              console.log('[OpenClaw SSE] tool_use', payload.name ?? payload.tool ?? payload);
               // Build a descriptive label from the tool name
               const rawName: string = payload.name ?? payload.tool ?? '';
               const label = formatToolLabel(rawName);
               if (label) onToolActivity?.(label);
             } else if (payload.type === 'tool_result') {
+              console.log('[OpenClaw SSE] tool_result', payload.name ?? payload.tool ?? payload);
               clearCurrentTool();
             } else if (payload.chunk !== undefined) {
+              console.log('[OpenClaw SSE] chunk', { len: String(payload.chunk).length, cursor: payload.cursor });
               if (!firstChunkReceived) {
                 firstChunkReceived = true;
                 clearToolTimer();
-                // Mark current tool as done but DON'T clear history
-                clearCurrentTool();
               }
-              accumulatedResponse += payload.chunk;
+              accumulatedResponse = appendStreamChunk(accumulatedResponse, payload.chunk);
               onChunk(payload.chunk);
               if (typeof payload.cursor === 'number') onCursor?.(payload.cursor);
             } else if (payload.done) {
+              console.log('[OpenClaw SSE] done', { len: String(payload.response ?? accumulatedResponse).length, threadId: payload.threadId });
               clearToolTimer();
               clearCurrentTool();
               onDone(payload.response ?? accumulatedResponse, {
                 threadId: payload.threadId,
                 activeSessionKey: payload.activeSessionKey ?? null,
+                assistantMessageId: payload.assistantMessageId ?? null,
               });
               safeResolve();
             }
@@ -284,11 +299,15 @@ export async function streamAgentMessage(
           lineBuffer += '\n';
           processLines();
         }
-        // If onDone was never called (no "done" SSE event), finalize with accumulated chunks
+        // If onDone was never called (no "done" SSE event), only finalize when we actually have text.
         if (!resolved) {
           clearCurrentTool();
-          onDone(accumulatedResponse);
-          safeResolve();
+          if (accumulatedResponse.trim().length > 0) {
+            onDone(accumulatedResponse);
+            safeResolve();
+          } else {
+            safeReject(new Error('Stream ended before any reply was received'));
+          }
         }
       };
 
@@ -304,7 +323,7 @@ export async function streamAgentMessage(
         });
       }
 
-      xhr.send(JSON.stringify({ message, ...(messageId ? { messageId } : {}) }));
+      xhr.send(JSON.stringify({ message, ...(messageId ? { messageId } : {}), ...(attachments?.length ? { attachments } : {}) }));
     });
   } catch (err: any) {
     if (err?.name === 'AbortError' || signal?.aborted) return;
@@ -381,14 +400,16 @@ export async function resumeAgentStream(
             } else if (payload.type === 'tool_result') {
               clearCurrentTool();
             } else if (payload.chunk !== undefined) {
-              accumulatedResponse += payload.chunk;
+              accumulatedResponse = appendStreamChunk(accumulatedResponse, payload.chunk);
               onChunk(payload.chunk);
               if (typeof payload.cursor === 'number') onCursor?.(payload.cursor);
             } else if (payload.done) {
               clearCurrentTool();
+              clearCurrentTool();
               onDone(payload.response ?? accumulatedResponse, {
                 threadId: payload.threadId,
                 activeSessionKey: payload.activeSessionKey ?? null,
+                assistantMessageId: payload.assistantMessageId ?? null,
               });
               safeResolve();
             }
@@ -441,6 +462,9 @@ export interface StreamStatus {
   cursor: number;
   done: boolean;
   error?: string;
+  response?: string;
+  createdAt?: number;
+  updatedAt?: number;
 }
 
 export async function getStreamStatus(messageId: string): Promise<StreamStatus | null> {
@@ -457,20 +481,72 @@ export async function getStreamStatus(messageId: string): Promise<StreamStatus |
   }
 }
 
+export async function getActiveAgentStream(agentId: string): Promise<StreamStatus | null> {
+  const res = await authedRequest<{ data: StreamStatus | null }>(
+    `/api/openclaw/agents/${encodeURIComponent(agentId)}/streams/active`,
+  );
+  return res.data ?? null;
+}
+
+export interface CommandArgChoice {
+  value: string;
+  label: string;
+}
+
+export interface CommandArg {
+  name: string;
+  description: string;
+  type: 'string' | 'number' | 'boolean';
+  required?: boolean;
+  choices?: CommandArgChoice[];
+  dynamic?: boolean;
+}
+
+export interface CommandEntry {
+  name: string;
+  nativeName?: string;
+  textAliases?: string[];
+  description: string;
+  category?: string;
+  source: 'native' | 'skill' | 'plugin';
+  scope: 'text' | 'native' | 'both';
+  acceptsArgs: boolean;
+  args?: CommandArg[];
+}
+
+export interface CommandsListResult {
+  commands: CommandEntry[];
+}
+
 export const openclawApi = {
   getStatus: () => request('/status'),
   listAgents: () => request('/agents'),
+  listCommands: (opts?: { agentId?: string }) => {
+    const qs: string[] = [];
+    if (opts?.agentId) qs.push(`agentId=${encodeURIComponent(opts.agentId)}`);
+    qs.push('includeArgs=true');
+    qs.push('scope=text');
+    return request<CommandsListResult>(`/commands${qs.length ? `?${qs.join('&')}` : ''}`);
+  },
   createAgent: (config: { name: string; model?: string }) =>
     request('/agents', { method: 'POST', body: JSON.stringify(config) }),
   deleteAgent: (name: string) => request(`/agents/${name}`, { method: 'DELETE' }),
-  sendMessage: (agentId: string, message: string) =>
+  sendMessage: (agentId: string, message: string, attachments?: Array<{
+    id?: string;
+    name: string;
+    type: 'text' | 'image' | 'file';
+    mimeType: string;
+    size: number;
+    textContent?: string;
+    dataBase64?: string;
+  }>) =>
     request(`/agents/${encodeURIComponent(agentId)}/message`, {
       method: 'POST',
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, ...(attachments?.length ? { attachments } : {}) }),
     }),
 
   getAgent: (name: string) => request(`/agents/${encodeURIComponent(name)}`),
-  updateAgent: (name: string, updates: { role?: string; model?: string; systemPrompt?: string; persona?: Record<string, unknown> }) =>
+  updateAgent: (name: string, updates: { displayName?: string; role?: string; model?: string; systemPrompt?: string; persona?: Record<string, unknown> }) =>
     request(`/agents/${encodeURIComponent(name)}`, { method: 'PUT', body: JSON.stringify(updates) }),
   renameAgent: (name: string, newName: string) =>
     request(`/agents/${encodeURIComponent(name)}/rename`, {
@@ -501,13 +577,14 @@ export const openclawApi = {
   listThreads: () => request('/threads'),
   getThread: (
     agentName: string,
-    opts?: { limit?: number; beforeId?: string; afterId?: string; ensure?: boolean },
+    opts?: { limit?: number; beforeId?: string; afterId?: string; ensure?: boolean; includeSession?: boolean },
   ) => {
     const qs: string[] = [];
     if (opts?.limit !== undefined) qs.push(`limit=${opts.limit}`);
     if (opts?.beforeId) qs.push(`beforeId=${encodeURIComponent(opts.beforeId)}`);
     if (opts?.afterId) qs.push(`afterId=${encodeURIComponent(opts.afterId)}`);
     if (opts?.ensure) qs.push('ensure=1');
+    if (opts?.includeSession === false) qs.push('includeSession=0');
     const suffix = qs.length ? `?${qs.join('&')}` : '';
     return request(`/threads/${encodeURIComponent(agentName)}${suffix}`);
   },
@@ -515,14 +592,12 @@ export const openclawApi = {
     request(`/threads/${encodeURIComponent(agentName)}`, { method: 'POST' }),
   appendThreadMessage: (
     agentName: string,
-    body: { role: 'user' | 'agent'; content: string; sessionKey?: string; isError?: boolean; errorType?: string },
+    body: { role: 'user' | 'agent'; content: string; isError?: boolean; errorType?: string },
   ) =>
     request(`/threads/${encodeURIComponent(agentName)}/messages`, {
       method: 'POST',
       body: JSON.stringify(body),
     }),
-  rolloverThread: (agentName: string) =>
-    request(`/threads/${encodeURIComponent(agentName)}/rollover`, { method: 'POST' }),
   resetThread: (agentName: string) =>
     request(`/threads/${encodeURIComponent(agentName)}/reset`, { method: 'POST' }),
   deleteThread: (agentName: string) =>
@@ -542,16 +617,6 @@ export const openclawApi = {
     if (opts?.afterIndex !== undefined) qs.push(`afterIndex=${opts.afterIndex}`);
     return request(`/sessions/detail?${qs.join('&')}`);
   },
-  createSession: (agentId: string) =>
-    request('/sessions', {
-      method: 'POST',
-      body: JSON.stringify({ agentId }),
-    }),
-  deleteSession: (agentId: string, sessionId: string) =>
-    request(`/sessions/${encodeURIComponent(agentId)}/${encodeURIComponent(sessionId)}`, {
-      method: 'DELETE',
-    }),
-
   // Usage tracking
   getUsage: () => request('/usage'),
   getUsageHistory: (limit: number = 100) => request(`/usage/history?limit=${limit}`),
@@ -576,7 +641,7 @@ export const openclawApi = {
     request(`/skills/${encodeURIComponent(name)}`, { method: 'DELETE' }),
 
   // Automations / Routines
-  listAutomations: () => request('/automations'),
+  listAutomations: () => request<{ data: import('../stores/automations.store').Routine[] }>('/automations'),
   createAutomation: (data: {
     name: string;
     schedule: string;
@@ -584,15 +649,15 @@ export const openclawApi = {
     prompt: string;
     enabled?: boolean;
     notify?: { channel: string };
-  }) => request('/automations', { method: 'POST', body: JSON.stringify(data) }),
+  }) => request<{ data: import('../stores/automations.store').Routine }>('/automations', { method: 'POST', body: JSON.stringify(data) }),
   deleteAutomation: (id: string) => request(`/automations/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   toggleAutomation: (id: string, enabled: boolean) =>
-    request(`/automations/${encodeURIComponent(id)}/toggle`, {
+    request<{ data: import('../stores/automations.store').Routine }>(`/automations/${encodeURIComponent(id)}/toggle`, {
       method: 'PATCH',
       body: JSON.stringify({ enabled }),
     }),
   runAutomationNow: (id: string) =>
-    request(`/automations/${encodeURIComponent(id)}/run`, { method: 'POST' }),
+    request<{ data: { status?: 'success' | 'error'; result?: string; error?: string } }>(`/automations/${encodeURIComponent(id)}/run`, { method: 'POST' }),
   getAutomationHistory: (id: string) =>
     request(`/automations/${encodeURIComponent(id)}/history`),
 };

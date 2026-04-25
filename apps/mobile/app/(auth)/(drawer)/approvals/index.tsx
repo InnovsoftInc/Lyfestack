@@ -159,7 +159,7 @@ function ApprovalCard({ action, onApprove, onReject }: ApprovalCardProps) {
         </View>
         <View style={styles.actionRow}>
           <Text style={styles.actionLabel}>{actionLabel(action.action)}</Text>
-          <Badge label={`${action.confidence}% confidence`} variant={confidenceVariant(action.confidence)} />
+          <Badge label={`${(action as AgentAction & { confidence?: number }).confidence ?? 0}% confidence`} variant={confidenceVariant((action as AgentAction & { confidence?: number }).confidence ?? 0)} />
         </View>
       </View>
 

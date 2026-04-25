@@ -13,7 +13,7 @@ import { AgentAvatar } from './index';
 const ROLES = ['Developer', 'Marketing', 'Research', 'PM', 'Writer', 'Analyst', 'Support', 'Custom'];
 const TRAITS = ['Analytical', 'Creative', 'Direct', 'Friendly', 'Precise', 'Witty', 'Empathetic', 'Strategic', 'Thorough', 'Bold'];
 const TONES = ['Professional', 'Casual', 'Technical', 'Simple', 'Formal', 'Conversational'];
-const MODELS = ['openrouter/auto', 'anthropic/claude-sonnet-4-6', 'openai/gpt-4o', 'anthropic/claude-haiku-4-5', 'openai/gpt-4o-mini'];
+const MODELS = ['openai-codex/gpt-5.2-codex', 'openai/gpt-5.2', 'anthropic/claude-sonnet-4-6', 'openai/gpt-4o', 'anthropic/claude-haiku-4-5'];
 
 const STEPS = ['Name & Role', 'Responsibilities', 'Personality', 'Review'];
 
@@ -40,7 +40,7 @@ export default function CreateAgentScreen() {
 
   const [name, setName] = useState('');
   const [role, setRole] = useState('');
-  const [model, setModel] = useState('openrouter/auto');
+  const [model, setModel] = useState('openai-codex/gpt-5.2-codex');
   const [description, setDescription] = useState('');
   const [scope, setScope] = useState('');
   const [traits, setTraits] = useState<string[]>([]);

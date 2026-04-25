@@ -1,13 +1,13 @@
 import { logger } from '../../utils/logger';
 
-const TTL_MS = 10 * 60 * 1000;
+const TTL_MS = 30 * 60 * 1000;
 const MAX_BUFFERS = 100;
 
 export type StreamEvent =
   | { type: 'chunk'; chunk: string; cursor: number }
   | { type: 'done'; response: string }
   | { type: 'error'; message: string }
-  | { type: 'tool'; payload: Record<string, unknown> };
+  | { type: 'tool'; payload: Record<string, unknown>; cursor: number };
 
 type Subscriber = (event: StreamEvent) => void;
 
@@ -65,6 +65,13 @@ export function getBuffer(messageId: string): BufferedStream | undefined {
   return buffers.get(messageId);
 }
 
+export function getLatestActiveBuffer(agentId: string): BufferedStream | undefined {
+  evictExpired();
+  return [...buffers.values()]
+    .filter((buf) => buf.agentId === agentId && !buf.done)
+    .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+}
+
 export function appendChunk(messageId: string, chunk: string): number {
   const buf = buffers.get(messageId);
   if (!buf) return -1;
@@ -83,7 +90,7 @@ export function appendToolEvent(messageId: string, payload: Record<string, unkno
   const buf = buffers.get(messageId);
   if (!buf) return;
   buf.updatedAt = Date.now();
-  const event: StreamEvent = { type: 'tool', payload };
+  const event: StreamEvent = { type: 'tool', payload, cursor: buf.chunks.length };
   buf.events.push(event);
   for (const sub of buf.subscribers) {
     try { sub(event); } catch (err) { logger.warn({ err }, 'subscriber threw'); }
@@ -128,6 +135,7 @@ export function subscribe(messageId: string, sub: Subscriber): () => void {
 export interface ResumeReplay {
   buffer: BufferedStream;
   missedChunks: Array<{ chunk: string; cursor: number }>;
+  missedEvents: Array<Record<string, unknown>>;
   finalEvent?: StreamEvent;
 }
 
@@ -136,10 +144,18 @@ export function buildResume(messageId: string, fromCursor: number): ResumeReplay
   if (!buf) return null;
   buf.updatedAt = Date.now();
   const missed: Array<{ chunk: string; cursor: number }> = [];
+  const missedEvents: Array<Record<string, unknown>> = [];
   for (let i = Math.max(0, fromCursor); i < buf.chunks.length; i++) {
     missed.push({ chunk: buf.chunks[i] as string, cursor: i + 1 });
   }
-  const replay: ResumeReplay = { buffer: buf, missedChunks: missed };
+  for (const event of buf.events) {
+    if (event.type === 'chunk' && event.cursor > fromCursor) {
+      missedEvents.push({ chunk: event.chunk, cursor: event.cursor });
+    } else if (event.type === 'tool' && event.cursor >= fromCursor) {
+      missedEvents.push(event.payload);
+    }
+  }
+  const replay: ResumeReplay = { buffer: buf, missedChunks: missed, missedEvents };
   if (buf.done) {
     replay.finalEvent = buf.error
       ? { type: 'error', message: buf.error }

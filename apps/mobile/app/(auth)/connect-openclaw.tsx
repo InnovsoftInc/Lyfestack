@@ -33,11 +33,11 @@ export default function ConnectOpenClawScreen() {
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 3000);
-      const res = await fetch(`http://${testIp}:${testPort}/api/openclaw/status`, { signal: controller.signal });
+      const res = await fetch(`http://${testIp}:${testPort}/api/openclaw/status`, { signal: controller.signal as never });
       clearTimeout(timeout);
       if (res.ok) {
-        const data = await res.json();
-        return data.data?.running === true || data.data?.agentCount >= 0;
+        const data = await res.json() as { data?: { running?: boolean; agentCount?: number } };
+        return data.data?.running === true || (data.data?.agentCount ?? -1) >= 0;
       }
       return false;
     } catch {

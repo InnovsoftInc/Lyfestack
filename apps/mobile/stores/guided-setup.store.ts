@@ -19,6 +19,7 @@ export interface GenerationMessage {
 
 interface GuidedSetupState {
   sessionId: string | null;
+  templateId: string | null;
   currentQuestion: GuidedQuestion | null;
   answers: QAPair[];
   questionHistory: GuidedQuestion[];
@@ -40,6 +41,7 @@ interface GuidedSetupState {
 
 export const useGuidedSetupStore = create<GuidedSetupState>((set, get) => ({
   sessionId: null,
+  templateId: null,
   currentQuestion: null,
   answers: [],
   questionHistory: [],
@@ -55,6 +57,7 @@ export const useGuidedSetupStore = create<GuidedSetupState>((set, get) => ({
       const question = await apiStartSession(templateId);
       set({
         sessionId: question.sessionId,
+        templateId,
         currentQuestion: question,
         questionHistory: [question],
         answers: [],
@@ -99,7 +102,7 @@ export const useGuidedSetupStore = create<GuidedSetupState>((set, get) => ({
     if (questionHistory.length <= 1) return;
     const prevHistory = questionHistory.slice(0, -1);
     set({
-      currentQuestion: prevHistory[prevHistory.length - 1],
+      currentQuestion: prevHistory[prevHistory.length - 1] ?? null,
       questionHistory: prevHistory,
       answers: answers.slice(0, -1),
     });
@@ -121,6 +124,7 @@ export const useGuidedSetupStore = create<GuidedSetupState>((set, get) => ({
   reset: () =>
     set({
       sessionId: null,
+      templateId: null,
       currentQuestion: null,
       answers: [],
       questionHistory: [],

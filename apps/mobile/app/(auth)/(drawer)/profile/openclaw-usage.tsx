@@ -16,9 +16,9 @@ export default function OpenClawUsageScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [summary, setSummary] = useState<{ today: Summary; week: Summary; month: Summary } | null>(null);
-  const [byAgent, setByAgent] = useState<AgentUsage[]>([]);
-  const [byModel, setByModel] = useState<ModelUsage[]>([]);
-  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [byAgent, setByAgent] = useState<any[]>([]);
+  const [byModel, setByModel] = useState<any[]>([]);
+  const [history, setHistory] = useState<any[]>([]);
 
   const loadData = useCallback(async () => {
     try {
@@ -28,10 +28,10 @@ export default function OpenClawUsageScreen() {
         openclawApi.getUsageByModel(),
         openclawApi.getUsageHistory(50),
       ]);
-      setSummary(sumRes.data);
-      setByAgent(agentRes.data ?? []);
-      setByModel(modelRes.data ?? []);
-      setHistory(histRes.data ?? []);
+      setSummary((sumRes as { data: any }).data);
+      setByAgent(((agentRes as any).data) ?? []);
+      setByModel(((modelRes as any).data) ?? []);
+      setHistory(((histRes as any).data) ?? []);
     } catch {} finally { setLoading(false); setRefreshing(false); }
   }, []);
 

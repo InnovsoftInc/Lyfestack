@@ -4,11 +4,14 @@ import { GoalBuilderService } from '../services/goal-builder.service';
 import { GoalService } from '../services/goal.service';
 import { OpenClawService } from '../integrations/openclaw/openclaw.service';
 import { GoalRepository } from '../repositories/goal.repository';
+import { PlanRepository } from '../repositories/plan.repository';
 import { TaskRepository } from '../repositories/task.repository';
+import { automationsService } from '../automations/automations.service';
 import { createAuthMiddleware, requireAuth } from '../middleware/auth.middleware';
 
 export function createGoalBuilderRouter(): Router {
   let goalRepository: GoalRepository | null = null;
+  let planRepository: PlanRepository | null = null;
   let taskRepository: TaskRepository | null = null;
 
   try {
@@ -18,12 +21,13 @@ export function createGoalBuilderRouter(): Router {
     };
     const supabase = getSupabaseClient();
     goalRepository = new GoalRepository(supabase);
+    planRepository = new PlanRepository(supabase);
     taskRepository = new TaskRepository(supabase);
   } catch { /* DB not configured */ }
 
   const openClaw = new OpenClawService();
   const goalService = new GoalService(goalRepository, taskRepository);
-  const service = new GoalBuilderService(openClaw, goalService);
+  const service = new GoalBuilderService(openClaw, goalService, planRepository, automationsService);
   const controller = new GoalBuilderController(service);
 
   let authMiddleware: ReturnType<typeof createAuthMiddleware>;

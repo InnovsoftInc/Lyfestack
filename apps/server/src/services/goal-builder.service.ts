@@ -1,6 +1,9 @@
 import { v4 as uuidv4 } from 'uuid';
 import { OpenClawService } from '../integrations/openclaw/openclaw.service';
 import type { GoalService } from './goal.service';
+import type { PlanRepository } from '../repositories/plan.repository';
+import type { AutomationsService, Routine } from '../automations/automations.service';
+import { GoalStatus } from '@lyfestack/shared';
 import { logger } from '../utils/logger';
 
 export interface AIQuestion {
@@ -66,6 +69,8 @@ export class GoalBuilderService {
   constructor(
     private readonly openClaw: OpenClawService,
     private readonly goalService: GoalService,
+    private readonly planRepository: PlanRepository | null = null,
+    private readonly automations: AutomationsService | null = null,
   ) {}
 
   async startSession(
@@ -143,7 +148,7 @@ export class GoalBuilderService {
   async approveSession(
     sessionId: string,
     modifications?: SessionTaskModification,
-  ): Promise<{ goalId: string }> {
+  ): Promise<{ goalId: string; planId?: string; automationId?: string }> {
     const session = sessions.get(sessionId);
     if (!session) throw new Error(`Session ${sessionId} not found`);
 
@@ -152,18 +157,58 @@ export class GoalBuilderService {
       value: a.answer,
     }));
 
+    const plan = applyPlanModifications(session.generatedPlan, modifications);
     const goal = await this.goalService.createGoal({
       userId: session.userId,
-      title: session.generatedPlan?.title ?? session.templateName,
-      description: session.generatedPlan?.summary ?? '',
+      title: plan?.title ?? session.templateName,
+      description: plan?.summary ?? '',
       templateId: session.templateId,
       diagnosticAnswers,
+      ...(plan?.timeline?.durationDays ? {
+        targetDate: new Date(Date.now() + plan.timeline.durationDays * 86_400_000).toISOString().slice(0, 10),
+      } : {}),
     });
 
-    session.status = 'approved';
-    logger.info({ sessionId, goalId: goal.id }, 'Goal builder session approved');
+    let planId: string | undefined;
+    if (this.planRepository && plan) {
+      const startDate = plan.timeline.startDate || new Date().toISOString().slice(0, 10);
+      const end = new Date(startDate);
+      end.setDate(end.getDate() + plan.timeline.durationDays);
+      const savedPlan = await this.planRepository.create({
+        user_id: session.userId,
+        title: plan.title,
+        description: plan.summary,
+        status: GoalStatus.ACTIVE,
+        start_date: startDate,
+        end_date: end.toISOString().slice(0, 10),
+      });
+      await this.planRepository.addGoal(savedPlan.id, goal.id);
+      planId = savedPlan.id;
+    }
 
-    return { goalId: goal.id };
+    let automation: Routine | null = null;
+    if (this.automations && plan) {
+      automation = await this.automations.create({
+        name: `${plan.title} Daily Check-in`,
+        schedule: '0 8 * * *',
+        agent: 'main',
+        prompt: buildAutomationPrompt(plan),
+        enabled: true,
+        notify: { channel: 'telegram' },
+      }).catch((err) => {
+        logger.warn({ err, sessionId, goalId: goal.id }, 'Goal builder automation creation failed');
+        return null;
+      });
+    }
+
+    session.status = 'approved';
+    logger.info({ sessionId, goalId: goal.id, planId, automationId: automation?.id }, 'Goal builder session approved');
+
+    return {
+      goalId: goal.id,
+      ...(planId ? { planId } : {}),
+      ...(automation?.id ? { automationId: automation.id } : {}),
+    };
   }
 
   getSession(sessionId: string): GoalBuilderSession | null {
@@ -188,6 +233,53 @@ export class GoalBuilderService {
     const raw = await this.openClaw.sendMessage(AI_AGENT, prompt);
     return parsePlan(raw);
   }
+}
+
+function applyPlanModifications(plan: AIPlan | null, modifications?: SessionTaskModification): AIPlan | null {
+  if (!plan) return null;
+  const next: AIPlan = JSON.parse(JSON.stringify(plan)) as AIPlan;
+
+  for (const edit of modifications?.editedMilestones ?? []) {
+    if (next.milestones[edit.index]) next.milestones[edit.index]!.title = edit.title;
+  }
+
+  const removed = new Set(modifications?.removedTaskIndices ?? []);
+  if (removed.size) next.tasks = next.tasks.filter((_, index) => !removed.has(index));
+
+  for (const task of modifications?.addedTasks ?? []) {
+    next.tasks.push({
+      title: task.title,
+      description: task.description,
+      type: 'ACTION',
+      priority: 'MEDIUM',
+      estimatedMinutes: 30,
+    });
+  }
+
+  if (modifications?.timelineOverride?.durationDays) {
+    next.timeline.durationDays = modifications.timelineOverride.durationDays;
+  }
+
+  return next;
+}
+
+function buildAutomationPrompt(plan: AIPlan): string {
+  const milestones = plan.milestones
+    .map((m) => `- Week ${m.week}: ${m.title} — ${m.description}`)
+    .join('\n');
+  const tasks = plan.tasks
+    .slice(0, 12)
+    .map((t) => `- [${t.priority}] ${t.title}: ${t.description} (${t.estimatedMinutes} min)`)
+    .join('\n');
+
+  return [
+    `Goal: ${plan.title}`,
+    `Summary: ${plan.summary}`,
+    `Timeline: ${plan.timeline.durationDays} days starting ${plan.timeline.startDate}`,
+    milestones ? `Milestones:\n${milestones}` : '',
+    tasks ? `Tasks:\n${tasks}` : '',
+    'Every morning, send a short practical check-in that picks the highest-leverage action for today, reminds the user why it matters, and asks for a simple completion reply.',
+  ].filter(Boolean).join('\n\n');
 }
 
 // ── Parsing helpers ───────────────────────────────────────────────────────────

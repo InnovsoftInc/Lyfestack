@@ -79,7 +79,11 @@ export const useAutomationsStore = create<AutomationsStore>((set, get) => ({
     try {
       const res = await openclawApi.runAutomationNow(id);
       await get().fetch();
-      return { status: res.data?.status ?? 'error', result: res.data?.result, error: res.data?.error };
+      return {
+        status: res.data?.status ?? 'error',
+        ...(res.data?.result !== undefined && { result: res.data.result }),
+        ...(res.data?.error !== undefined && { error: res.data.error }),
+      };
     } finally {
       set((s) => ({ runningIds: s.runningIds.filter((rid) => rid !== id) }));
     }

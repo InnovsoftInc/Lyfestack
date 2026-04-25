@@ -96,7 +96,7 @@ function makeStyles(theme: Theme) {
 }
 
 export default function AuthScreen() {
-  const [mode, setMode] = useState<'options' | 'email'>('options');
+  const [mode, setMode] = useState<'options' | 'email' | 'login'>('options');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');

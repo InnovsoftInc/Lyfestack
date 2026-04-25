@@ -240,7 +240,7 @@ export default function GoalDetailScreen() {
                   />
                   <Text style={styles.taskTitle}>{task.title}</Text>
                 </View>
-                <Text style={styles.taskConfidence}>{task.confidence}%</Text>
+                <Text style={styles.taskConfidence}>{task.confidenceScore ?? 0}%</Text>
               </View>
             ))}
           </View>

@@ -24,7 +24,7 @@ const config: ExpoConfig = {
     },
     package: 'com.innovsoftinc.lyfestack',
   },
-  plugins: ['expo-router', 'expo-font'],
+  plugins: ['expo-router', 'expo-font', 'expo-audio'],
   newArchEnabled: true,
   experiments: {
     typedRoutes: true,

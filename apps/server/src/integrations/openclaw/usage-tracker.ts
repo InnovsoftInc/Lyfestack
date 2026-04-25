@@ -116,10 +116,10 @@ export async function getUsageByAgent() {
   const month = filterByPeriod(entries, 'month');
   const grouped: Record<string, { requests: number; tokens: number; cost: number }> = {};
   for (const e of month) {
-    if (!grouped[e.agentName]) grouped[e.agentName] = { requests: 0, tokens: 0, cost: 0 };
-    grouped[e.agentName].requests++;
-    grouped[e.agentName].tokens += e.totalTokens;
-    grouped[e.agentName].cost += e.estimatedCost;
+    const stats = grouped[e.agentName] ?? (grouped[e.agentName] = { requests: 0, tokens: 0, cost: 0 });
+    stats.requests++;
+    stats.tokens += e.totalTokens;
+    stats.cost += e.estimatedCost;
   }
   return Object.entries(grouped).map(([agent, stats]) => ({ agent, ...stats, cost: Math.round(stats.cost * 10000) / 10000 })).sort((a, b) => b.requests - a.requests);
 }
@@ -129,10 +129,10 @@ export async function getUsageByModel() {
   const month = filterByPeriod(entries, 'month');
   const grouped: Record<string, { requests: number; tokens: number; cost: number }> = {};
   for (const e of month) {
-    if (!grouped[e.model]) grouped[e.model] = { requests: 0, tokens: 0, cost: 0 };
-    grouped[e.model].requests++;
-    grouped[e.model].tokens += e.totalTokens;
-    grouped[e.model].cost += e.estimatedCost;
+    const stats = grouped[e.model] ?? (grouped[e.model] = { requests: 0, tokens: 0, cost: 0 });
+    stats.requests++;
+    stats.tokens += e.totalTokens;
+    stats.cost += e.estimatedCost;
   }
   return Object.entries(grouped).map(([model, stats]) => ({ model, ...stats, cost: Math.round(stats.cost * 10000) / 10000 })).sort((a, b) => b.requests - a.requests);
 }

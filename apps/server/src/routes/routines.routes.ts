@@ -19,13 +19,13 @@ export function createRoutinesRouter(): Router {
   }));
 
   router.patch('/:id', wrap(async (req, res) => {
-    const routine = routinesService.updateRoutine(req.params.id, req.body as Parameters<typeof routinesService.updateRoutine>[1]);
+    const routine = routinesService.updateRoutine(req.params.id!, req.body as Parameters<typeof routinesService.updateRoutine>[1]);
     res.json({ routine });
   }));
 
   router.delete('/:id', (req, res, next) => {
     try {
-      routinesService.deleteRoutine(req.params.id);
+      routinesService.deleteRoutine(req.params.id!);
       res.json({ ok: true });
     } catch (err) {
       next(err);
@@ -34,7 +34,7 @@ export function createRoutinesRouter(): Router {
 
   router.post('/:id/toggle', (req, res, next) => {
     try {
-      const routine = routinesService.toggleRoutine(req.params.id);
+      const routine = routinesService.toggleRoutine(req.params.id!, Boolean(req.body?.enabled));
       res.json({ routine });
     } catch (err) {
       next(err);
@@ -42,13 +42,13 @@ export function createRoutinesRouter(): Router {
   });
 
   router.post('/:id/run', wrap(async (req, res) => {
-    const record = await routinesService.runNow(req.params.id);
+    const record = await routinesService.runNow(req.params.id!);
     res.json({ record });
   }));
 
   router.get('/:id/history', (req, res, next) => {
     try {
-      const history = routinesService.getRunHistory(req.params.id);
+      const history = routinesService.getRunHistory(req.params.id!);
       res.json({ history });
     } catch (err) {
       next(err);

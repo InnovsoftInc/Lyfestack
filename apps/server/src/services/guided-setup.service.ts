@@ -89,7 +89,7 @@ function buildUserTurn(
 function parseQuestion(raw: string, sessionId: string, step: number): GuidedQuestion {
   try {
     const jsonMatch = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/) ?? raw.match(/(\{[\s\S]*\})/);
-    const jsonStr = jsonMatch ? jsonMatch[1] : raw;
+    const jsonStr = jsonMatch?.[1] ?? raw;
     const parsed = JSON.parse(jsonStr.trim()) as Partial<GuidedQuestion>;
     return {
       sessionId,
@@ -121,7 +121,7 @@ function parseQuestion(raw: string, sessionId: string, step: number): GuidedQues
 }
 
 export async function startGuidedSession(templateId: string): Promise<GuidedQuestion> {
-  const template = templateService.getById(templateId);
+  const template = await templateService.getById(templateId);
   const sessionId = uuidv4();
   const step = 1;
 
@@ -189,7 +189,7 @@ export async function streamPlanGeneration(sessionId: string, res: Response): Pr
     return;
   }
 
-  const template = templateService.getById(session.templateId);
+  const template = await templateService.getById(session.templateId);
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -258,7 +258,7 @@ Return ONLY valid JSON:
       const jsonMatch =
         result.content.match(/```(?:json)?\s*([\s\S]*?)\s*```/) ??
         result.content.match(/(\{[\s\S]*\})/);
-      const jsonStr = jsonMatch ? jsonMatch[1] : result.content;
+      const jsonStr = jsonMatch?.[1] ?? result.content;
       planData = JSON.parse(jsonStr.trim()) as Record<string, unknown>;
     } catch {
       planData = {

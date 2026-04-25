@@ -322,13 +322,14 @@ export default function SkillsScreen() {
   // Create state
   const [newName, setNewName] = useState('');
   const [selectedTemplate, setSelectedTemplate] = useState('blank');
-  const [createContent, setCreateContent] = useState(TEMPLATES[0].content('my-skill'));
+  const defaultTemplate = TEMPLATES[0]!;
+  const [createContent, setCreateContent] = useState(defaultTemplate.content('my-skill'));
 
   const loadSkills = useCallback(async () => {
     setLoading(true);
     try {
       const res = await openclawApi.listSkills();
-      setSkills(res.data ?? []);
+      setSkills(((res as { data?: SkillInfo[] }).data) ?? []);
     } catch {
       setSkills([]);
     } finally {
@@ -341,14 +342,14 @@ export default function SkillsScreen() {
   // ── Template selection updates the create editor ─────────────────────────
   const selectTemplate = (id: string) => {
     setSelectedTemplate(id);
-    const tpl = TEMPLATES.find((t) => t.id === id) ?? TEMPLATES[0];
+    const tpl = TEMPLATES.find((t) => t.id === id) ?? defaultTemplate;
     const safeName = newName.trim().replace(/\s+/g, '-').toLowerCase() || 'my-skill';
     setCreateContent(tpl.content(safeName));
   };
 
   const updateNameAndContent = (name: string) => {
     setNewName(name);
-    const tpl = TEMPLATES.find((t) => t.id === selectedTemplate) ?? TEMPLATES[0];
+    const tpl = TEMPLATES.find((t) => t.id === selectedTemplate) ?? defaultTemplate;
     const safeName = name.trim().replace(/\s+/g, '-').toLowerCase() || 'my-skill';
     setCreateContent(tpl.content(safeName));
   };
@@ -358,7 +359,7 @@ export default function SkillsScreen() {
     setModal({ visible: true, skill: null, loading: true });
     try {
       const res = await openclawApi.getSkill(name);
-      setModal({ visible: true, skill: res.data, loading: false });
+      setModal({ visible: true, skill: (res as { data: SkillDetail }).data, loading: false });
     } catch {
       setModal({ visible: false, skill: null, loading: false });
       Alert.alert('Error', 'Could not load skill.');
@@ -415,7 +416,7 @@ export default function SkillsScreen() {
       await openclawApi.createSkill(safeName, createContent);
       setNewName('');
       setSelectedTemplate('blank');
-      setCreateContent(TEMPLATES[0].content('my-skill'));
+      setCreateContent(defaultTemplate.content('my-skill'));
       setView('list');
       await loadSkills();
     } catch (err: any) {

@@ -1,0 +1,30 @@
+{
+  "name": "@lyfestack/openclaw-lyfestack-plugin",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "OpenClaw channel plugin for LyfeStack",
+  "peerDependencies": {
+    "openclaw": ">=2026.4.25"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.js"
+    ],
+    "runtimeExtensions": [
+      "./index.js"
+    ],
+    "setupEntry": "./setup-entry.js",
+    "runtimeSetupEntry": "./setup-entry.js",
+    "channel": {
+      "id": "lyfestack",
+      "label": "LyfeStack",
+      "blurb": "Connect OpenClaw to LyfeStack.",
+      "exposure": {
+        "configured": true,
+        "setup": true,
+        "docs": true
+      }
+    }
+  }
+}

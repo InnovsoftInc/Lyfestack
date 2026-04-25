@@ -84,7 +84,7 @@ export class GoalService {
     answers: DiagnosticAnswer[],
   ): Promise<void> {
     if (!templateId || !this.taskRepository) return;
-    const template = templateService.getById(templateId);
+    const template = await templateService.getById(templateId);
     if (!template) return;
 
     const plan = planningEngine.generatePlan(template, answers, {
@@ -149,7 +149,7 @@ export class GoalService {
     answers: DiagnosticAnswer[],
     userId: string,
   ) {
-    const template = templateService.getById(templateId);
+    const template = await templateService.getById(templateId);
     if (!template) throw new NotFoundError(`Template ${templateId}`);
 
     return planningService.createPlan(goalId, templateId, answers, {

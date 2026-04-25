@@ -42,5 +42,5 @@ export async function answerQuestion(req: Request, res: Response): Promise<void>
 
 export async function generatePlanSSE(req: Request, res: Response): Promise<void> {
   const { sessionId } = req.params;
-  await streamPlanGeneration(sessionId, res);
+  await streamPlanGeneration(sessionId!, res);
 }

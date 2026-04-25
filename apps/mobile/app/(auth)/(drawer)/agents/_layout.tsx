@@ -7,9 +7,9 @@ export default function AgentsLayout() {
     <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: theme.background } }}>
       <Stack.Screen name="index" />
       <Stack.Screen name="[name]" />
-      <Stack.Screen name="[name]/chat" options={{ presentation: 'modal' }} />
-      <Stack.Screen name="[name]/file" options={{ presentation: 'modal' }} />
-      <Stack.Screen name="create" options={{ presentation: 'modal' }} />
+      <Stack.Screen name="[name]/chat" />
+      <Stack.Screen name="[name]/file" />
+      <Stack.Screen name="create" />
     </Stack>
   );
 }

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Spacing } from '../theme';
 import type { Theme } from '../theme';
 import type { SessionSummary } from '../stores/openclaw.store';
+import { LiquidSurface } from './ui';
 
 interface Props {
   visible: boolean;
@@ -14,6 +15,8 @@ interface Props {
   busyKey?: string | null;
   theme: Theme;
   initialAgentId?: string | null;
+  reflection?: boolean;
+  blur?: boolean;
   onClose: () => void;
   onSelect: (key: string) => void;
   onNew: () => void;
@@ -38,7 +41,7 @@ function formatRelative(iso: string): string {
 }
 
 export function SessionPickerSheet({
-  visible, sessions, activeKey, loading, busyKey, theme, initialAgentId, onClose, onSelect, onNew, onDelete,
+  visible, sessions, activeKey, loading, busyKey, theme, initialAgentId, reflection = true, blur = true, onClose, onSelect, onNew, onDelete,
 }: Props) {
   const listRef = useRef<FlatList<SessionSummary>>(null);
   const agentIds = useMemo(
@@ -84,7 +87,15 @@ export function SessionPickerSheet({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.overlay}>
-        <View style={[styles.sheet, { backgroundColor: theme.surface }]}>
+        <LiquidSurface
+          theme={theme}
+          borderRadius={28}
+          intensity={58}
+          reflection={reflection}
+          blur={blur}
+          style={styles.sheet}
+          contentStyle={styles.sheetInner}
+        >
           <View style={styles.titleRow}>
             <Text style={[styles.title, { color: theme.text.primary }]}>Sessions</Text>
             <TouchableOpacity onPress={onNew} activeOpacity={0.7} style={[styles.newBtn, { backgroundColor: theme.accent }]} hitSlop={6}>
@@ -105,8 +116,8 @@ export function SessionPickerSheet({
                       style={[
                         styles.filterChip,
                         {
-                          backgroundColor: isActive ? theme.accent + '18' : theme.background,
-                          borderColor: isActive ? theme.accent + '55' : theme.border,
+                          backgroundColor: isActive ? theme.accent + '18' : 'rgba(255,255,255,0.05)',
+                          borderColor: isActive ? theme.accent + '55' : 'rgba(255,255,255,0.12)',
                         },
                       ]}
                     >
@@ -145,7 +156,7 @@ export function SessionPickerSheet({
                     onPress={() => onSelect(item.key)}
                     disabled={isBusy}
                     activeOpacity={0.7}
-                    style={[styles.row, isActive && { backgroundColor: theme.accent + '15' }]}
+                    style={[styles.row, isActive && { backgroundColor: theme.accent + '15', borderColor: theme.accent + '30' }]}
                   >
                     <View style={{ flex: 1, gap: 3 }}>
                       <Text style={[styles.label, { color: theme.text.primary }]} numberOfLines={1}>
@@ -181,18 +192,19 @@ export function SessionPickerSheet({
             />
           )}
 
-          <TouchableOpacity style={[styles.close, { borderColor: theme.border }]} onPress={onClose}>
+          <TouchableOpacity style={[styles.close, { borderColor: 'rgba(255,255,255,0.14)' }]} onPress={onClose}>
             <Text style={[styles.closeText, { color: theme.text.secondary }]}>Close</Text>
           </TouchableOpacity>
-        </View>
+        </LiquidSurface>
       </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
-  sheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: Spacing.lg, maxHeight: '75%' },
+  overlay: { flex: 1, backgroundColor: 'rgba(4,6,12,0.5)', justifyContent: 'flex-end', paddingHorizontal: Spacing.sm, paddingBottom: Spacing.sm },
+  sheet: { maxHeight: '78%' },
+  sheetInner: { padding: Spacing.lg },
   titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.md },
   title: { fontSize: 18, fontWeight: '700' },
   newBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10 },
@@ -205,8 +217,11 @@ const styles = StyleSheet.create({
   empty: { textAlign: 'center', paddingVertical: Spacing.lg, fontSize: 13 },
   row: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
-    paddingHorizontal: 10, paddingVertical: 10, borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 11, borderRadius: 14,
     marginBottom: 4,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.08)',
   },
   label: { fontSize: 14, fontWeight: '600' },
   metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
@@ -216,7 +231,7 @@ const styles = StyleSheet.create({
   check: { fontSize: 16, fontWeight: '700', marginLeft: 4 },
   close: {
     marginTop: Spacing.md, paddingVertical: 14, alignItems: 'center', borderRadius: 12,
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth, backgroundColor: 'rgba(255,255,255,0.06)',
   },
   closeText: { fontSize: 15, fontWeight: '600' },
 });

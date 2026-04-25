@@ -210,9 +210,20 @@ export type OrchestratorEvent =
   | { type: 'done'; response: string }
   | { type: 'error'; message: string };
 
+export interface OrchestrateAttachment {
+  id: string;
+  name: string;
+  type: 'text' | 'image' | 'file';
+  mimeType: string;
+  size: number;
+  textContent?: string;
+  dataBase64?: string;
+}
+
 export interface OrchestrateOptions {
   prompt: string;
   history?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  attachments?: OrchestrateAttachment[];
   signal?: AbortSignal;
   onEvent: (ev: OrchestratorEvent) => void;
 }
@@ -268,7 +279,11 @@ export async function streamOrchestrator(opts: OrchestrateOptions): Promise<void
       opts.signal.addEventListener('abort', () => { xhr.abort(); safeResolve(); });
     }
 
-    xhr.send(JSON.stringify({ prompt: opts.prompt, history: opts.history ?? [] }));
+    xhr.send(JSON.stringify({
+      prompt: opts.prompt,
+      history: opts.history ?? [],
+      ...(opts.attachments?.length ? { attachments: opts.attachments } : {}),
+    }));
   });
 }
 
@@ -296,7 +311,12 @@ export async function transcribeAudio(
   const res = await fetch(url, { method: 'POST', headers, body: body as any });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(text || `transcription failed: ${res.status}`);
+    let message = '';
+    try {
+      const parsed = JSON.parse(text) as { error?: { message?: string } };
+      message = parsed.error?.message ?? '';
+    } catch {}
+    throw new Error(message || text || `transcription failed: ${res.status}`);
   }
   const json = (await res.json()) as { data: TranscriptResult };
   return json.data;

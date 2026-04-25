@@ -40,7 +40,7 @@ export interface RedactedOpenAIConfig {
 
 export const DEFAULT_OPENAI_CONFIG: OpenAIConfig = {
   apiKey: 'env:OPENAI_API_KEY',
-  defaultModel: 'gpt-4o-mini',
+  defaultModel: 'gpt-5.2',
   features: {
     voice:        { model: 'gpt-4o-realtime-preview', voice: 'alloy' },
     tts:          { model: 'gpt-4o-mini-tts', voice: 'nova' },
@@ -48,9 +48,9 @@ export const DEFAULT_OPENAI_CONFIG: OpenAIConfig = {
     vision:       { model: 'gpt-4o' },
     embeddings:   { model: 'text-embedding-3-small' },
     moderation:   { model: 'omni-moderation-latest' },
-    summary:      { model: 'gpt-4o-mini' },
-    orchestrator: { model: 'gpt-4o-mini' },
-    batch:        { model: 'gpt-4o-mini' },
+    summary:      { model: 'gpt-5.2' },
+    orchestrator: { model: 'gpt-5.2' },
+    batch:        { model: 'gpt-5.2' },
   },
   budget: { dailyUsd: 5, monthlyUsd: 50, hardStop: false },
 };

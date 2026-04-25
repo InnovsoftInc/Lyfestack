@@ -116,8 +116,6 @@ export function MarkdownEditorModal({ visible, title, initialContent, loading, s
               style: { backgroundColor: theme.background },
             }}
             theme={{
-              code: { backgroundColor: theme.surface, color: theme.text.primary, borderRadius: BorderRadius.sm, paddingHorizontal: 4 },
-              codespan: { backgroundColor: theme.surface, color: theme.accent },
               heading1: { color: theme.text.primary, fontSize: 22, fontWeight: '700', marginTop: Spacing.md, marginBottom: Spacing.xs },
               heading2: { color: theme.text.primary, fontSize: 18, fontWeight: '700', marginTop: Spacing.md, marginBottom: Spacing.xs },
               heading3: { color: theme.text.primary, fontSize: 15, fontWeight: '700', marginTop: Spacing.sm, marginBottom: 2 },
@@ -133,8 +131,7 @@ export function MarkdownEditorModal({ visible, title, initialContent, loading, s
               td: { color: theme.text.primary, padding: Spacing.xs, fontSize: 13 },
               image: {},
               text: { color: theme.text.primary },
-            }}
-            colorScheme={colorScheme ?? 'dark'}
+            } as any}
           />
         )}
       </View>

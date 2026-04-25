@@ -18,12 +18,12 @@ const AVATAR_COLORS = [
 function avatarColor(name: string): string {
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length] ?? '#5C9AE0';
 }
 
 function initials(name: string): string {
   const parts = name.replace(/-/g, ' ').split(' ').filter(Boolean);
-  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  if (parts.length >= 2) return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase();
   return (parts[0]?.[0] ?? '?').toUpperCase();
 }
 
@@ -85,7 +85,7 @@ export default function AgentsScreen() {
 
       <FlatList
         data={agents}
-        keyExtractor={(item) => item.name}
+        keyExtractor={(item) => item.id}
         contentContainerStyle={[
           s.list,
           connectionStatus === 'connected' && { paddingTop: headerSpacerHeight(insets.top, true) + Spacing.sm },
@@ -93,7 +93,7 @@ export default function AgentsScreen() {
         renderItem={({ item }) => (
           <TouchableOpacity
             style={s.card}
-            onPress={() => router.push(`/(auth)/(drawer)/agents/${item.name}` as any)}
+            onPress={() => router.push(`/(auth)/(drawer)/agents/${item.id}` as any)}
             activeOpacity={0.7}
           >
             <View style={s.cardLeft}>

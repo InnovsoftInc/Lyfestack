@@ -204,6 +204,16 @@ router.post('/draft-automation', async (req, res, next) => {
 
 // ── Natural-language orchestrator ───────────────────────────────────────────
 
+const orchestrateAttachmentSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  type: z.enum(['text', 'image', 'file']),
+  mimeType: z.string(),
+  size: z.number().nonnegative(),
+  textContent: z.string().optional(),
+  dataBase64: z.string().optional(),
+});
+
 const orchestrateSchema = z.object({
   prompt: z.string().min(1),
   history: z
@@ -212,6 +222,7 @@ const orchestrateSchema = z.object({
       content: z.string(),
     }))
     .optional(),
+  attachments: z.array(orchestrateAttachmentSchema).optional(),
 });
 
 router.post('/orchestrate', async (req, res, next) => {
@@ -233,7 +244,7 @@ router.post('/orchestrate', async (req, res, next) => {
   req.on('close', () => { clientGone = true; });
 
   try {
-    for await (const event of orchestrate(parsed.data.prompt, parsed.data.history ?? [])) {
+    for await (const event of orchestrate(parsed.data.prompt, parsed.data.history ?? [], parsed.data.attachments ?? [])) {
       if (clientGone) return;
       write({ type: event.type, ...event.data });
       if (event.type === 'done' || event.type === 'error') {

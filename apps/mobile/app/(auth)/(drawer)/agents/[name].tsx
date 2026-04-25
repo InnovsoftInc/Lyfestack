@@ -39,6 +39,7 @@ interface AgentPersona {
 }
 
 interface AgentDetail {
+  id: string;
   name: string;
   role: string;
   model: string;
@@ -85,12 +86,14 @@ export default function AgentProfileScreen() {
   const [traits, setTraits] = useState<string[]>([]);
   const [tone, setTone] = useState('');
   const [systemPrompt, setSystemPrompt] = useState('');
+  const [displayName, setDisplayName] = useState(name);
 
   const loadAgent = useCallback(async () => {
     setLoading(true);
     try {
       const res = await openclawApi.getAgent(name) as { data: AgentDetail };
       const d = res.data;
+      setDisplayName(d.name ?? name);
       setRole(d.role ?? '');
       setDescription(d.persona?.description ?? '');
       setScope(d.persona?.scope ?? '');
@@ -146,7 +149,7 @@ export default function AgentProfileScreen() {
     try {
       const persona: AgentPersona = { description, scope, traits, tone };
       const prompt = advancedMode ? systemPrompt : buildSystemPrompt(role, persona);
-      await openclawApi.updateAgent(name, { role, systemPrompt: prompt, persona });
+      await openclawApi.updateAgent(name, { role, systemPrompt: prompt, persona: { ...persona } });
       setSystemPrompt(prompt);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -173,36 +176,35 @@ export default function AgentProfileScreen() {
   };
 
   const openRename = () => {
-    setRenameValue(name);
+    setRenameValue(displayName);
     setRenameError(null);
     setRenameOpen(true);
   };
 
-  const validateName = (v: string) => /^[a-z0-9][a-z0-9_-]{0,47}$/.test(v);
+  const validateName = (v: string) => v.trim().length >= 1 && v.trim().length <= 48;
 
   const confirmRename = async () => {
     const next = renameValue.trim();
     if (!validateName(next)) {
-      setRenameError('Use lowercase letters, digits, dash or underscore (max 48 chars).');
+      setRenameError('Enter a display name between 1 and 48 characters.');
       return;
     }
-    if (next === name) { setRenameOpen(false); return; }
+    if (next === displayName) { setRenameOpen(false); return; }
 
     Alert.alert(
       'Rename agent',
-      `Rename "${name}" → "${next}"? This moves the agent's folder and renames workspace files. Active sessions will follow the new name.`,
+      `Change the display name from "${displayName}" to "${next}"? The agent identity and workspace slug will stay the same.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Rename',
-          style: 'destructive',
+          text: 'Save',
           onPress: async () => {
             setRenameSaving(true);
             setRenameError(null);
             try {
-              await openclawApi.renameAgent(name, next);
+              await openclawApi.updateAgent(name, { displayName: next });
+              setDisplayName(next);
               setRenameOpen(false);
-              router.replace(`/(auth)/(drawer)/agents/${next}` as any);
             } catch (err: any) {
               setRenameError(err?.message ?? 'Rename failed');
             } finally {
@@ -224,7 +226,7 @@ export default function AgentProfileScreen() {
 
   return (
     <View style={s.container}>
-      <GlassHeader title={name} />
+      <GlassHeader title={displayName} />
 
       {/* Tab bar */}
       <View style={s.tabBar}>
@@ -299,14 +301,14 @@ export default function AgentProfileScreen() {
         <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           {/* Hero */}
           <View style={s.hero}>
-            <AgentAvatar name={name} size={88} />
+            <AgentAvatar name={displayName} size={88} />
             <TouchableOpacity
               onPress={openRename}
               activeOpacity={0.7}
               style={s.heroNameRow}
               hitSlop={8}
             >
-              <Text style={s.heroName}>{name}</Text>
+              <Text style={s.heroName}>{displayName}</Text>
               <Text style={s.heroNameEdit}>✎</Text>
             </TouchableOpacity>
             <Text style={s.heroRole}>{role || 'No role set'}</Text>
@@ -316,7 +318,7 @@ export default function AgentProfileScreen() {
               onPress={() => router.push(`/(auth)/(drawer)/agents/${name}/chat` as any)}
               activeOpacity={0.85}
             >
-              <Text style={s.chatBtnText}>💬  Chat with {name}</Text>
+              <Text style={s.chatBtnText}>💬  Chat with {displayName}</Text>
             </TouchableOpacity>
           </View>
 
@@ -359,7 +361,7 @@ export default function AgentProfileScreen() {
                   style={[s.input, s.textarea]}
                   value={description}
                   onChangeText={setDescription}
-                  placeholder={`A brief description of ${name}...`}
+                  placeholder={`A brief description of ${displayName}...`}
                   placeholderTextColor={theme.text.secondary}
                   multiline
                   textAlignVertical="top"
@@ -424,17 +426,17 @@ export default function AgentProfileScreen() {
       <Modal visible={renameOpen} transparent animationType="fade" onRequestClose={() => setRenameOpen(false)}>
         <View style={s.modalBackdrop}>
           <View style={s.modalCard}>
-            <Text style={s.modalTitle}>Rename agent</Text>
+            <Text style={s.modalTitle}>Rename display name</Text>
             <Text style={s.modalHint}>
-              Lowercase letters, digits, dash or underscore. The agent folder, config entry and workspace files prefixed with this name will be moved.
+              This changes the human-readable agent name only. The underlying agent identity, folder, and sessions stay the same.
             </Text>
             <TextInput
               style={s.modalInput}
               value={renameValue}
               onChangeText={(v) => { setRenameValue(v); if (renameError) setRenameError(null); }}
-              autoCapitalize="none"
+              autoCapitalize="words"
               autoCorrect={false}
-              placeholder="new-agent-name"
+              placeholder="Agent display name"
               placeholderTextColor={theme.text.secondary}
             />
             {renameError ? <Text style={s.modalError}>{renameError}</Text> : null}
@@ -455,7 +457,7 @@ export default function AgentProfileScreen() {
               >
                 {renameSaving
                   ? <ActivityIndicator size="small" color="#fff" />
-                  : <Text style={s.modalBtnPrimaryText}>Rename</Text>}
+                  : <Text style={s.modalBtnPrimaryText}>Save</Text>}
               </TouchableOpacity>
             </View>
           </View>

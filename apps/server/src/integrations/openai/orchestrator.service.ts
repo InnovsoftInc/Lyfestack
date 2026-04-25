@@ -250,15 +250,29 @@ export interface OrchestratorEvent {
   data: Record<string, unknown>;
 }
 
+type UserContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } };
+
 interface ChatMessageOut {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string | null;
+  content: string | UserContentPart[] | null;
   tool_calls?: Array<{
     id: string;
     type: 'function';
     function: { name: string; arguments: string };
   }>;
   tool_call_id?: string;
+}
+
+export interface OrchestratorAttachment {
+  id: string;
+  name: string;
+  type: 'text' | 'image' | 'file';
+  mimeType: string;
+  size: number;
+  textContent?: string | undefined;
+  dataBase64?: string | undefined;
 }
 
 interface ChatCompletionResponse {
@@ -273,6 +287,7 @@ const MAX_ROUNDS = 6;
 export async function* orchestrate(
   prompt: string,
   history: Array<{ role: 'user' | 'assistant'; content: string }> = [],
+  attachments: OrchestratorAttachment[] = [],
 ): AsyncGenerator<OrchestratorEvent> {
   await checkBudget();
   const mod = await moderate(prompt);
@@ -283,10 +298,30 @@ export async function* orchestrate(
   const resolved = await resolveModel('orchestrator');
   yield { type: 'init', data: { model: resolved.model } };
 
+  const textAttachments = attachments.filter((a) => (a.type === 'text' || a.type === 'file') && a.textContent);
+  const imageAttachments = attachments.filter((a) => a.type === 'image' && a.dataBase64);
+
+  const promptWithText = textAttachments.length
+    ? [
+        prompt,
+        ...textAttachments.map((a) => `\n\n[Attached file: ${a.name}]\n${a.textContent ?? ''}`),
+      ].join('')
+    : prompt;
+
+  const userContent: string | UserContentPart[] = imageAttachments.length
+    ? [
+        { type: 'text', text: promptWithText },
+        ...imageAttachments.map<UserContentPart>((a) => ({
+          type: 'image_url',
+          image_url: { url: `data:${a.mimeType};base64,${a.dataBase64}` },
+        })),
+      ]
+    : promptWithText;
+
   const messages: ChatMessageOut[] = [
     { role: 'system', content: SYSTEM_PROMPT },
     ...history.map((m) => ({ role: m.role, content: m.content })),
-    { role: 'user', content: prompt },
+    { role: 'user', content: userContent },
   ];
 
   for (let round = 0; round < MAX_ROUNDS; round++) {

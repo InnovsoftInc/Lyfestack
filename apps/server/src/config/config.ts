@@ -28,6 +28,7 @@ const configSchema = z.object({
 
   OPENCLAW_GATEWAY_URL: z.string().url().optional(),
   OPENCLAW_GATEWAY_TOKEN: z.string().optional(),
+  LYFESTACK_WEBHOOK_SECRET: z.string().optional(),
 });
 
 const result = configSchema.safeParse(process.env);

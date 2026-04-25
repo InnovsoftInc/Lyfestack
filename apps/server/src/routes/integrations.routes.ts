@@ -5,6 +5,7 @@ import { createAuthMiddleware, requireAuth } from '../middleware/auth.middleware
 import { getSupabaseClient } from '../config/database';
 import { calendarService } from '../integrations/calendar/calendar.service';
 import { bufferService } from '../integrations/buffer/buffer.service';
+import { lyfestackRouter } from '../integrations/lyfestack/lyfestack.routes';
 import { config } from '../config/config';
 
 const schedulePostSchema = z.object({
@@ -17,6 +18,9 @@ export function createIntegrationsRouter(): Router {
   const supabase = getSupabaseClient();
   const authMiddleware = createAuthMiddleware(supabase);
   const router = Router();
+
+  // ── LyfeStack channel receiver ─────────────────────────────────────────
+  router.use('/lyfestack', lyfestackRouter);
 
   // ── Google Calendar ──────────────────────────────────────────────────────
 

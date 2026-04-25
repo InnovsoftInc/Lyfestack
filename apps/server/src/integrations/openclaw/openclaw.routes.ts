@@ -2,6 +2,7 @@ import { Router } from 'express';
 import {
   getStatus,
   listAgents,
+  listCommands,
   createAgent,
   deleteAgent,
   getAgent,
@@ -12,6 +13,7 @@ import {
   updateAgentFile,
   sendMessage,
   streamMessage,
+  getActiveStream,
   resumeStream,
   getStreamStatus,
   getConfig,
@@ -35,6 +37,7 @@ router.patch('/config', updateConfig);
 router.get('/auth-profiles', getAuthProfiles);
 router.patch('/auth-profiles/:name', updateAuthProfile);
 router.get('/agents', listAgents);
+router.get('/commands', listCommands);
 router.post('/agents', createAgent);
 router.get('/agents/:name', getAgent);
 router.put('/agents/:name', updateAgent);
@@ -47,6 +50,7 @@ router.get('/agents/:name/files/:filename', getAgentFile);
 router.put('/agents/:name/files/:filename', updateAgentFile);
 router.post('/agents/:name/message', sendMessage);
 router.post('/agents/:name/message/stream', streamMessage);
+router.get('/agents/:name/streams/active', getActiveStream);
 router.get('/agents/:name/message/stream/resume', resumeStream);
 router.get('/streams/:messageId/status', getStreamStatus);
 
@@ -58,8 +62,10 @@ router.delete('/skills/:name', deleteSkill);
 
 export { router as openclawRoutes };
 
-// Sessions — read-through to ~/.openclaw/agents/<agent>/sessions/*.jsonl
-import { listSessions, getSession, createSession, deleteSession } from './sessions.service';
+// Sessions — read-through diagnostics only. OpenClaw owns creation, deletion,
+// selection, memory, usage, and compression.
+import { listSessions, getSession } from './sessions.service';
+import { resolveOpenClawAgentId } from './openclaw.service';
 
 router.get('/sessions', async (req, res, next) => {
   try {
@@ -86,28 +92,15 @@ router.get('/sessions/detail', async (req, res, next) => {
 
 router.post('/sessions', async (req, res, next) => {
   try {
-    const agentId = typeof req.body?.agentId === 'string' ? req.body.agentId : '';
-    if (!agentId) { res.status(400).json({ error: 'agentId is required' }); return; }
-    const result = await createSession(agentId);
-    if (!result.ok) {
-      const status = result.error === 'agent not found' ? 404 : 400;
-      res.status(status).json({ error: result.error ?? 'failed to create session' });
-      return;
-    }
-    res.status(201).json({ data: result.session });
+    void req;
+    res.status(410).json({ error: 'Session creation is managed by OpenClaw.' });
   } catch (err) { next(err); }
 });
 
 router.delete('/sessions/:agentId/:sessionId', async (req, res, next) => {
   try {
-    const { agentId, sessionId } = req.params;
-    const result = await deleteSession(`${agentId}/${sessionId}`);
-    if (!result.ok) {
-      const status = result.error === 'session not found' ? 404 : 400;
-      res.status(status).json({ error: result.error ?? 'failed to delete session' });
-      return;
-    }
-    res.json({ data: { ok: true } });
+    void req;
+    res.status(410).json({ error: 'Session deletion is managed by OpenClaw.' });
   } catch (err) { next(err); }
 });
 
@@ -117,7 +110,6 @@ import {
   getThread,
   getOrCreateThread,
   appendMessage as appendThreadMessage,
-  rolloverThread,
   resetThread,
   deleteThread,
 } from './threads.service';
@@ -128,13 +120,14 @@ router.get('/threads', async (_req, res, next) => {
 
 router.get('/threads/:agentName', async (req, res, next) => {
   try {
-    const agentName = req.params.agentName;
+    const agentName = req.params.agentName ? await resolveOpenClawAgentId(req.params.agentName) : undefined;
     if (!agentName) { res.status(400).json({ error: 'agentName is required' }); return; }
-    const opts: { limit?: number; beforeId?: string; afterId?: string } = {};
+    const opts: { limit?: number; beforeId?: string; afterId?: string; includeSession?: boolean } = {};
     if (req.query.limit !== undefined) opts.limit = Number(req.query.limit);
     if (typeof req.query.beforeId === 'string' && req.query.beforeId) opts.beforeId = req.query.beforeId;
     if (typeof req.query.afterId === 'string' && req.query.afterId) opts.afterId = req.query.afterId;
     const ensure = req.query.ensure === '1' || req.query.ensure === 'true';
+    if (req.query.includeSession === '0' || req.query.includeSession === 'false') opts.includeSession = false;
     if (ensure) await getOrCreateThread(agentName);
     const detail = await getThread(agentName, opts);
     if (!detail) { res.status(404).json({ error: 'Thread not found' }); return; }
@@ -147,7 +140,7 @@ router.get('/threads/:agentName', async (req, res, next) => {
 
 router.post('/threads/:agentName', async (req, res, next) => {
   try {
-    const agentName = req.params.agentName;
+    const agentName = req.params.agentName ? await resolveOpenClawAgentId(req.params.agentName) : undefined;
     if (!agentName) { res.status(400).json({ error: 'agentName is required' }); return; }
     const thread = await getOrCreateThread(agentName);
     res.status(201).json({ data: thread });
@@ -159,15 +152,14 @@ router.post('/threads/:agentName', async (req, res, next) => {
 
 router.post('/threads/:agentName/messages', async (req, res, next) => {
   try {
-    const agentName = req.params.agentName;
+    const agentName = req.params.agentName ? await resolveOpenClawAgentId(req.params.agentName) : undefined;
     if (!agentName) { res.status(400).json({ error: 'agentName is required' }); return; }
-    const { role, content, sessionKey, isError, errorType } = req.body ?? {};
+    const { role, content, isError, errorType } = req.body ?? {};
     if (role !== 'user' && role !== 'agent') { res.status(400).json({ error: "role must be 'user' or 'agent'" }); return; }
     if (typeof content !== 'string') { res.status(400).json({ error: 'content must be a string' }); return; }
     const message = await appendThreadMessage(agentName, {
       role,
       content,
-      ...(typeof sessionKey === 'string' && sessionKey ? { sessionKey } : {}),
       ...(isError ? { isError: true } : {}),
       ...(typeof errorType === 'string' && errorType ? { errorType } : {}),
     });
@@ -180,10 +172,8 @@ router.post('/threads/:agentName/messages', async (req, res, next) => {
 
 router.post('/threads/:agentName/rollover', async (req, res, next) => {
   try {
-    const agentName = req.params.agentName;
-    if (!agentName) { res.status(400).json({ error: 'agentName is required' }); return; }
-    const result = await rolloverThread(agentName);
-    res.json({ data: result });
+    void req;
+    res.status(410).json({ error: 'Session rollover is managed by OpenClaw.' });
   } catch (err: any) {
     if (err?.message?.startsWith('invalid agent name')) { res.status(400).json({ error: err.message }); return; }
     next(err);
@@ -192,7 +182,7 @@ router.post('/threads/:agentName/rollover', async (req, res, next) => {
 
 router.post('/threads/:agentName/reset', async (req, res, next) => {
   try {
-    const agentName = req.params.agentName;
+    const agentName = req.params.agentName ? await resolveOpenClawAgentId(req.params.agentName) : undefined;
     if (!agentName) { res.status(400).json({ error: 'agentName is required' }); return; }
     await resetThread(agentName);
     res.json({ data: { ok: true } });
@@ -204,7 +194,7 @@ router.post('/threads/:agentName/reset', async (req, res, next) => {
 
 router.delete('/threads/:agentName', async (req, res, next) => {
   try {
-    const agentName = req.params.agentName;
+    const agentName = req.params.agentName ? await resolveOpenClawAgentId(req.params.agentName) : undefined;
     if (!agentName) { res.status(400).json({ error: 'agentName is required' }); return; }
     await deleteThread(agentName);
     res.json({ data: { ok: true } });

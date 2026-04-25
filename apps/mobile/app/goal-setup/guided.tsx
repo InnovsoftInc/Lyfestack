@@ -438,10 +438,10 @@ function renderInput(
     case 'slider':
       return (
         <SliderInput
-          min={q.min}
-          max={q.max}
-          defaultVal={q.default}
-          unit={q.unit}
+          {...(q.min !== undefined && { min: q.min })}
+          {...(q.max !== undefined && { max: q.max })}
+          {...(q.default !== undefined && { defaultVal: q.default })}
+          {...(q.unit !== undefined && { unit: q.unit })}
           value={value}
           onChange={onChange}
           styles={styles}
@@ -450,10 +450,10 @@ function renderInput(
     case 'number':
       return (
         <NumberInput
-          min={q.min}
-          max={q.max}
-          defaultVal={q.default}
-          unit={q.unit}
+          {...(q.min !== undefined && { min: q.min })}
+          {...(q.max !== undefined && { max: q.max })}
+          {...(q.default !== undefined && { defaultVal: q.default })}
+          {...(q.unit !== undefined && { unit: q.unit })}
           value={value}
           onChange={onChange}
           styles={styles}

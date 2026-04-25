@@ -16,6 +16,7 @@ import { Colors } from '@lyfestack/shared';
 import { useGuidedSetupStore } from '../../stores/guided-setup.store';
 import { useGoalsStore } from '../../stores/goals.store';
 import { useAuthStore } from '../../stores/auth.store';
+import { openclawApi } from '../../services/openclaw.api';
 
 function makeStyles(theme: Theme) {
   return StyleSheet.create({
@@ -125,8 +126,8 @@ function makeStyles(theme: Theme) {
 
 export default function PlanPreviewScreen() {
   const { templateName } = useLocalSearchParams<{ templateName?: string }>();
-  const { generatedPlan, answers, sessionId, reset } = useGuidedSetupStore();
-  const { createGoal } = useGoalsStore();
+  const { generatedPlan, answers, sessionId, templateId, reset } = useGuidedSetupStore();
+  const { createGoal, generatePlan } = useGoalsStore();
   const { user } = useAuthStore();
   const theme = useTheme();
   const styles = makeStyles(theme);
@@ -134,23 +135,57 @@ export default function PlanPreviewScreen() {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [setupStatus, setSetupStatus] = useState<'idle' | 'saving_goal' | 'creating_plan' | 'creating_automation' | 'ready'>('idle');
 
   // Auto-save goal when plan is first shown
   useEffect(() => {
     if (!generatedPlan || !user || saved) return;
     setSaved(true);
 
-    void createGoal({
-      title: generatedPlan.goalTitle,
-      description: generatedPlan.goalDescription,
-      diagnosticAnswers: answers.map((a) => ({ questionId: `step-${a.step}`, value: a.value })),
-      targetDate: generatedPlan.estimatedDurationDays
-        ? new Date(Date.now() + generatedPlan.estimatedDurationDays * 86400000).toISOString().split('T')[0]
-        : undefined,
-    }).catch((err: unknown) => {
-      const msg = err instanceof Error ? err.message : 'Failed to save goal';
-      setError(msg);
-    });
+    const targetDate = generatedPlan.estimatedDurationDays
+      ? new Date(Date.now() + generatedPlan.estimatedDurationDays * 86400000).toISOString().split('T')[0]
+      : undefined;
+
+    const diagnosticAnswers = answers.map((a) => ({ questionId: `step-${a.step}`, value: a.value }));
+
+    void (async () => {
+      try {
+        setSetupStatus('saving_goal');
+        const goal = await createGoal({
+          title: generatedPlan.goalTitle,
+          description: generatedPlan.goalDescription,
+          ...(templateId ? { templateId } : {}),
+          diagnosticAnswers,
+          ...(targetDate !== undefined && { targetDate }),
+        });
+
+        if (templateId) {
+          setSetupStatus('creating_plan');
+          await generatePlan(goal.id, templateId, diagnosticAnswers, user.id);
+        }
+
+        setSetupStatus('creating_automation');
+        await openclawApi.createAutomation({
+          name: `${generatedPlan.goalTitle} Daily Check-in`,
+          schedule: '0 8 * * *',
+          agent: 'main',
+          prompt: [
+            `Goal: ${generatedPlan.goalTitle}`,
+            `Summary: ${generatedPlan.goalDescription}`,
+            `Check in with the user on today's highest-leverage action from this goal plan.`,
+            `Use the plan milestones and tasks as context. Keep the reminder brief, practical, and encouraging.`,
+          ].join('\n'),
+          enabled: true,
+          notify: { channel: 'telegram' },
+        });
+
+        setSetupStatus('ready');
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'Failed to finish goal setup';
+        setError(msg);
+        setSetupStatus('idle');
+      }
+    })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [generatedPlan, user]);
 
@@ -254,7 +289,11 @@ export default function PlanPreviewScreen() {
 
         <View style={styles.infoBox}>
           <Text style={styles.infoText}>
-            Tasks will appear in your Daily Brief each morning, prioritized by your goals and schedule.
+            {setupStatus === 'ready'
+              ? 'Your goal, plan, and daily automation are ready.'
+              : setupStatus === 'idle'
+                ? 'Tasks will appear in your Daily Brief each morning, prioritized by your goals and schedule.'
+                : 'Creating your goal, plan, and daily automation...'}
           </Text>
         </View>
 

@@ -1,11 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
 import { randomUUID } from 'crypto';
-import { OpenClawService } from './openclaw.service';
+import { OpenClawService, resolveOpenClawAgentId, type MessageAttachmentInput } from './openclaw.service';
 import {
   appendChunk,
+  appendToolEvent,
   buildResume,
   createBuffer,
   getBuffer,
+  getLatestActiveBuffer,
   markDone,
   markError,
   subscribe,
@@ -19,7 +21,23 @@ import { logger } from '../../utils/logger';
 
 const service = new OpenClawService();
 
+function normalizeAttachments(input: unknown): MessageAttachmentInput[] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .filter((attachment) => attachment && typeof attachment === 'object')
+    .map((attachment: any) => ({
+      ...(attachment.id ? { id: String(attachment.id) } : {}),
+      name: String(attachment.name ?? 'attachment'),
+      type: attachment.type === 'image' ? 'image' : attachment.type === 'text' ? 'text' : 'file',
+      mimeType: String(attachment.mimeType ?? 'application/octet-stream'),
+      size: Number(attachment.size ?? 0) || 0,
+      ...(typeof attachment.textContent === 'string' ? { textContent: attachment.textContent } : {}),
+      ...(typeof attachment.dataBase64 === 'string' ? { dataBase64: attachment.dataBase64 } : {}),
+    }));
+}
+
 function writeSse(res: Response, payload: Record<string, unknown>): void {
+  logger.debug({ payload }, 'openclaw sse event');
   res.write(`data: ${JSON.stringify(payload)}\n\n`);
 }
 
@@ -29,6 +47,13 @@ export const getStatus = async (_req: Request, res: Response, next: NextFunction
 
 export const listAgents = async (_req: Request, res: Response, next: NextFunction) => {
   try { res.json({ data: await service.listAgents() }); } catch (err) { next(err); }
+};
+
+export const listCommands = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const agentId = typeof req.query.agentId === 'string' ? req.query.agentId : undefined;
+    res.json({ data: await service.listCommands(agentId) });
+  } catch (err) { next(err); }
 };
 
 export const createAgent = async (req: Request, res: Response, next: NextFunction) => {
@@ -49,7 +74,9 @@ export const deleteAgent = async (req: Request, res: Response, next: NextFunctio
 
 export const getAgent = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { name } = req.params;
+    let { name } = req.params;
+    if (!name) { res.status(400).json({ error: 'Agent name required' }); return; }
+    name = await resolveOpenClawAgentId(name);
     const agent = await service.getAgent(name);
     if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
     res.json({ data: agent });
@@ -59,6 +86,7 @@ export const getAgent = async (req: Request, res: Response, next: NextFunction) 
 export const updateAgent = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { name } = req.params;
+    if (!name) { res.status(400).json({ error: 'Agent name required' }); return; }
     await service.updateAgent(name, req.body);
     res.json({ success: true });
   } catch (err) { next(err); }
@@ -82,15 +110,15 @@ export const renameAgent = async (req: Request, res: Response, next: NextFunctio
 
 export const listAgentFiles = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const files = await service.listAgentFiles(req.params.name);
+    const files = await service.listAgentFiles(req.params.name!);
     res.json({ data: files });
   } catch (err) { next(err); }
 };
 
 export const getAgentFile = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const content = await service.getAgentFile(req.params.name, req.params.filename);
-    res.json({ data: { filename: req.params.filename, content } });
+    const content = await service.getAgentFile(req.params.name!, req.params.filename!);
+    res.json({ data: { filename: req.params.filename!, content } });
   } catch (err: any) {
     if (err.message?.includes('not accessible')) { res.status(403).json({ error: err.message }); return; }
     next(err);
@@ -99,7 +127,7 @@ export const getAgentFile = async (req: Request, res: Response, next: NextFuncti
 
 export const updateAgentFile = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    await service.updateAgentFile(req.params.name, req.params.filename, req.body.content as string);
+    await service.updateAgentFile(req.params.name!, req.params.filename!, req.body.content as string);
     res.json({ success: true });
   } catch (err: any) {
     if (err.message?.includes('not writable')) { res.status(403).json({ error: err.message }); return; }
@@ -109,78 +137,80 @@ export const updateAgentFile = async (req: Request, res: Response, next: NextFun
 
 export const sendMessage = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { name } = req.params;
+    let { name } = req.params;
     if (!name) { res.status(400).json({ error: 'Agent name required' }); return; }
-    const message = req.body?.message;
-    if (typeof message !== 'string' || !message.trim()) { res.status(400).json({ error: 'message is required' }); return; }
+    name = await resolveOpenClawAgentId(name);
+    const message = typeof req.body?.message === 'string' ? req.body.message : '';
+    const attachments = normalizeAttachments(req.body?.attachments);
+    if (!message.trim() && attachments.length === 0) { res.status(400).json({ error: 'message or attachments are required' }); return; }
 
-    // Phase 2: make sure the thread exists and has an active session before we
-    // hand the message to the CLI. Persist both sides of the exchange.
+    // Lyfestack owns only the visible transcript. OpenClaw owns runtime
+    // session selection, memory, usage, and compression.
     const thread = await getOrCreateThread(name).catch((err) => {
       logger.warn({ err, agent: name }, 'getOrCreateThread failed; continuing without thread');
       return null;
     });
-    let sessionKey: string | null = thread?.activeSessionKey ?? null;
-    try {
-      const ensure = await ensureActiveSession(name);
-      sessionKey = ensure.sessionKey;
-    } catch (err) {
-      logger.warn({ err, agent: name }, 'ensureActiveSession failed');
-    }
+    const activeSession = thread
+      ? await ensureActiveSession(name).catch((err) => {
+          logger.warn({ err, agent: name }, 'ensureActiveSession failed; continuing with default session');
+          return null;
+        })
+      : null;
 
     if (thread) {
       await appendThreadMessage(name, {
         role: 'user',
         content: message,
-        ...(sessionKey ? { sessionKey } : {}),
+        ...(attachments.length ? {
+          attachments: attachments.map((attachment) => ({
+            id: attachment.id ?? randomUUID(),
+            name: attachment.name,
+            type: attachment.type,
+            mimeType: attachment.mimeType,
+            size: attachment.size,
+          })),
+        } : {}),
       }).catch((err) => logger.warn({ err, agent: name }, 'append user message failed'));
     }
 
-    const response = await service.sendMessage(name, message);
+    const response = await service.sendMessage(name, message, attachments, activeSession?.sessionKey ?? thread?.activeSessionKey ?? null);
 
     if (thread) {
       await appendThreadMessage(name, {
         role: 'agent',
         content: response,
-        ...(sessionKey ? { sessionKey } : {}),
       }).catch((err) => logger.warn({ err, agent: name }, 'append agent message failed'));
     }
 
-    res.json({ data: { response, threadId: thread?.threadId, sessionKey } });
+    res.json({ data: { response, threadId: thread?.threadId, activeSessionKey: activeSession?.sessionKey ?? thread?.activeSessionKey ?? null } });
   } catch (err) { next(err); }
 };
 
 export const streamMessage = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { name } = req.params;
-    const message = req.body?.message;
+    let { name } = req.params;
+    const message = typeof req.body?.message === 'string' ? req.body.message : '';
+    const attachments = normalizeAttachments(req.body?.attachments);
     if (!name) { res.status(400).json({ error: 'Agent name required' }); return; }
-    if (typeof message !== 'string' || !message.trim()) { res.status(400).json({ error: 'message is required' }); return; }
+    name = await resolveOpenClawAgentId(name);
+    if (!message.trim() && attachments.length === 0) { res.status(400).json({ error: 'message or attachments are required' }); return; }
 
     const messageId =
       typeof req.body?.messageId === 'string' && req.body.messageId.length > 0
         ? (req.body.messageId as string)
         : randomUUID();
-    const explicitSessionId = typeof req.body?.sessionId === 'string' ? (req.body.sessionId as string) : undefined;
-
-    // Phase 2: make sure a thread exists and has a healthy active session.
-    // Auto-rollover happens here (before the CLI is spawned) so the visible
-    // thread stays continuous even when the runtime session rotates.
+    // Lyfestack owns only the visible transcript. OpenClaw owns runtime
+    // session selection, memory, usage, and compression.
     const thread = await getOrCreateThread(name).catch((err) => {
       logger.warn({ err, agent: name }, 'getOrCreateThread failed; continuing without thread');
       return null;
     });
-    let activeSessionKey: string | null = thread?.activeSessionKey ?? null;
-    let rolledOver = false;
-    let previousSessionKey: string | null = null;
-    try {
-      const ensure = await ensureActiveSession(name);
-      activeSessionKey = ensure.sessionKey;
-      rolledOver = ensure.rolledOver;
-      previousSessionKey = ensure.previousSessionKey;
-    } catch (err) {
-      logger.warn({ err, agent: name }, 'ensureActiveSession failed; streaming without rollover guard');
-    }
+    const activeSession = thread
+      ? await ensureActiveSession(name).catch((err) => {
+          logger.warn({ err, agent: name }, 'ensureActiveSession failed; continuing with default session');
+          return null;
+        })
+      : null;
 
     // Persist the user message to the thread before we start the CLI. This
     // way, even if the stream is interrupted, the visible history survives.
@@ -190,7 +220,16 @@ export const streamMessage = async (req: Request, res: Response, next: NextFunct
         const persisted = await appendThreadMessage(name, {
           role: 'user',
           content: message,
-          ...(activeSessionKey ? { sessionKey: activeSessionKey } : {}),
+          ...(activeSession?.sessionKey ? { sessionKey: activeSession.sessionKey } : {}),
+          ...(attachments.length ? {
+            attachments: attachments.map((attachment) => ({
+              id: attachment.id ?? randomUUID(),
+              name: attachment.name,
+              type: attachment.type,
+              mimeType: attachment.mimeType,
+              size: attachment.size,
+            })),
+          } : {}),
         });
         userMessageId = persisted.id;
       } catch (err) {
@@ -198,9 +237,7 @@ export const streamMessage = async (req: Request, res: Response, next: NextFunct
       }
     }
 
-    const sessionIdForBuf =
-      explicitSessionId ?? (activeSessionKey?.split('/').slice(1).join('/') || undefined);
-    const buf = createBuffer(messageId, name, sessionIdForBuf);
+    const buf = createBuffer(messageId, name);
 
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -212,16 +249,9 @@ export const streamMessage = async (req: Request, res: Response, next: NextFunct
       type: 'init',
       messageId,
       threadId: thread?.threadId,
-      activeSessionKey,
+      activeSessionKey: activeSession?.sessionKey ?? thread?.activeSessionKey ?? null,
       userMessageId,
     });
-    if (rolledOver && previousSessionKey && previousSessionKey !== activeSessionKey) {
-      writeSse(res, {
-        type: 'rollover',
-        previousSessionKey,
-        activeSessionKey,
-      });
-    }
 
     let clientGone = false;
     req.on('close', () => { clientGone = true; });
@@ -229,42 +259,56 @@ export const streamMessage = async (req: Request, res: Response, next: NextFunct
     await service.sendMessageStream(
       name,
       message,
+      attachments,
+      activeSession?.sessionKey ?? thread?.activeSessionKey ?? null,
       (chunk) => {
         const cursor = appendChunk(buf.messageId, chunk);
         if (!clientGone) writeSse(res, { chunk, cursor });
       },
-      (response) => {
-        markDone(buf.messageId, response);
-        // Fire-and-forget thread persistence — don't hold the stream response.
+      async (response) => {
+        let persisted: Awaited<ReturnType<typeof appendThreadMessage>> | null = null;
         if (thread) {
-          void appendThreadMessage(name, {
-            role: 'agent',
-            content: response,
-            ...(activeSessionKey ? { sessionKey: activeSessionKey } : {}),
-          }).catch((err) => logger.warn({ err, agent: name }, 'append agent message failed'));
+          try {
+            persisted = await appendThreadMessage(name, {
+              role: 'agent',
+              content: response,
+              ...(activeSession?.sessionKey ? { sessionKey: activeSession.sessionKey } : {}),
+            });
+          } catch (err) {
+            logger.warn({ err, agent: name }, 'append agent message failed');
+          }
         }
+        markDone(buf.messageId, response);
         if (!clientGone) {
-          writeSse(res, { done: true, response, threadId: thread?.threadId, activeSessionKey });
+          writeSse(res, { done: true, response, threadId: thread?.threadId, activeSessionKey: activeSession?.sessionKey ?? thread?.activeSessionKey ?? null, assistantMessageId: persisted?.id ?? null });
           res.end();
         }
       },
-      (err) => {
-        markError(buf.messageId, err.message);
+      async (err) => {
         if (thread) {
-          void appendThreadMessage(name, {
-            role: 'agent',
-            content: err.message,
-            isError: true,
-            ...(activeSessionKey ? { sessionKey: activeSessionKey } : {}),
-          }).catch((persistErr) => logger.warn({ err: persistErr, agent: name }, 'append error message failed'));
+          try {
+            await appendThreadMessage(name, {
+              role: 'agent',
+              content: err.message,
+              isError: true,
+              ...(activeSession?.sessionKey ? { sessionKey: activeSession.sessionKey } : {}),
+            });
+          } catch (persistErr) {
+            logger.warn({ err: persistErr, agent: name }, 'append error message failed');
+          }
         }
+        markError(buf.messageId, err.message);
         if (!clientGone) {
           writeSse(res, { error: err.message });
           res.end();
         }
       },
-      (toolName) => {
-        if (!clientGone) writeSse(res, { type: 'tool_use', name: toolName });
+      (toolName, phase = 'use') => {
+        const payload = phase === 'result'
+          ? { type: 'tool_result', name: toolName }
+          : { type: 'tool_use', name: toolName };
+        appendToolEvent(buf.messageId, payload);
+        if (!clientGone) writeSse(res, payload);
       },
     );
   } catch (err) {
@@ -275,6 +319,28 @@ export const streamMessage = async (req: Request, res: Response, next: NextFunct
       res.end();
     }
   }
+};
+
+export const getActiveStream = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    let { name } = req.params;
+    if (!name) { res.status(400).json({ error: 'Agent name required' }); return; }
+    name = await resolveOpenClawAgentId(name);
+    const buf = getLatestActiveBuffer(name);
+    res.json({
+      data: buf ? {
+        messageId: buf.messageId,
+        agentId: buf.agentId,
+        sessionId: buf.sessionId,
+        cursor: buf.chunks.length,
+        done: buf.done,
+        error: buf.error,
+        response: buf.response,
+        createdAt: buf.createdAt,
+        updatedAt: buf.updatedAt,
+      } : null,
+    });
+  } catch (err) { next(err); }
 };
 
 export const resumeStream = async (req: Request, res: Response, next: NextFunction) => {
@@ -300,7 +366,8 @@ export const resumeStream = async (req: Request, res: Response, next: NextFuncti
     });
     writeSse(res, { type: 'init', messageId, resumed: true, fromCursor });
 
-    for (const item of replay.missedChunks) {
+    const missedEvents = replay.missedEvents.length > 0 ? replay.missedEvents : replay.missedChunks;
+    for (const item of missedEvents) {
       writeSse(res, item);
     }
 
@@ -399,14 +466,14 @@ export const updateAuthProfile = async (req: Request, res: Response, next: NextF
 };
 
 export const getAgentSkills = async (req: Request, res: Response, next: NextFunction) => {
-  try { res.json({ data: await service.getAgentSkills(req.params.name) }); } catch (err) { next(err); }
+  try { res.json({ data: await service.getAgentSkills(req.params.name!) }); } catch (err) { next(err); }
 };
 
 export const setAgentSkills = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { skills } = req.body as { skills: unknown };
     if (!Array.isArray(skills)) { res.status(400).json({ error: 'skills must be an array' }); return; }
-    await service.setAgentSkills(req.params.name, skills as string[]);
+    await service.setAgentSkills(req.params.name!, skills as string[]);
     res.json({ success: true });
   } catch (err) { next(err); }
 };
@@ -417,7 +484,7 @@ export const listSkills = async (_req: Request, res: Response, next: NextFunctio
 
 export const getSkill = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const skill = await service.getSkill(req.params.name);
+    const skill = await service.getSkill(req.params.name!);
     if (!skill) { res.status(404).json({ error: 'Skill not found' }); return; }
     res.json({ data: skill });
   } catch (err) { next(err); }
@@ -439,14 +506,14 @@ export const updateSkill = async (req: Request, res: Response, next: NextFunctio
   try {
     const { content } = req.body as { content: string };
     if (!content) { res.status(400).json({ error: 'content required' }); return; }
-    await service.updateSkill(req.params.name, content);
+    await service.updateSkill(req.params.name!, content);
     res.json({ success: true });
   } catch (err) { next(err); }
 };
 
 export const deleteSkill = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    await service.deleteSkill(req.params.name);
+    await service.deleteSkill(req.params.name!);
     res.json({ success: true });
   } catch (err) { next(err); }
 };

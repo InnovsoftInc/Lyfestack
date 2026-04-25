@@ -35,6 +35,8 @@ interface AuthProfile {
 }
 
 const PRESET_MODELS = [
+  { id: 'openai-codex/gpt-5.2-codex', label: 'GPT-5.2 Codex' },
+  { id: 'openai/gpt-5.2', label: 'GPT-5.2' },
   { id: 'openrouter/auto', label: 'OpenRouter Auto' },
   { id: 'anthropic/claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
   { id: 'anthropic/claude-haiku-4-5', label: 'Claude Haiku 4.5' },

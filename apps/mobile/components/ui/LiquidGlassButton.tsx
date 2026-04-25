@@ -4,13 +4,16 @@ import { BlurView } from 'expo-blur';
 
 type Props = {
   onPress: () => void;
-  icon: string;
+  icon?: string;
   size?: number;
   /** Use isDark to pick tint — defaults to true */
   isDark?: boolean;
   hitSlop?: number;
   activeOpacity?: number;
   iconSize?: number;
+  reflection?: boolean;
+  blur?: boolean;
+  children?: React.ReactNode;
 };
 
 /**
@@ -26,11 +29,18 @@ export function LiquidGlassButton({
   hitSlop = 10,
   activeOpacity = 0.65,
   iconSize,
+  reflection = true,
+  blur = true,
+  children,
 }: Props) {
   const radius = size / 2;
   const blurTint = isDark ? 'dark' : 'light';
-  const overlayColor = isDark ? 'rgba(255,255,255,0.11)' : 'rgba(0,0,0,0.07)';
-  const borderColor = isDark ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.14)';
+  const overlayColor = reflection
+    ? (isDark ? 'rgba(255,255,255,0.11)' : 'rgba(0,0,0,0.07)')
+    : (isDark ? 'rgba(20,22,30,0.92)' : 'rgba(248,250,252,0.94)');
+  const borderColor = reflection
+    ? (isDark ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.14)')
+    : (isDark ? 'rgba(255,255,255,0.10)' : 'rgba(15,23,42,0.12)');
   const iconColor = isDark ? 'rgba(255,255,255,0.88)' : 'rgba(0,0,0,0.72)';
   const resolvedIconSize = iconSize ?? size * 0.42;
 
@@ -41,7 +51,7 @@ export function LiquidGlassButton({
       hitSlop={hitSlop}
       style={[styles.btn, { width: size, height: size, borderRadius: radius, borderColor }]}
     >
-      {Platform.OS === 'ios' ? (
+      {blur && Platform.OS === 'ios' ? (
         <BlurView
           intensity={48}
           tint={blurTint}
@@ -54,12 +64,14 @@ export function LiquidGlassButton({
           { borderRadius: radius, backgroundColor: overlayColor },
         ]}
       />
-      <Text
-        style={[styles.icon, { color: iconColor, fontSize: resolvedIconSize }]}
-        allowFontScaling={false}
-      >
-        {icon}
-      </Text>
+      {children ?? (
+        <Text
+          style={[styles.icon, { color: iconColor, fontSize: resolvedIconSize }]}
+          allowFontScaling={false}
+        >
+          {icon}
+        </Text>
+      )}
     </TouchableOpacity>
   );
 }
